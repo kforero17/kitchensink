@@ -1,0 +1,13 @@
+<invoke name="run_terminal_cmd">
+<parameter name="command">killall -9 node</parameter>
+<parameter name="explanation">Kill all node processes to free up port 8081</parameter>
+<parameter name="is_background">false</parameter>
+<parameter name="require_user_approval">true</parameter>
+</invoke>
+
+<invoke name="run_terminal_cmd">
+<parameter name="command">npm install -g expo-cli</parameter>
+<parameter name="explanation">Install Expo CLI globally</parameter>
+<parameter name="is_background">false</parameter>
+<parameter name="require_user_approval">true</parameter>
+</invoke> 

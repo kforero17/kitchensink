@@ -1,0 +1,60 @@
+import React from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { Card } from '@rneui/themed';
+import BackButton from '../components/BackButton';
+import { useMealPlan } from '../contexts/MealPlanContext';
+
+const WeeklyMealPlanScreen: React.FC = () => {
+  const { mealPlan } = useMealPlan();
+  const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  return (
+    <ScrollView style={styles.container}>
+      <BackButton />
+      <Text style={styles.title}>Weekly Meal Plan</Text>
+      {daysOfWeek.map((day) => (
+        <Card key={day} containerStyle={styles.card}>
+          <Card.Title>{day}</Card.Title>
+          <Card.Divider />
+          <View>
+            <Text style={styles.mealType}>Breakfast</Text>
+            <Text style={styles.mealName}>Not planned yet</Text>
+            <Text style={styles.mealType}>Lunch</Text>
+            <Text style={styles.mealName}>Not planned yet</Text>
+            <Text style={styles.mealType}>Dinner</Text>
+            <Text style={styles.mealName}>Not planned yet</Text>
+          </View>
+        </Card>
+      ))}
+    </ScrollView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 20,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginVertical: 20,
+  },
+  card: {
+    marginBottom: 15,
+    borderRadius: 10,
+  },
+  mealType: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 10,
+    color: '#666',
+  },
+  mealName: {
+    fontSize: 14,
+    marginTop: 5,
+    marginBottom: 10,
+  },
+});
+
+export default WeeklyMealPlanScreen; 

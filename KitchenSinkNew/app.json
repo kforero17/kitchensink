@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "KitchenSinkNew",
+    "slug": "KitchenSinkNew",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "scheme": "exp+kitchensinknew",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.kitchensink",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.yourcompany.kitchensink"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-dev-client"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "kitchensinknew"
+      }
+    },
+    "owner": "yourcompany",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/your-project-id"
+    },
+    "developmentClient": {
+      "silentLaunch": true
+    },
+    "developer": {
+      "tool": "expo-cli"
+    },
+    "packagerOpts": {
+      "host": "localhost",
+      "port": 8081
+    }
+  }
+}
