@@ -1,11 +1,16 @@
 export interface Recipe {
   id: string;
   name: string;
-  cost: number;
-  prepTime: number;
-  cookTime: number;
+  description: string;
+  prepTime: string;
+  cookTime: string;
   servings: number;
-  ingredients: string[];
+  ingredients: {
+    item: string;
+    measurement: string;
+  }[];
   instructions: string[];
-  dietaryTags: string[];
+  imageUrl?: string;
+  tags: string[];
+  estimatedCost: number;
 } 

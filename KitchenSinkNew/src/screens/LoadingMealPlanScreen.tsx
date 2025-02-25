@@ -1,14 +1,26 @@
-import React, { useEffect } from 'react';
-import { View, StyleSheet, Text, Animated, Easing } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, Text, Animated, Easing, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useMealPlan } from '../contexts/MealPlanContext';
+import { generateMealPlan } from '../utils/mealPlanSelector';
+import { 
+  getDietaryPreferences, 
+  getFoodPreferences,
+  getCookingPreferences,
+  getBudgetPreferences
+} from '../utils/preferences';
+import { recipeDatabase } from '../data/recipeDatabase';
+import logger from '../utils/logger';
 
 type LoadingMealPlanScreenProps = NativeStackNavigationProp<RootStackParamList, 'LoadingMealPlan'>;
 
 const LoadingMealPlanScreen: React.FC = () => {
   const navigation = useNavigation<LoadingMealPlanScreenProps>();
+  const { setMealPlan, setIsLoading } = useMealPlan();
+  const [error, setError] = useState<string | null>(null);
   const spinValue = new Animated.Value(0);
 
   // Create the spinning animation
@@ -21,14 +33,86 @@ const LoadingMealPlanScreen: React.FC = () => {
         useNativeDriver: true,
       })
     ).start();
-
-    // Navigate to MealPlan screen after 3 seconds
-    const timer = setTimeout(() => {
-      navigation.replace('MealPlan');
-    }, 3000);
-
-    return () => clearTimeout(timer);
   }, []);
+
+  // Generate meal plan based on user preferences
+  useEffect(() => {
+    const generatePlan = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Load all user preferences
+        const dietaryPrefs = await getDietaryPreferences();
+        const foodPrefs = await getFoodPreferences();
+        const cookingPrefs = await getCookingPreferences();
+        const budgetPrefs = await getBudgetPreferences();
+        
+        if (!dietaryPrefs || !foodPrefs || !cookingPrefs || !budgetPrefs) {
+          throw new Error('Failed to load user preferences');
+        }
+        
+        // Set up meal counts (could be adjusted based on preferences)
+        const mealCounts = {
+          breakfast: 2,
+          lunch: 2,
+          dinner: 2,
+          snacks: 1
+        };
+        
+        // Log for debugging
+        logger.debug('Generating meal plan with preferences:', {
+          dietary: dietaryPrefs,
+          food: foodPrefs,
+          cooking: cookingPrefs,
+          budget: budgetPrefs,
+          mealCounts
+        });
+        
+        // Generate the meal plan
+        const result = await generateMealPlan(
+          recipeDatabase,
+          {
+            dietary: dietaryPrefs,
+            food: foodPrefs,
+            cooking: cookingPrefs,
+            budget: budgetPrefs
+          },
+          mealCounts
+        );
+        
+        // Save the meal plan to context
+        setMealPlan(result.recipes);
+        
+        // If constraints were relaxed, we could show a message
+        if (result.constraintsRelaxed && result.message) {
+          logger.debug('Constraints relaxed:', result.message);
+        }
+        
+        // Navigate to meal plan screen after a delay
+        setTimeout(() => {
+          setIsLoading(false);
+          navigation.replace('MealPlan');
+        }, 1500);
+        
+      } catch (error) {
+        logger.error('Failed to generate meal plan:', error);
+        setError('Failed to generate your meal plan. Please try again.');
+        
+        // Navigate back to home after a delay
+        setTimeout(() => {
+          setIsLoading(false);
+          navigation.navigate('Home');
+          Alert.alert(
+            'Error',
+            'Failed to generate your meal plan. Please try again.',
+            [{ text: 'OK' }]
+          );
+        }, 1500);
+      }
+    };
+    
+    generatePlan();
+  }, [navigation, setMealPlan, setIsLoading]);
 
   // Interpolate the spin value to rotate from 0 to 360 degrees
   const spin = spinValue.interpolate({
@@ -69,7 +153,9 @@ const LoadingMealPlanScreen: React.FC = () => {
             </Animated.View>
           ))}
         </Animated.View>
-        <Text style={styles.loadingText}>Generating your meal plan...</Text>
+        <Text style={styles.loadingText}>
+          {error ? 'Something went wrong...' : 'Generating your meal plan...'}
+        </Text>
       </View>
     </View>
   );

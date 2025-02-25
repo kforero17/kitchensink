@@ -1,9 +1,12 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useMealPlan } from '../contexts/MealPlanContext';
 import { Recipe } from '../contexts/MealPlanContext';
+import { recordMealPlan } from '../utils/recipeHistory';
+import { getBudgetPreferences } from '../utils/preferences';
+import { BudgetPreferences } from '../types/BudgetPreferences';
 
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
 
@@ -11,30 +14,44 @@ const MealPlanScreen: React.FC = () => {
   const [selectedRecipes, setSelectedRecipes] = useState<Set<string>>(new Set());
   const [selectedTab, setSelectedTab] = useState<MealType>('breakfast');
   const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
+  const [budget, setBudget] = useState<BudgetPreferences>({ amount: 0, frequency: 'weekly' });
   const { mealPlan } = useMealPlan();
   
-  // Mock budget data - this should come from your preferences context
-  const budget = {
-    amount: 150,
-    frequency: 'weekly'
-  };
+  // Load budget preferences when component mounts
+  useEffect(() => {
+    const loadBudget = async () => {
+      const budgetPrefs = await getBudgetPreferences();
+      if (budgetPrefs) {
+        setBudget(budgetPrefs);
+      }
+    };
+    loadBudget();
+  }, []);
 
-  const calculateRemainingBudget = useCallback(() => {
-    const spentAmount = Array.from(selectedRecipes).reduce((total, recipeId) => {
-      const recipe = mealPlan.find(r => r.id === recipeId);
-      return total + (recipe?.estimatedCost || 0);
-    }, 0);
-    return budget.amount - spentAmount;
-  }, [selectedRecipes, mealPlan, budget.amount]);
+  // Record recipe history when meal plan is first viewed
+  useEffect(() => {
+    if (mealPlan.length > 0) {
+      recordMealPlan(mealPlan)
+        .then(() => console.log('Meal plan recorded to history'))
+        .catch(err => console.error('Failed to record meal plan history:', err));
+    }
+  }, [mealPlan]);
+
+  // Filter recipes by meal type
+  const getRecipesByType = useCallback((type: MealType): Recipe[] => {
+    return mealPlan.filter(recipe => recipe.tags.includes(type));
+  }, [mealPlan]);
 
   const toggleRecipeSelection = (recipeId: string) => {
-    const newSelection = new Set(selectedRecipes);
-    if (newSelection.has(recipeId)) {
-      newSelection.delete(recipeId);
-    } else {
-      newSelection.add(recipeId);
-    }
-    setSelectedRecipes(newSelection);
+    setSelectedRecipes(prev => {
+      const newSelection = new Set(prev);
+      if (newSelection.has(recipeId)) {
+        newSelection.delete(recipeId);
+      } else {
+        newSelection.add(recipeId);
+      }
+      return newSelection;
+    });
   };
 
   const toggleRecipeDetails = (recipeId: string) => {
@@ -42,29 +59,27 @@ const MealPlanScreen: React.FC = () => {
   };
 
   const renderBudgetSection = () => {
-    const remainingBudget = calculateRemainingBudget();
-    const percentageUsed = ((budget.amount - remainingBudget) / budget.amount) * 100;
-
+    // Calculate the total cost of selected recipes
+    const selectedRecipesArray = mealPlan.filter(r => selectedRecipes.has(r.id));
+    const totalCost = selectedRecipesArray.reduce((sum, recipe) => sum + recipe.estimatedCost, 0);
+    const budgetPercentage = (totalCost / budget.amount) * 100;
+    
+    let statusColor = '#4CAF50'; // Green for good
+    if (budgetPercentage > 85) {
+      statusColor = '#F44336'; // Red for over budget
+    } else if (budgetPercentage > 70) {
+      statusColor = '#FFC107'; // Yellow for warning
+    }
+    
     return (
       <View style={styles.budgetContainer}>
-        <Text style={styles.budgetTitle}>Budget Overview</Text>
-        <View style={styles.budgetDetails}>
-          <View style={styles.budgetItem}>
-            <Text style={styles.budgetLabel}>Total Budget</Text>
-            <Text style={styles.budgetAmount}>${budget.amount.toFixed(2)}</Text>
-          </View>
-          <View style={styles.budgetItem}>
-            <Text style={styles.budgetLabel}>Remaining</Text>
-            <Text style={[
-              styles.budgetAmount,
-              remainingBudget < 0 ? styles.overBudget : null
-            ]}>
-              ${remainingBudget.toFixed(2)}
-            </Text>
-          </View>
+        <Text style={styles.budgetTitle}>Budget</Text>
+        <View style={styles.budgetProgressContainer}>
+          <View style={[styles.budgetProgressBar, { width: `${Math.min(100, budgetPercentage)}%`, backgroundColor: statusColor }]} />
         </View>
-        <View style={styles.progressBarContainer}>
-          <View style={[styles.progressBar, { width: `${Math.min(percentageUsed, 100)}%` }]} />
+        <View style={styles.budgetDetails}>
+          <Text style={styles.budgetText}>${totalCost.toFixed(2)} spent</Text>
+          <Text style={styles.budgetText}>${budget.amount.toFixed(2)} budget</Text>
         </View>
       </View>
     );
@@ -74,111 +89,79 @@ const MealPlanScreen: React.FC = () => {
     const tabs: MealType[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
     
     return (
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabsContainer}
-      >
-        {tabs.map(tab => (
-          <TouchableOpacity
-            key={tab}
-            style={[styles.tab, selectedTab === tab && styles.selectedTab]}
-            onPress={() => setSelectedTab(tab)}
-          >
-            <Text style={[styles.tabText, selectedTab === tab && styles.selectedTabText]}>
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <View style={styles.tabsContainer}>
+        {tabs.map(tab => {
+          const isActive = tab === selectedTab;
+          const count = getRecipesByType(tab).length;
+          
+          return (
+            <TouchableOpacity
+              key={tab}
+              style={[styles.tab, isActive ? styles.activeTab : null]}
+              onPress={() => setSelectedTab(tab)}
+            >
+              <Text style={[styles.tabText, isActive ? styles.activeTabText : null]}>
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {count > 0 && ` (${count})`}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     );
   };
 
   const renderRecipeCard = (recipe: Recipe) => {
-    const isSelected = selectedRecipes.has(recipe.id);
     const isExpanded = expandedRecipeId === recipe.id;
-
+    const isSelected = selectedRecipes.has(recipe.id);
+    
     return (
-      <View
-        key={recipe.id}
-        style={[styles.recipeCard, isSelected && styles.selectedCard]}
-      >
-        <View style={styles.recipeHeader}>
-          <Text style={styles.recipeName}>{recipe.name}</Text>
-          <View style={styles.costContainer}>
-            <Icon name="currency-usd" size={16} color="#28a745" />
-            <Text style={styles.recipeCost}>{recipe.estimatedCost.toFixed(2)}</Text>
+      <View key={recipe.id} style={[styles.recipeCard, isSelected ? styles.selectedRecipeCard : null]}>
+        <TouchableOpacity style={styles.recipeHeader} onPress={() => toggleRecipeDetails(recipe.id)}>
+          <View style={styles.recipeTitleRow}>
+            <TouchableOpacity 
+              style={[styles.checkbox, isSelected ? styles.checkboxSelected : null]} 
+              onPress={() => toggleRecipeSelection(recipe.id)}
+            >
+              {isSelected && <Icon name="check" size={16} color="#ffffff" />}
+            </TouchableOpacity>
+            <Text style={styles.recipeTitle}>{recipe.name}</Text>
           </View>
-        </View>
-
-        <Text style={styles.recipeDescription}>{recipe.description}</Text>
-
-        <View style={styles.recipeMetadata}>
-          <View style={styles.metadataItem}>
-            <Icon name="clock-outline" size={16} color="#6c757d" />
-            <Text style={styles.metadataText}>{recipe.cookTime}</Text>
+          <View style={styles.recipeDetails}>
+            <Text style={styles.recipeInfo}>
+              <Icon name="clock-outline" size={14} /> {recipe.prepTime} prep + {recipe.cookTime} cook
+            </Text>
+            <Text style={styles.recipeInfo}>
+              <Icon name="currency-usd" size={14} /> ${recipe.estimatedCost.toFixed(2)}
+            </Text>
           </View>
-
-          <View style={styles.metadataItem}>
-            <Icon name="account-group" size={16} color="#6c757d" />
-            <Text style={styles.metadataText}>Serves {recipe.servings}</Text>
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>Ingredients:</Text>
-        <View style={styles.ingredientsContainer}>
-          {recipe.ingredients.map((ingredient, index) => (
-            <Text key={index} style={styles.ingredient}>• {ingredient.item}</Text>
-          ))}
-        </View>
-
-        <View style={styles.tagsContainer}>
-          {recipe.tags.map((tag, index) => (
-            <View key={index} style={styles.tag}>
-              <Text style={styles.tagText}>{tag}</Text>
-            </View>
-          ))}
-        </View>
-
+          <Icon 
+            name={isExpanded ? "chevron-up" : "chevron-down"} 
+            size={24} 
+            color="#666" 
+            style={styles.expandIcon}
+          />
+        </TouchableOpacity>
+        
         {isExpanded && (
           <View style={styles.expandedContent}>
-            <Text style={styles.sectionTitle}>Detailed Ingredients:</Text>
-            <View style={styles.ingredientsContainer}>
-              {recipe.ingredients.map((ingredient, index) => (
-                <Text key={index} style={styles.ingredient}>
-                  • {ingredient.item} ({ingredient.measurement})
-                </Text>
-              ))}
-            </View>
-
-            <Text style={styles.sectionTitle}>Instructions:</Text>
-            <View style={styles.instructionsContainer}>
-              {recipe.instructions.map((instruction, index) => (
-                <Text key={index} style={styles.instruction}>{index + 1}. {instruction}</Text>
-              ))}
-            </View>
+            <Text style={styles.recipeDescription}>{recipe.description}</Text>
+            
+            <Text style={styles.sectionTitle}>Ingredients</Text>
+            {recipe.ingredients.map((ingredient, index) => (
+              <Text key={index} style={styles.ingredient}>
+                • {ingredient.measurement} {ingredient.item}
+              </Text>
+            ))}
+            
+            <Text style={styles.sectionTitle}>Instructions</Text>
+            {recipe.instructions.map((step, index) => (
+              <Text key={index} style={styles.instruction}>
+                {index + 1}. {step}
+              </Text>
+            ))}
           </View>
         )}
-
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={[styles.button, styles.detailsButton]}
-            onPress={() => toggleRecipeDetails(recipe.id)}
-          >
-            <Text style={styles.buttonText}>
-              {isExpanded ? 'Hide Details' : 'Show Details'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, isSelected ? styles.selectedButton : styles.selectButton]}
-            onPress={() => toggleRecipeSelection(recipe.id)}
-          >
-            <Text style={[styles.buttonText, isSelected ? styles.selectedButtonText : styles.selectButtonText]}>
-              {isSelected ? 'Selected' : 'Select Recipe'}
-            </Text>
-          </TouchableOpacity>
-        </View>
       </View>
     );
   };
@@ -192,10 +175,12 @@ const MealPlanScreen: React.FC = () => {
       {renderBudgetSection()}
       {renderMealTypeTabs()}
       
-      <ScrollView style={styles.recipesContainer}>
-        {mealPlan
-          .filter(recipe => recipe.tags.some(tag => tag.toLowerCase() === selectedTab))
-          .map(recipe => renderRecipeCard(recipe))}
+      <ScrollView style={styles.recipeList}>
+        {getRecipesByType(selectedTab).length > 0 ? (
+          getRecipesByType(selectedTab).map(renderRecipeCard)
+        ) : (
+          <Text style={styles.emptyState}>No {selectedTab} recipes in your plan.</Text>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -204,229 +189,172 @@ const MealPlanScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8f9fa',
   },
   header: {
     padding: 16,
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
+    borderBottomColor: '#e1e4e8',
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#212529',
   },
   budgetContainer: {
+    margin: 16,
     padding: 16,
-    backgroundColor: '#f8f9fa',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-  },
-  budgetTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 12,
-    color: '#212529',
-  },
-  budgetDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  budgetItem: {
-    alignItems: 'center',
-  },
-  budgetLabel: {
-    fontSize: 14,
-    color: '#6c757d',
-    marginBottom: 4,
-  },
-  budgetAmount: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#28a745',
-  },
-  overBudget: {
-    color: '#dc3545',
-  },
-  progressBarContainer: {
-    height: 6,
-    backgroundColor: '#e9ecef',
-    borderRadius: 3,
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#28a745',
-    borderRadius: 3,
-  },
-  tabsContainer: {
-    flexGrow: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    paddingVertical: 8,
-  },
-  tab: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    marginHorizontal: 4,
-    borderRadius: 20,
-    backgroundColor: '#f8f9fa',
-  },
-  selectedTab: {
-    backgroundColor: '#007bff',
-  },
-  tabText: {
-    fontSize: 14,
-    color: '#495057',
-  },
-  selectedTabText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  recipesContainer: {
-    flex: 1,
-    padding: 16,
-  },
-  recipeCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e9ecef',
-    elevation: 2,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    elevation: 2,
   },
-  selectedCard: {
-    borderColor: '#007bff',
-    borderWidth: 2,
+  budgetTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
   },
-  recipeHeader: {
+  budgetProgressContainer: {
+    height: 10,
+    backgroundColor: '#e9ecef',
+    borderRadius: 5,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  budgetProgressBar: {
+    height: '100%',
+    backgroundColor: '#4CAF50',
+  },
+  budgetDetails: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  budgetText: {
+    color: '#495057',
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#007bff',
+  },
+  tabText: {
+    color: '#6c757d',
+    fontWeight: '500',
+  },
+  activeTabText: {
+    color: '#007bff',
+  },
+  recipeList: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  recipeCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+    overflow: 'hidden',
+  },
+  selectedRecipeCard: {
+    borderWidth: 2,
+    borderColor: '#007bff',
+  },
+  recipeHeader: {
+    padding: 16,
+  },
+  recipeTitleRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
   },
-  recipeName: {
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#ced4da',
+    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: '#007bff',
+    borderColor: '#007bff',
+  },
+  recipeTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#212529',
     flex: 1,
-    marginRight: 8,
   },
-  recipeDescription: {
-    fontSize: 14,
+  recipeDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  recipeInfo: {
     color: '#6c757d',
-    marginBottom: 12,
-  },
-  recipeMetadata: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  metadataItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  metadataText: {
     fontSize: 14,
-    color: '#6c757d',
-    marginLeft: 4,
   },
-  costContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  recipeCost: {
-    fontSize: 16,
-    color: '#28a745',
-    fontWeight: '600',
-    marginLeft: 4,
+  expandIcon: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
   },
   expandedContent: {
-    marginTop: 16,
-    paddingTop: 16,
+    padding: 16,
+    paddingTop: 0,
     borderTopWidth: 1,
     borderTopColor: '#e9ecef',
+  },
+  recipeDescription: {
+    marginBottom: 16,
+    color: '#495057',
+    lineHeight: 20,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#343a40',
     marginBottom: 8,
-  },
-  ingredientsContainer: {
-    marginBottom: 16,
+    marginTop: 16,
   },
   ingredient: {
-    fontSize: 14,
-    color: '#495057',
     marginBottom: 4,
-  },
-  instructionsContainer: {
-    marginBottom: 16,
+    color: '#495057',
   },
   instruction: {
-    fontSize: 14,
-    color: '#495057',
     marginBottom: 8,
+    color: '#495057',
     lineHeight: 20,
   },
-  tagsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 12,
-  },
-  tag: {
-    backgroundColor: '#e9ecef',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 8,
-    marginBottom: 4,
-  },
-  tagText: {
-    fontSize: 12,
-    color: '#495057',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 12,
-  },
-  button: {
-    flex: 1,
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  detailsButton: {
-    backgroundColor: '#f8f9fa',
-    borderWidth: 1,
-    borderColor: '#6c757d',
-  },
-  selectButton: {
-    backgroundColor: '#f8f9fa',
-    borderWidth: 1,
-    borderColor: '#007bff',
-  },
-  selectedButton: {
-    backgroundColor: '#007bff',
-  },
-  buttonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  selectButtonText: {
-    color: '#007bff',
-  },
-  selectedButtonText: {
-    color: '#fff',
+  emptyState: {
+    textAlign: 'center',
+    marginTop: 32,
+    color: '#6c757d',
+    fontSize: 16,
   },
 });
 

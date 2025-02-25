@@ -7,7 +7,9 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "test-api": "npx ts-node src/tests/testSpoonacular.ts"
+    "test": "jest",
+    "test-api": "npx ts-node src/tests/testSpoonacular.ts",
+    "test-meal-plan": "npx ts-node KitchenSinkNew/src/tests/mealPlanTest.ts"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "1.21.0",
@@ -30,12 +32,17 @@
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "@expo/config-plugins": "^9.0.15",
+    "@testing-library/jest-dom": "^6.4.2",
+    "@testing-library/react": "^14.2.1",
+    "@types/jest": "^29.5.12",
     "@types/node-fetch": "^2.6.12",
     "@types/react": "~18.2.45",
     "@types/react-native": "^0.73.0",
     "@types/react-native-vector-icons": "^6.4.18",
+    "jest": "^29.7.0",
     "node-fetch": "^2.7.0",
     "react-native-dotenv": "^3.4.11",
+    "ts-jest": "^29.2.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.1.3"
   },
