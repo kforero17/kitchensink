@@ -3,7 +3,7 @@ import { View, StyleSheet, Text, Animated, Easing, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useMealPlan } from '../contexts/MealPlanContext';
 import { generateMealPlan } from '../utils/mealPlanSelector';
 import { 
@@ -12,15 +12,20 @@ import {
   getCookingPreferences,
   getBudgetPreferences
 } from '../utils/preferences';
-import { recipeDatabase } from '../data/recipeDatabase';
+import { apiRecipeService } from '../services/apiRecipeService';
 import logger from '../utils/logger';
+import { MealType } from '../types/CookingPreferences';
 
 type LoadingMealPlanScreenProps = NativeStackNavigationProp<RootStackParamList, 'LoadingMealPlan'>;
+
+// Loading states to show progress
+type LoadingState = 'loading_preferences' | 'fetching_recipes' | 'generating_plan' | 'done' | 'error';
 
 const LoadingMealPlanScreen: React.FC = () => {
   const navigation = useNavigation<LoadingMealPlanScreenProps>();
   const { setMealPlan, setIsLoading } = useMealPlan();
   const [error, setError] = useState<string | null>(null);
+  const [loadingState, setLoadingState] = useState<LoadingState>('loading_preferences');
   const spinValue = new Animated.Value(0);
 
   // Create the spinning animation
@@ -40,6 +45,7 @@ const LoadingMealPlanScreen: React.FC = () => {
     const generatePlan = async () => {
       try {
         setIsLoading(true);
+        setLoadingState('loading_preferences');
         
         // Load all user preferences
         const dietaryPrefs = await getDietaryPreferences();
@@ -51,12 +57,20 @@ const LoadingMealPlanScreen: React.FC = () => {
           throw new Error('Failed to load user preferences');
         }
         
-        // Set up meal counts (could be adjusted based on preferences)
+        // Get the user's selected meal types
+        const selectedMealTypes = cookingPrefs.mealTypes || [];
+        
+        // If no meal types selected, use all meal types
+        if (selectedMealTypes.length === 0) {
+          selectedMealTypes.push('breakfast', 'lunch', 'dinner', 'snacks');
+        }
+        
+        // Set up meal counts based on selected meal types (3-5 recipes per selected type)
         const mealCounts = {
-          breakfast: 2,
-          lunch: 2,
-          dinner: 2,
-          snacks: 1
+          breakfast: selectedMealTypes.includes('breakfast') ? 3 : 0,
+          lunch: selectedMealTypes.includes('lunch') ? 3 : 0,
+          dinner: selectedMealTypes.includes('dinner') ? 3 : 0,
+          snacks: selectedMealTypes.includes('snacks') ? 2 : 0,
         };
         
         // Log for debugging
@@ -65,12 +79,36 @@ const LoadingMealPlanScreen: React.FC = () => {
           food: foodPrefs,
           cooking: cookingPrefs,
           budget: budgetPrefs,
+          selectedMealTypes,
           mealCounts
         });
         
+        // Update loading state
+        setLoadingState('fetching_recipes');
+        
+        // Fetch recipes from API service
+        const recipes = await apiRecipeService.getRecipes({
+          dietary: dietaryPrefs,
+          food: foodPrefs,
+          cooking: cookingPrefs,
+          budget: budgetPrefs
+        });
+        
+        // Check if we have recipes
+        logger.debug('Recipe service returned:', {
+          totalRecipes: recipes.length,
+          breakfastRecipes: recipes.filter(r => r.tags.includes('breakfast')).length,
+          lunchRecipes: recipes.filter(r => r.tags.includes('lunch')).length,
+          dinnerRecipes: recipes.filter(r => r.tags.includes('dinner')).length,
+          snackRecipes: recipes.filter(r => r.tags.includes('snacks')).length,
+        });
+        
+        // Update loading state
+        setLoadingState('generating_plan');
+        
         // Generate the meal plan
         const result = await generateMealPlan(
-          recipeDatabase,
+          recipes,
           {
             dietary: dietaryPrefs,
             food: foodPrefs,
@@ -80,6 +118,17 @@ const LoadingMealPlanScreen: React.FC = () => {
           mealCounts
         );
         
+        // Log the generated recipes by meal type
+        const generatedPlan = {
+          totalRecipes: result.recipes.length,
+          breakfastRecipes: result.recipes.filter(r => r.tags.includes('breakfast')).length,
+          lunchRecipes: result.recipes.filter(r => r.tags.includes('lunch')).length,
+          dinnerRecipes: result.recipes.filter(r => r.tags.includes('dinner')).length,
+          snackRecipes: result.recipes.filter(r => r.tags.includes('snacks')).length,
+        };
+        
+        logger.debug('Generated meal plan:', generatedPlan);
+        
         // Save the meal plan to context
         setMealPlan(result.recipes);
         
@@ -88,74 +137,78 @@ const LoadingMealPlanScreen: React.FC = () => {
           logger.debug('Constraints relaxed:', result.message);
         }
         
+        // Update loading state
+        setLoadingState('done');
+        
         // Navigate to meal plan screen after a delay
         setTimeout(() => {
           setIsLoading(false);
           navigation.replace('MealPlan');
         }, 1500);
         
-      } catch (error) {
+      } catch (error: any) {
         logger.error('Failed to generate meal plan:', error);
-        setError('Failed to generate your meal plan. Please try again.');
+        setLoadingState('error');
         
-        // Navigate back to home after a delay
+        // Set error message
+        let errorMessage = 'Failed to generate your meal plan. Please try again.';
+        
+        // Handle specific error cases
+        if (error.message && error.message.includes('API')) {
+          errorMessage = 'Could not connect to recipe service. Using backup recipes.';
+        } else if (error.message && error.message.includes('preferences')) {
+          errorMessage = 'Failed to load your preferences. Please set them up again.';
+        } else if (error.message && error.message.includes('plan')) {
+          errorMessage = 'Could not generate a meal plan that meets all your requirements. Please try with fewer restrictions.';
+        }
+        
+        setError(errorMessage);
+        
+        // Navigate back to home screen after a delay
         setTimeout(() => {
           setIsLoading(false);
-          navigation.navigate('Home');
-          Alert.alert(
-            'Error',
-            'Failed to generate your meal plan. Please try again.',
-            [{ text: 'OK' }]
-          );
-        }, 1500);
+          navigation.replace('Home');
+        }, 3000);
       }
     };
-    
+
     generatePlan();
   }, [navigation, setMealPlan, setIsLoading]);
 
-  // Interpolate the spin value to rotate from 0 to 360 degrees
+  // Generate the rotation interpolation
   const spin = spinValue.interpolate({
     inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
+    outputRange: ['0deg', '360deg']
   });
-
-  // Create an array of utensils with their angles
-  const utensils = [
-    { icon: 'silverware-fork', angle: '0deg' },
-    { icon: 'silverware-spoon', angle: '120deg' },
-    { icon: 'silverware-variant', angle: '240deg' },
-  ];
+  
+  // Get loading message based on state
+  const getLoadingMessage = (): string => {
+    switch (loadingState) {
+      case 'loading_preferences':
+        return 'Loading your preferences...';
+      case 'fetching_recipes':
+        return 'Finding recipes that match your preferences...';
+      case 'generating_plan':
+        return 'Creating your personalized meal plan...';
+      case 'done':
+        return 'Plan generated successfully!';
+      case 'error':
+        return 'There was a problem generating your plan.';
+    }
+  };
 
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Animated.View style={[styles.spinningContainer, { transform: [{ rotate: spin }] }]}>
-          {utensils.map((utensil, index) => (
-            <Animated.View
-              key={index}
-              style={[
-                styles.utensilContainer,
-                {
-                  transform: [
-                    { rotate: utensil.angle },
-                    { translateX: 50 }, // Radius of the circle
-                  ],
-                },
-              ]}
-            >
-              <Icon
-                name={utensil.icon}
-                size={30}
-                color="#007bff"
-                style={{ transform: [{ rotate: `-${utensil.angle}` }] }}
-              />
-            </Animated.View>
-          ))}
+        <Animated.View style={{ transform: [{ rotate: spin }] }}>
+          <MaterialCommunityIcons name="food-fork-drink" size={60} color="#007AFF" />
         </Animated.View>
-        <Text style={styles.loadingText}>
-          {error ? 'Something went wrong...' : 'Generating your meal plan...'}
+        <Text style={styles.title}>Generating Meal Plan</Text>
+        <Text style={styles.subtitle}>
+          {getLoadingMessage()}
         </Text>
+        
+        {error && <Text style={styles.errorText}>{error}</Text>}
       </View>
     </View>
   );
@@ -165,28 +218,31 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   content: {
-    alignItems: 'center',
-  },
-  spinningContainer: {
-    width: 120,
-    height: 120,
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
-  utensilContainer: {
-    position: 'absolute',
-    justifyContent: 'center',
-    alignItems: 'center',
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 20,
+    marginBottom: 8,
+    textAlign: 'center',
   },
-  loadingText: {
-    marginTop: 40,
-    fontSize: 18,
-    color: '#007bff',
-    fontWeight: '600',
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: 'red',
+    textAlign: 'center',
+    marginTop: 20,
   },
 });
 

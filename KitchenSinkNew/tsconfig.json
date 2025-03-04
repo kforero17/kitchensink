@@ -10,15 +10,15 @@
     "lib": ["ES2019", "DOM"],
     "target": "ES2019"
   },
+  "include": [
+    "src",
+    "App.tsx",
+    "index.ts"
+  ],
   "exclude": [
     "node_modules",
     "babel.config.js",
     "metro.config.js",
     "jest.config.js"
-  ],
-  "include": [
-    "src",
-    "App.tsx",
-    "index.ts"
   ]
 }

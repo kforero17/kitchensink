@@ -4,9 +4,10 @@
     "slug": "KitchenSinkNew",
     "version": "1.0.0",
     "orientation": "portrait",
+    "entryPoint": "./index.ts",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "scheme": "exp+kitchensinknew",
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -52,7 +53,7 @@
       "tool": "expo-cli"
     },
     "packagerOpts": {
-      "host": "localhost",
+      "host": "0.0.0.0",
       "port": 8081
     }
   }

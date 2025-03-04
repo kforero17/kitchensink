@@ -32,6 +32,6 @@ export const BUDGET_FREQUENCY_OPTIONS: PreferenceOption<BudgetFrequency>[] = [
     value: 'monthly',
     label: 'Monthly',
     description: 'Manage your meal budget monthly',
-    icon: 'calendar-number',
+    icon: 'calendar-sharp',
   },
 ]; 

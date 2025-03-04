@@ -9,6 +9,7 @@ import { CookingHabitsScreen } from '../screens/CookingHabitsScreen';
 import { BudgetPreferencesScreen } from '../screens/BudgetPreferencesScreen';
 import LoadingMealPlanScreen from '../screens/LoadingMealPlanScreen';
 import MealPlanScreen from '../screens/MealPlanScreen';
+import DebugScreen from '../screens/DebugScreen';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -18,6 +19,7 @@ export type RootStackParamList = {
   BudgetPreferences: undefined;
   LoadingMealPlan: undefined;
   MealPlan: undefined;
+  Debug: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -38,6 +40,11 @@ const AppNavigator = () => {
         <Stack.Screen name="BudgetPreferences" component={BudgetPreferencesScreen} />
         <Stack.Screen name="LoadingMealPlan" component={LoadingMealPlanScreen} />
         <Stack.Screen name="MealPlan" component={MealPlanScreen} />
+        <Stack.Screen 
+          name="Debug" 
+          component={DebugScreen} 
+          options={{ headerShown: true, title: 'Network Debug' }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

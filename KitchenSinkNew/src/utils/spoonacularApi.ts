@@ -1,5 +1,6 @@
 import { SPOONACULAR_CONFIG, createSpoonacularUrl } from '../config/spoonacular';
-import fetch from 'node-fetch';
+import { networkService } from './networkService';
+import { ENV } from '../config/environment';
 
 export interface SpoonacularRecipe {
   id: number;
@@ -31,6 +32,9 @@ export interface SearchRecipesResponse {
   totalResults: number;
 }
 
+/**
+ * Search recipes using Spoonacular API with robust error handling
+ */
 export const searchRecipes = async (
   preferences: {
     diet?: string[];
@@ -62,17 +66,31 @@ export const searchRecipes = async (
     queryParams.maxReadyTime = preferences.maxReadyTime.toString();
   }
 
+  // Create the URL using our helper
   const url = createSpoonacularUrl(`${SPOONACULAR_CONFIG.ENDPOINTS.RECIPES}/complexSearch`, queryParams);
 
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`API call failed with status: ${response.status}`);
+    // Use our network service
+    const response = await networkService.get<SearchRecipesResponse>(url, {
+      timeout: SPOONACULAR_CONFIG.NETWORK.TIMEOUT_MS,
+      allowInsecure: SPOONACULAR_CONFIG.NETWORK.ALLOW_INSECURE,
+    });
+
+    if (response.error) {
+      throw new Error(`API Error: ${response.error}`);
     }
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('Error fetching recipes:', error);
-    throw error;
+
+    if (!response.data) {
+      throw new Error('No data returned from API');
+    }
+
+    return response.data;
+  } catch (error: any) {
+    if (ENV.DEBUG_NETWORK) {
+      console.error('Failed to search recipes:', error.message);
+    }
+    
+    // Rethrow with a friendly message
+    throw new Error(`Failed to search recipes: ${error.message}`);
   }
 }; 

@@ -1,21 +1,31 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Animated } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Animated, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/AppNavigator';
 import { useMealPlan } from '../contexts/MealPlanContext';
 import { Recipe } from '../contexts/MealPlanContext';
 import { recordMealPlan } from '../utils/recipeHistory';
 import { getBudgetPreferences } from '../utils/preferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
+import { swapRecipe } from '../utils/recipeSwapper';
+import logger from '../utils/logger';
+import { apiRecipeService } from '../services/apiRecipeService';
 
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
+type MealPlanNavigationProp = NativeStackNavigationProp<RootStackParamList, 'MealPlan'>;
 
 const MealPlanScreen: React.FC = () => {
+  const navigation = useNavigation<MealPlanNavigationProp>();
   const [selectedRecipes, setSelectedRecipes] = useState<Set<string>>(new Set());
   const [selectedTab, setSelectedTab] = useState<MealType>('breakfast');
   const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
   const [budget, setBudget] = useState<BudgetPreferences>({ amount: 0, frequency: 'weekly' });
-  const { mealPlan } = useMealPlan();
+  const [swappingRecipeId, setSwappingRecipeId] = useState<string | null>(null);
+  const { mealPlan, setMealPlan } = useMealPlan();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Load budget preferences when component mounts
   useEffect(() => {
@@ -58,6 +68,80 @@ const MealPlanScreen: React.FC = () => {
     setExpandedRecipeId(expandedRecipeId === recipeId ? null : recipeId);
   };
 
+  // Handles recipe swapping functionality
+  const handleSwapRecipe = async (recipeId: string, mealType: string) => {
+    try {
+      setSwappingRecipeId(recipeId);
+      
+      // Use the centralized swapRecipe utility
+      const alternativeRecipe = await swapRecipe(recipeId, mealType, mealPlan);
+      
+      if (!alternativeRecipe) {
+        Alert.alert(
+          "No Alternative Found",
+          "We couldn't find a suitable alternative recipe. Try adjusting your preferences."
+        );
+        return;
+      }
+      
+      // Replace the recipe in the meal plan
+      const updatedMealPlan = mealPlan.map(recipe => 
+        recipe.id === recipeId ? alternativeRecipe : recipe
+      );
+      
+      // Update the meal plan
+      setMealPlan(updatedMealPlan);
+      
+      // If the swapped recipe was selected, select the new one
+      if (selectedRecipes.has(recipeId)) {
+        setSelectedRecipes(prev => {
+          const newSelection = new Set(prev);
+          newSelection.delete(recipeId);
+          newSelection.add(alternativeRecipe.id);
+          return newSelection;
+        });
+      }
+      
+      // If the swapped recipe was expanded, expand the new one
+      if (expandedRecipeId === recipeId) {
+        setExpandedRecipeId(alternativeRecipe.id);
+      }
+      
+    } catch (error) {
+      logger.error('Error swapping recipe:', error);
+      Alert.alert(
+        "Error",
+        "Something went wrong while swapping the recipe. Please try again."
+      );
+    } finally {
+      setSwappingRecipeId(null);
+    }
+  };
+
+  // Function to handle refreshing recipes from API
+  const handleRefreshRecipes = async () => {
+    setIsRefreshing(true);
+    
+    try {
+      // Load current budget preference for total calculation
+      const budgetPrefs = await getBudgetPreferences();
+      
+      // Clear the cache to force a fresh fetch from API
+      apiRecipeService.setClearCache(true);
+      
+      // Navigate to loading screen which will fetch fresh recipes
+      navigation.navigate('LoadingMealPlan');
+    } catch (error) {
+      // Show error alert
+      Alert.alert(
+        'Refresh Failed',
+        'Unable to refresh recipes. Please try again later.',
+        [{ text: 'OK' }]
+      );
+      setIsRefreshing(false);
+    }
+  };
+
   const renderBudgetSection = () => {
     // Calculate the total cost of selected recipes
     const selectedRecipesArray = mealPlan.filter(r => selectedRecipes.has(r.id));
@@ -73,14 +157,33 @@ const MealPlanScreen: React.FC = () => {
     
     return (
       <View style={styles.budgetContainer}>
-        <Text style={styles.budgetTitle}>Budget</Text>
-        <View style={styles.budgetProgressContainer}>
-          <View style={[styles.budgetProgressBar, { width: `${Math.min(100, budgetPercentage)}%`, backgroundColor: statusColor }]} />
+        <Text style={styles.budgetTitle}>Weekly Budget</Text>
+        <View style={styles.budgetInfoContainer}>
+          <View style={styles.budgetInfo}>
+            <Text style={styles.budgetText}>
+              ${budget.amount.toFixed(2)}
+            </Text>
+            <Text style={styles.budgetLabel}>Budget</Text>
+          </View>
+          <View style={styles.budgetInfo}>
+            <Text style={styles.costText}>
+              ${totalCost.toFixed(2)}
+            </Text>
+            <Text style={styles.budgetLabel}>Meal Plan Cost</Text>
+          </View>
         </View>
-        <View style={styles.budgetDetails}>
-          <Text style={styles.budgetText}>${totalCost.toFixed(2)} spent</Text>
-          <Text style={styles.budgetText}>${budget.amount.toFixed(2)} budget</Text>
-        </View>
+        
+        {/* Add Refresh Button */}
+        <TouchableOpacity 
+          style={styles.refreshButton}
+          onPress={handleRefreshRecipes}
+          disabled={isRefreshing}
+        >
+          <MaterialCommunityIcons name="refresh" size={20} color="#FFFFFF" />
+          <Text style={styles.refreshButtonText}>
+            {isRefreshing ? 'Refreshing...' : 'Refresh Recipes'}
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -114,6 +217,7 @@ const MealPlanScreen: React.FC = () => {
   const renderRecipeCard = (recipe: Recipe) => {
     const isExpanded = expandedRecipeId === recipe.id;
     const isSelected = selectedRecipes.has(recipe.id);
+    const isSwapping = swappingRecipeId === recipe.id;
     
     return (
       <View key={recipe.id} style={[styles.recipeCard, isSelected ? styles.selectedRecipeCard : null]}>
@@ -123,19 +227,19 @@ const MealPlanScreen: React.FC = () => {
               style={[styles.checkbox, isSelected ? styles.checkboxSelected : null]} 
               onPress={() => toggleRecipeSelection(recipe.id)}
             >
-              {isSelected && <Icon name="check" size={16} color="#ffffff" />}
+              {isSelected && <MaterialCommunityIcons name="check" size={16} color="#ffffff" />}
             </TouchableOpacity>
             <Text style={styles.recipeTitle}>{recipe.name}</Text>
           </View>
           <View style={styles.recipeDetails}>
             <Text style={styles.recipeInfo}>
-              <Icon name="clock-outline" size={14} /> {recipe.prepTime} prep + {recipe.cookTime} cook
+              <MaterialCommunityIcons name="clock-outline" size={14} /> {recipe.prepTime} prep + {recipe.cookTime} cook
             </Text>
             <Text style={styles.recipeInfo}>
-              <Icon name="currency-usd" size={14} /> ${recipe.estimatedCost.toFixed(2)}
+              <MaterialCommunityIcons name="currency-usd" size={14} /> ${recipe.estimatedCost.toFixed(2)}
             </Text>
           </View>
-          <Icon 
+          <MaterialCommunityIcons 
             name={isExpanded ? "chevron-up" : "chevron-down"} 
             size={24} 
             color="#666" 
@@ -160,6 +264,21 @@ const MealPlanScreen: React.FC = () => {
                 {index + 1}. {step}
               </Text>
             ))}
+            
+            <TouchableOpacity 
+              style={styles.swapButton}
+              onPress={() => handleSwapRecipe(recipe.id, selectedTab)}
+              disabled={isSwapping}
+            >
+              {isSwapping ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <>
+                  <MaterialCommunityIcons name="swap-horizontal" size={16} color="#ffffff" />
+                  <Text style={styles.swapButtonText}>Swap Recipe</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -218,23 +337,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 8,
   },
-  budgetProgressContainer: {
-    height: 10,
-    backgroundColor: '#e9ecef',
-    borderRadius: 5,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  budgetProgressBar: {
-    height: '100%',
-    backgroundColor: '#4CAF50',
-  },
-  budgetDetails: {
+  budgetInfoContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  budgetInfo: {
+    alignItems: 'center',
+  },
   budgetText: {
-    color: '#495057',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  budgetLabel: {
+    color: '#6c757d',
+  },
+  costText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   tabsContainer: {
     flexDirection: 'row',
@@ -355,6 +476,35 @@ const styles = StyleSheet.create({
     marginTop: 32,
     color: '#6c757d',
     fontSize: 16,
+  },
+  swapButton: {
+    marginTop: 16,
+    backgroundColor: '#007bff',
+    borderRadius: 4,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  swapButtonText: {
+    color: '#ffffff',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  refreshButton: {
+    backgroundColor: '#2196F3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+    marginTop: 15,
+  },
+  refreshButtonText: {
+    color: '#FFFFFF',
+    marginLeft: 5,
+    fontWeight: '500',
   },
 });
 

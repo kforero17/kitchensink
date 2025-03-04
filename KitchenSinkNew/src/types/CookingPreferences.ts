@@ -61,7 +61,7 @@ export const COOKING_FREQUENCY_OPTIONS: PreferenceOption<CookingFrequency>[] = [
     value: 'weekends_only',
     label: 'Weekends only',
     description: 'I mainly cook during weekends',
-    icon: 'calendar-number',
+    icon: 'calendar-sharp',
   },
   {
     value: 'rarely',
@@ -130,7 +130,7 @@ export const MEAL_PLANNING_OPTIONS: PreferenceOption<MealPlanningFrequency>[] = 
     value: 'monthly',
     label: 'Monthly',
     description: 'I plan meals for the month',
-    icon: 'calendar-number',
+    icon: 'calendar-sharp',
   },
   {
     value: 'rarely',

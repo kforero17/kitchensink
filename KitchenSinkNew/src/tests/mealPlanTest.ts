@@ -5,6 +5,8 @@ import { CookingPreferences } from '../types/CookingPreferences';
 import { FoodPreferences } from '../types/FoodPreferences';
 import { BudgetPreferences, BudgetFrequency } from '../types/BudgetPreferences';
 import { generateMealPlan } from '../utils/mealPlanSelector';
+import { getRecipesWithCache, clearRecipeCache } from '../utils/recipeApiService';
+// Keep mock data imports for fallback
 import { mockRecipes } from '../data/mockRecipes';
 import { additionalMockRecipes, dessertMockRecipes } from '../data/mockRecipes';
 import { allSeasonalRecipes } from '../data/seasonalRecipes';
@@ -15,16 +17,76 @@ const rl = createInterface({
   output: process.stdout
 });
 
-// Flatten mock recipes into a single array
-const allRecipes: Recipe[] = [
-  ...mockRecipes.breakfast,
-  ...mockRecipes.lunch,
-  ...mockRecipes.dinner,
-  ...mockRecipes.snacks,
-  ...additionalMockRecipes,
-  ...dessertMockRecipes,
-  ...(allSeasonalRecipes || [])
-];
+// Support for command line arguments
+const ARGS = process.argv.slice(2);
+const USE_API = !ARGS.includes('--use-mock');
+const CLEAR_CACHE = ARGS.includes('--clear-cache');
+
+// Function to get recipes (either from API or mock data)
+async function getRecipes(preferences: {
+  dietary: DietaryPreferences;
+  food: FoodPreferences;
+  cooking: CookingPreferences;
+  budget: BudgetPreferences;
+}): Promise<Recipe[]> {
+  if (USE_API) {
+    try {
+      console.log('\nAttempting to fetch recipes from Spoonacular API...');
+      
+      if (CLEAR_CACHE) {
+        console.log('Clearing recipe cache as requested');
+        clearRecipeCache();
+      }
+      
+      const apiRecipes = await getRecipesWithCache(preferences);
+      
+      if (apiRecipes.length > 0) {
+        console.log(`Successfully retrieved ${apiRecipes.length} recipes from API/cache`);
+        
+        // Group recipes by meal type for logging
+        const mealTypes = ['breakfast', 'lunch', 'dinner', 'snacks'];
+        const recipesByType: Record<string, number> = {};
+        
+        mealTypes.forEach(type => {
+          recipesByType[type] = apiRecipes.filter(r => r.tags.includes(type)).length;
+        });
+        
+        console.log('Recipe distribution:');
+        Object.entries(recipesByType).forEach(([type, count]) => {
+          console.log(`- ${type}: ${count} recipes`);
+        });
+        
+        return apiRecipes;
+      } else {
+        console.log('No recipes returned from API, falling back to mock data');
+        return getAllMockRecipes();
+      }
+    } catch (error) {
+      console.error('Error fetching recipes from API:', error);
+      console.log('Falling back to mock data');
+      return getAllMockRecipes();
+    }
+  } else {
+    console.log('\nUsing mock recipe data as requested');
+    return getAllMockRecipes();
+  }
+}
+
+// Flatten mock recipes into a single array (for fallback)
+function getAllMockRecipes(): Recipe[] {
+  const recipes = [
+    ...mockRecipes.breakfast,
+    ...mockRecipes.lunch,
+    ...mockRecipes.dinner,
+    ...mockRecipes.snacks,
+    ...additionalMockRecipes,
+    ...dessertMockRecipes,
+    ...(allSeasonalRecipes || [])
+  ];
+  
+  console.log(`Loaded ${recipes.length} mock recipes`);
+  return recipes;
+}
 
 // Promisify readline question
 const question = (query: string): Promise<string> => {
@@ -182,12 +244,16 @@ async function runAutomatedTest(): Promise<void> {
   
   console.log('Preferences used for test:');
   console.log(JSON.stringify(testPreferences, null, 2));
-  console.log('\nGenerating meal plan...');
   
   try {
-    // Generate meal plan with test preferences
+    // Get recipes from API or mock data
+    const recipes = await getRecipes(testPreferences);
+    
+    console.log('\nGenerating meal plan...');
+    
+    // Generate meal plan with retrieved recipes
     const result = await generateMealPlan(
-      allRecipes,
+      recipes,
       testPreferences,
       mealCounts
     );
@@ -205,7 +271,7 @@ async function runAutomatedTest(): Promise<void> {
     
     result.recipes.forEach((recipe, index) => {
       console.log(`${index + 1}. ${recipe.name}`);
-      console.log(`   Description: ${recipe.description}`);
+      console.log(`   Description: ${recipe.description.substring(0, 100)}...`);
       console.log(`   Prep Time: ${recipe.prepTime}, Cook Time: ${recipe.cookTime}`);
       console.log(`   Estimated Cost: $${recipe.estimatedCost.toFixed(2)}`);
       console.log(`   Tags: ${recipe.tags.join(', ')}`);
@@ -239,7 +305,7 @@ async function runAutomatedTest(): Promise<void> {
 async function runTest() {
   console.log('\n=== Kitchen Helper Meal Plan Generator Test ===\n');
   console.log('This test will generate a personalized meal plan based on your preferences.');
-  console.log('Available recipes: ', allRecipes.length);
+  console.log(`Recipe source: ${USE_API ? 'Spoonacular API' : 'Mock Data'}`);
   
   console.log('\nWould you like to:');
   console.log('1: Enter preferences manually');
@@ -273,18 +339,24 @@ async function runTest() {
       dinner: dinnerCount,
       snacks: snacksCount
     };
+
+    // Combine all preferences
+    const userPreferences = {
+      dietary: dietaryPreferences,
+      food: foodPreferences,
+      cooking: cookingPreferences,
+      budget: budgetPreferences
+    };
+    
+    // Get recipes from API or mock data
+    const recipes = await getRecipes(userPreferences);
     
     console.log('\nGenerating meal plan...');
     
-    // Generate meal plan
+    // Generate meal plan with retrieved recipes
     const result = await generateMealPlan(
-      allRecipes,
-      {
-        dietary: dietaryPreferences,
-        food: foodPreferences,
-        cooking: cookingPreferences,
-        budget: budgetPreferences
-      },
+      recipes,
+      userPreferences,
       mealCounts
     );
     
@@ -301,7 +373,7 @@ async function runTest() {
     
     result.recipes.forEach((recipe, index) => {
       console.log(`${index + 1}. ${recipe.name}`);
-      console.log(`   Description: ${recipe.description}`);
+      console.log(`   Description: ${recipe.description.substring(0, 100)}...`);
       console.log(`   Prep Time: ${recipe.prepTime}, Cook Time: ${recipe.cookTime}`);
       console.log(`   Estimated Cost: $${recipe.estimatedCost.toFixed(2)}`);
       console.log(`   Tags: ${recipe.tags.join(', ')}`);
@@ -317,6 +389,17 @@ async function runTest() {
   }
   
   rl.close();
+}
+
+// Print usage information if requested
+if (ARGS.includes('--help')) {
+  console.log('\nKitchen Helper Meal Plan Test');
+  console.log('Usage: node mealPlanTest.js [options]');
+  console.log('\nOptions:');
+  console.log('  --use-mock      Use mock data instead of Spoonacular API');
+  console.log('  --clear-cache   Clear existing recipe cache');
+  console.log('  --help          Show this help message');
+  process.exit(0);
 }
 
 // Run the test

@@ -48,6 +48,22 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.buttonText}>Get Started</Text>
             </LinearGradient>
           </TouchableOpacity>
+          
+          {/* Debug button */}
+          <TouchableOpacity
+            style={[styles.button, styles.debugButton]}
+            onPress={() => navigation.navigate('Debug')}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['#FF5722', '#FF9800']}
+              style={styles.buttonGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Text style={styles.buttonText}>Network Debug</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
       </LinearGradient>
     </SafeAreaView>
@@ -105,5 +121,8 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 18,
     fontWeight: '700',
+  },
+  debugButton: {
+    marginTop: 10,
   },
 });

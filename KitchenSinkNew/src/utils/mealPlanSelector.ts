@@ -617,29 +617,19 @@ async function attemptMealPlanGeneration(
   history: RecipeHistoryItem[],
   relaxFactor: number = 0
 ): Promise<{ success: boolean, mealPlan: Recipe[] }> {
-  // Prepare recipe candidates for each meal type
-  const mealTypeRecipeCandidates = [
-    {
-      type: 'breakfast',
-      candidates: prepareRecipeCandidates('breakfast', recipes, preferences, history, relaxFactor),
-      count: mealCounts.breakfast
-    },
-    {
-      type: 'lunch',
-      candidates: prepareRecipeCandidates('lunch', recipes, preferences, history, relaxFactor),
-      count: mealCounts.lunch
-    },
-    {
-      type: 'dinner',
-      candidates: prepareRecipeCandidates('dinner', recipes, preferences, history, relaxFactor),
-      count: mealCounts.dinner
-    },
-    {
-      type: 'snacks',
-      candidates: prepareRecipeCandidates('snacks', recipes, preferences, history, relaxFactor),
-      count: mealCounts.snacks
-    }
-  ];
+  // Only include meal types that have non-zero counts
+  const activeMealTypes = Object.entries(mealCounts)
+    .filter(([_, count]) => count > 0)
+    .map(([type]) => type);
+
+  logger.debug('Active meal types:', activeMealTypes);
+  
+  // Prepare recipe candidates for each selected meal type
+  const mealTypeRecipeCandidates = activeMealTypes.map(mealType => ({
+    type: mealType,
+    candidates: prepareRecipeCandidates(mealType, recipes, preferences, history, relaxFactor),
+    count: mealCounts[mealType as keyof typeof mealCounts]
+  }));
   
   // Check if we have enough candidates for each meal type
   const insufficientMealTypes = mealTypeRecipeCandidates.filter(
@@ -661,18 +651,17 @@ async function attemptMealPlanGeneration(
   );
   
   // Validate the meal plan - ensure we have the right number of each type
-  const finalPlanCounts = {
-    breakfast: optimizedMealPlan.filter(r => r.tags.includes('breakfast')).length,
-    lunch: optimizedMealPlan.filter(r => r.tags.includes('lunch')).length,
-    dinner: optimizedMealPlan.filter(r => r.tags.includes('dinner')).length,
-    snacks: optimizedMealPlan.filter(r => r.tags.includes('snacks')).length
-  };
+  const finalPlanCounts: Record<string, number> = {};
   
-  const validPlan = 
-    finalPlanCounts.breakfast >= mealCounts.breakfast &&
-    finalPlanCounts.lunch >= mealCounts.lunch &&
-    finalPlanCounts.dinner >= mealCounts.dinner &&
-    finalPlanCounts.snacks >= mealCounts.snacks;
+  // Initialize counts for all active meal types
+  activeMealTypes.forEach(type => {
+    finalPlanCounts[type] = optimizedMealPlan.filter(r => r.tags.includes(type)).length;
+  });
+  
+  // Check if we have enough recipes for each active meal type
+  const validPlan = activeMealTypes.every(type => 
+    finalPlanCounts[type] >= mealCounts[type as keyof typeof mealCounts]
+  );
   
   return {
     success: validPlan,
@@ -695,6 +684,11 @@ function prepareRecipeCandidates(
   history: RecipeHistoryItem[],
   relaxFactor: number = 0
 ): RecipeWithScore[] {
+  logger.debug(`Preparing candidates for meal type: ${mealType}`);
+
+  // Check if this meal type is in the user's preferred meal types
+  const preferredMealTypes = preferences.cooking.mealTypes || [];
+  
   // Filter eligible recipes for this meal type
   let eligibleRecipes = recipes.filter(recipe => 
     recipe.tags.includes(mealType) && 
@@ -717,9 +711,61 @@ function prepareRecipeCandidates(
     );
   }
   
+  logger.debug(`Found ${eligibleRecipes.length} eligible recipes for ${mealType}`);
+  
   // Score eligible recipes individually first
   return eligibleRecipes.map(recipe => ({
     ...recipe,
     score: computeRecipeScore(recipe, preferences, [], history, relaxFactor)
   }));
+}
+
+/**
+ * Finds an alternative recipe of the same meal type
+ * This function is used for the recipe swap feature
+ */
+export async function findAlternativeRecipe(
+  currentRecipeId: string,
+  mealType: string,
+  allRecipes: Recipe[],
+  currentMealPlan: Recipe[],
+  preferences: {
+    dietary: DietaryPreferences;
+    food: FoodPreferences;
+    cooking: CookingPreferences;
+    budget: BudgetPreferences;
+  }
+): Promise<Recipe | null> {
+  try {
+    // Get user recipe history
+    const history = await getRecipeHistory();
+    
+    // Filter eligible recipes of the same meal type that are not already in the meal plan
+    const eligibleAlternatives = allRecipes.filter(recipe => 
+      recipe.id !== currentRecipeId && 
+      recipe.tags.includes(mealType) &&
+      meetsAllDietaryRequirements(recipe, preferences.dietary) &&
+      !currentMealPlan.some(r => r.id === recipe.id)
+    );
+    
+    if (eligibleAlternatives.length === 0) {
+      logger.debug(`No alternative recipes found for meal type: ${mealType}`);
+      return null;
+    }
+    
+    // Score each alternative recipe
+    const scoredAlternatives = eligibleAlternatives.map(recipe => ({
+      ...recipe,
+      score: computeRecipeScore(recipe, preferences, currentMealPlan, history, 0)
+    }));
+    
+    // Sort by score (highest first)
+    const sortedAlternatives = scoredAlternatives.sort((a, b) => (b.score || 0) - (a.score || 0));
+    
+    // Return the best alternative
+    return sortedAlternatives[0];
+  } catch (error) {
+    logger.error('Error finding alternative recipe:', error);
+    return null;
+  }
 } 
