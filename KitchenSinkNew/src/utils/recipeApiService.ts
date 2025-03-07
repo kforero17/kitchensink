@@ -8,6 +8,9 @@ const { md5 } = require('./cryptoWrapper');
 import { env } from './loadEnv';
 import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
+import { secureFetch, createSecureSpoonacularUrl } from './certificateHelper';
+import { isProxyAvailable, getProxiedUrl } from './proxyConfig';
+import logger from './logger';
 
 // Read config from env file
 const SPOONACULAR_API_KEY = env.SPOONACULAR_API_KEY;
@@ -19,6 +22,9 @@ const SPOONACULAR_RECIPES_ENDPOINT = env.SPOONACULAR_RECIPES_ENDPOINT;
 const CACHE_DIR = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}cache/recipes/` : '';
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
+// App start timestamp to force cache refresh on reload
+const APP_START_TIME = Date.now();
+
 // For SSL certification bypass
 const fetchOptions = {
   headers: {
@@ -26,6 +32,14 @@ const fetchOptions = {
     'Accept': 'application/json',
     'Content-Type': 'application/json',
   },
+  // Add iOS-specific configuration to bypass SSL validation with corporate VPN
+  ...(Platform.OS === 'ios' && {
+    // @ts-ignore - iOS specific properties
+    NSURLRequest: {
+      allowsCellularAccess: true,
+      TLSValidationEnabled: false, // Disable TLS validation for corporate VPN
+    }
+  })
 };
 
 // Enhanced debug logging
@@ -219,6 +233,28 @@ function mapPreferencesToApi(preferences: {
     }
   }
 
+  // Map meal type preferences to API type parameter
+  if (preferences.cooking.mealTypes && preferences.cooking.mealTypes.length > 0) {
+    // Convert our meal types to Spoonacular's type parameter
+    const mealTypeMapping: Record<string, string> = {
+      'breakfast': 'breakfast',
+      'lunch': 'main course,lunch',
+      'dinner': 'main course,dinner',
+      'snacks': 'snack,appetizer,side dish,fingerfood'
+    };
+    
+    const types: string[] = [];
+    preferences.cooking.mealTypes.forEach(mealType => {
+      if (mealTypeMapping[mealType]) {
+        types.push(mealTypeMapping[mealType]);
+      }
+    });
+    
+    if (types.length > 0) {
+      apiPreferences.type = types.join(',');
+    }
+  }
+
   // Include popular cuisines if user hasn't specified anything
   if (!apiPreferences.cuisine) {
     apiPreferences.cuisine = 'american,italian,mexican,asian,mediterranean';
@@ -264,6 +300,19 @@ function mapAllergyToIntolerance(allergy: string): string | null {
 }
 
 /**
+ * Helper function to decode HTML entities in text
+ */
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+/**
  * Convert Spoonacular recipe to app Recipe format
  */
 export function convertApiToRecipe(apiRecipe: SpoonacularRecipe): Recipe {
@@ -276,31 +325,93 @@ export function convertApiToRecipe(apiRecipe: SpoonacularRecipe): Recipe {
   if (apiRecipe.glutenFree) tags.push('gluten-free');
   if (apiRecipe.dairyFree) tags.push('dairy-free');
   
-  // Map meal type tags from dishTypes
-  if (apiRecipe.dishTypes) {
-    if (apiRecipe.dishTypes.some(type => ['breakfast', 'brunch', 'morning meal'].includes(type.toLowerCase()))) {
-      tags.push('breakfast');
-    }
-    if (apiRecipe.dishTypes.some(type => ['lunch', 'main course', 'main dish'].includes(type.toLowerCase()))) {
-      tags.push('lunch');
-    }
-    if (apiRecipe.dishTypes.some(type => ['dinner', 'main course', 'main dish', 'supper'].includes(type.toLowerCase()))) {
-      tags.push('dinner');
-    }
-    if (apiRecipe.dishTypes.some(type => ['snack', 'appetizer', 'side dish', 'finger food'].includes(type.toLowerCase()))) {
-      tags.push('snacks');
+  // Determine PRIMARY meal type (only one) based on dishTypes
+  let primaryMealType: string | null = null;
+  
+  // Track the presence of dish types for better categorization
+  let hasDishTypes = false;
+  
+  if (apiRecipe.dishTypes && apiRecipe.dishTypes.length > 0) {
+    hasDishTypes = true;
+    
+    // Prioritized meal type mapping
+    const mealTypeChecks = [
+      { check: (types: string[]) => types.some(type => ['breakfast', 'brunch', 'morning meal'].includes(type.toLowerCase())), 
+        result: 'breakfast' },
+      { check: (types: string[]) => types.some(type => ['lunch'].includes(type.toLowerCase())), 
+        result: 'lunch' },
+      { check: (types: string[]) => types.some(type => ['dinner', 'supper'].includes(type.toLowerCase())), 
+        result: 'dinner' },
+      { check: (types: string[]) => types.some(type => ['main course', 'main dish'].includes(type.toLowerCase())), 
+        result: 'dinner' }, // Default main course to dinner unless already assigned lunch
+      { check: (types: string[]) => types.some(type => ['snack', 'appetizer', 'side dish', 'finger food'].includes(type.toLowerCase())), 
+        result: 'snacks' }
+    ];
+    
+    // Find the first matching meal type based on priority
+    for (const { check, result } of mealTypeChecks) {
+      if (check(apiRecipe.dishTypes)) {
+        primaryMealType = result;
+        break;
+      }
     }
   }
   
-  // If no meal type was identified, classify based on cooking time and ingredients
-  if (!tags.some(tag => ['breakfast', 'lunch', 'dinner', 'snacks'].includes(tag))) {
-    // Default classification logic
-    if (apiRecipe.readyInMinutes <= 15) {
-      tags.push('snacks');
-    } else if (apiRecipe.readyInMinutes <= 30) {
+  // If no meal type was identified from dish types, classify based on cooking time and name
+  if (!primaryMealType) {
+    if (!hasDishTypes) {
+      logger.debug(`Recipe ${apiRecipe.id} has no dish types, assigning based on other factors`);
+    }
+    
+    // Check recipe title for clues
+    const title = apiRecipe.title.toLowerCase();
+    if (title.includes('breakfast') || title.includes('brunch') || title.includes('pancake') || 
+        title.includes('waffle') || title.includes('oatmeal') || title.includes('cereal')) {
+      primaryMealType = 'breakfast';
+    } 
+    else if (title.includes('soup') || title.includes('salad') || title.includes('sandwich') || 
+             title.includes('wrap') || title.includes('lunch')) {
+      primaryMealType = 'lunch';
+    }
+    else if (title.includes('snack') || title.includes('appetizer') || title.includes('dip') || 
+             title.includes('finger food')) {
+      primaryMealType = 'snacks';
+    }
+    else {
+      // Default based on cooking time if no other clues
+      if (apiRecipe.readyInMinutes <= 15) {
+        primaryMealType = 'snacks';
+      } else if (apiRecipe.readyInMinutes <= 30) {
+        primaryMealType = 'lunch';
+      } else {
+        primaryMealType = 'dinner';
+      }
+    }
+  }
+  
+  // Add the primary meal type as the FIRST tag (important for filtering)
+  // CRITICAL: The first tag is used for strict meal type matching in the app
+  // When filtering for breakfast recipes, only recipes with breakfast as the first tag will be included
+  tags.unshift(primaryMealType);
+  
+  // Always add all possible meal types the recipe fits as additional tags (after the primary)
+  // These secondary tags are no longer used for filtering but kept for informational purposes
+  if (apiRecipe.dishTypes) {
+    if (apiRecipe.dishTypes.some(type => ['breakfast', 'brunch', 'morning meal'].includes(type.toLowerCase())) && 
+        primaryMealType !== 'breakfast') {
+      tags.push('breakfast');
+    }
+    if (apiRecipe.dishTypes.some(type => ['lunch', 'main course', 'main dish'].includes(type.toLowerCase())) && 
+        primaryMealType !== 'lunch') {
       tags.push('lunch');
-    } else {
+    }
+    if (apiRecipe.dishTypes.some(type => ['dinner', 'supper', 'main course', 'main dish'].includes(type.toLowerCase())) && 
+        primaryMealType !== 'dinner') {
       tags.push('dinner');
+    }
+    if (apiRecipe.dishTypes.some(type => ['snack', 'appetizer', 'side dish', 'finger food'].includes(type.toLowerCase())) && 
+        primaryMealType !== 'snacks') {
+      tags.push('snacks');
     }
   }
   
@@ -322,7 +433,7 @@ export function convertApiToRecipe(apiRecipe: SpoonacularRecipe): Recipe {
     id: apiRecipe.id.toString(),
     name: apiRecipe.title,
     description: apiRecipe.summary 
-      ? apiRecipe.summary.replace(/<\/?[^>]+(>|$)/g, '').substring(0, 150) + '...' 
+      ? decodeHtmlEntities(apiRecipe.summary.replace(/<\/?[^>]+(>|$)/g, ''))
       : 'A delicious recipe',
     prepTime: `${Math.round(apiRecipe.readyInMinutes / 3)} mins`, // Estimate prep time as 1/3 of total time
     cookTime: `${Math.round(apiRecipe.readyInMinutes * 2 / 3)} mins`, // Estimate cook time as 2/3 of total time
@@ -385,69 +496,162 @@ export async function searchRecipes(
   queryParams.apiKey = SPOONACULAR_API_KEY;
 
   const url = createSpoonacularUrl(`${SPOONACULAR_RECIPES_ENDPOINT}/complexSearch`, queryParams);
-  console.log('[API DEBUG] Making Spoonacular API request to:', url.replace(/apiKey=[^&]+/, 'apiKey=HIDDEN'));
+  const sanitizedUrl = url.replace(/apiKey=[^&]+/, 'apiKey=HIDDEN');
+  console.log('[API DEBUG] Making Spoonacular API request to:', sanitizedUrl);
 
-  try {
-    console.log('[API DEBUG] Fetch options:', JSON.stringify({
-      ...fetchOptions,
-      method: 'GET',
-    }));
+  // Determine available connection methods
+  const methods = await getAvailableConnectionMethods();
+  console.log('[API DEBUG] Available connection methods:', methods);
 
-    // Test the SSL connection first
+  // Track errors for better debugging
+  const errors: any[] = [];
+  
+  // Try multiple approaches in sequence with backoff
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    console.log(`[API DEBUG] Attempt ${attempt}/${maxRetries}`);
+    
     try {
-      console.log('[API DEBUG] Testing SSL connection to:', SPOONACULAR_BASE_URL);
-      await fetch(SPOONACULAR_BASE_URL, { method: 'HEAD' });
-      console.log('[API DEBUG] SSL connection test successful');
-    } catch (error: any) {
-      console.error('[API DEBUG] SSL connection test failed:', error);
-      throw new Error(`SSL Connection Failed: ${error.message}`);
+      // Try with proxy if available
+      if (methods.proxyAvailable) {
+        console.log('[API DEBUG] Attempting with proxy server');
+        try {
+          const proxiedUrl = getProxiedUrl(url);
+          
+          // Log the proxied URL for debugging (hiding API key)
+          const sanitizedProxiedUrl = proxiedUrl.replace(/apiKey=[^&]+/, 'apiKey=HIDDEN');
+          console.log('[API DEBUG] Using proxied URL:', sanitizedProxiedUrl);
+          
+          const response = await fetch(proxiedUrl);
+          console.log('[API DEBUG] Proxy response status:', response.status);
+          
+          if (response.ok) {
+            // Get text first to debug any JSON parsing issues
+            const responseText = await response.text();
+            console.log('[API DEBUG] Response text length:', responseText.length);
+            console.log('[API DEBUG] First 100 chars:', responseText.substring(0, 100));
+            
+            try {
+              const data = JSON.parse(responseText);
+              
+              // Validate response structure
+              if (!data.hasOwnProperty('results')) {
+                console.warn('[API DEBUG] Invalid response structure:', data);
+                throw new Error('Invalid response structure: missing results property');
+              }
+              
+              console.log('[API DEBUG] Proxy method successful');
+              return data as SearchRecipesResponse;
+            } catch (jsonError) {
+              console.warn('[API DEBUG] Failed to parse JSON from proxy response:', jsonError);
+              throw jsonError;
+            }
+          } else {
+            console.warn(`[API DEBUG] Proxy request failed: ${response.status}`);
+          }
+        } catch (proxyError) {
+          console.warn('[API DEBUG] Proxy request error:', proxyError);
+          errors.push({ method: 'proxy', error: proxyError });
+        }
+      }
+      
+      // Try with secure fetch (certificate bypass)
+      console.log('[API DEBUG] Attempting with secure fetch');
+      try {
+        const secureResponse = await secureFetch<SearchRecipesResponse>(url, {
+          method: 'GET',
+        });
+        
+        if (secureResponse.data) {
+          // Validate response structure
+          if (!secureResponse.data.hasOwnProperty('results')) {
+            console.warn('[API DEBUG] Invalid secure response structure:', secureResponse.data);
+            throw new Error('Invalid response structure: missing results property');
+          }
+          
+          console.log('[API DEBUG] Secure fetch successful');
+          return secureResponse.data;
+        } else {
+          console.warn('[API DEBUG] Secure fetch failed:', secureResponse.error);
+          errors.push({ method: 'secureFetch', error: secureResponse.error });
+        }
+      } catch (secureError) {
+        console.warn('[API DEBUG] Secure fetch error:', secureError);
+        errors.push({ method: 'secureFetch', error: secureError });
+      }
+      
+      // Last resort: standard fetch with all options
+      console.log('[API DEBUG] Attempting with standard fetch + options');
+      try {
+        const response = await fetch(url, {
+          ...fetchOptions,
+          method: 'GET',
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[API DEBUG] Standard fetch successful');
+          return data as SearchRecipesResponse;
+        } else {
+          console.warn(`[API DEBUG] Standard fetch failed: ${response.status}`);
+          errors.push({ 
+            method: 'standard', 
+            status: response.status, 
+            statusText: response.statusText 
+          });
+        }
+      } catch (standardError) {
+        console.warn('[API DEBUG] Standard fetch error:', standardError);
+        errors.push({ method: 'standard', error: standardError });
+      }
+      
+      // If we reach here, all methods failed on this attempt
+      console.warn(`[API DEBUG] All connection methods failed on attempt ${attempt}`);
+      
+      // Exponential backoff before retry
+      if (attempt < maxRetries) {
+        const backoffMs = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s...
+        console.log(`[API DEBUG] Retrying in ${backoffMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+    } catch (attemptError) {
+      console.error('[API DEBUG] Unexpected error during attempt:', attemptError);
+      errors.push({ method: 'overall', error: attemptError });
+      
+      // Still apply backoff for unexpected errors
+      if (attempt < maxRetries) {
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
     }
-
-    const response = await fetch(url, {
-      ...fetchOptions,
-      method: 'GET',
-    });
-
-    console.log('[API DEBUG] Response status:', response.status);
-    
-    const headers: Record<string, string> = {};
-    response.headers.forEach((value: string, key: string) => {
-      headers[key] = value;
-    });
-    console.log('[API DEBUG] Response headers:', JSON.stringify(headers));
-
-    if (response.status === 429) {
-      const resetTime = response.headers.get('x-ratelimit-reset') 
-        || response.headers.get('x-rate-limit-reset');
-      throw new Error(`Rate limit exceeded. Reset time: ${resetTime}`);
-    }
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API request failed with status ${response.status}: ${errorBody}`);
-    }
-
-    const data = await response.json();
-    
-    // Log remaining rate limit info
-    const remaining = response.headers.get('x-ratelimit-remaining');
-    if (remaining) {
-      console.log('[API DEBUG] Remaining API calls:', remaining);
-    }
-
-    return data as SearchRecipesResponse;
-  } catch (error: any) {
-    // Log the error with full context
-    console.error('[API DEBUG] Error in searchRecipes:', {
-      message: error.message,
-      url: url.replace(/apiKey=[^&]+/, 'apiKey=HIDDEN'),
-      preferences: apiPreferences,
-      stack: error.stack
-    });
-    
-    // Re-throw with additional context
-    throw new Error(`Recipe search failed: ${error.message}`);
   }
+  
+  // If we reach here, all attempts failed
+  console.error('[API DEBUG] All attempts failed. Consolidated errors:', errors);
+  
+  // Throw a comprehensive error with all information
+  throw new Error(`API request failed after ${maxRetries} attempts: ${
+    errors.map(e => e.error?.message || e.status || 'Unknown error').join(', ')
+  }`);
+}
+
+/**
+ * Determine which connection methods are available
+ */
+async function getAvailableConnectionMethods(): Promise<{
+  proxyAvailable: boolean;
+}> {
+  let proxyAvailable = false;
+  
+  try {
+    proxyAvailable = await isProxyAvailable();
+  } catch (error) {
+    console.warn('[API DEBUG] Error checking proxy availability:', error);
+  }
+  
+  return {
+    proxyAvailable
+  };
 }
 
 /**
@@ -484,8 +688,9 @@ export async function getRecipesWithCache(
         const cacheData = JSON.parse(await FileSystem.readAsStringAsync(cacheFile));
         console.log('[Cache Debug] Successfully read cache file');
         
-        // If cache is still valid, use it
-        const isValid = Date.now() - cacheData.timestamp < CACHE_EXPIRY;
+        // Check if cache was created in the current app session and is still valid
+        const isValid = cacheData.timestamp > APP_START_TIME && 
+                       Date.now() - cacheData.timestamp < CACHE_EXPIRY;
         console.log('[Cache Debug] Cache validity:', isValid);
         
         if (isValid) {
@@ -498,7 +703,7 @@ export async function getRecipesWithCache(
       }
     }
     
-    // Cache expired or doesn't exist, fetch from API
+    // Cache expired, doesn't exist, or is from previous session, fetch from API
     console.log('Fetching fresh recipe data from Spoonacular API');
     const apiPreferences = mapPreferencesToApi(preferences);
     
@@ -509,6 +714,18 @@ export async function getRecipesWithCache(
     while (retryCount < maxRetries) {
       try {
         const response = await searchRecipes(apiPreferences);
+        
+        // Defensive check for response and results
+        if (!response) {
+          throw new Error('Received null or undefined response from API');
+        }
+        
+        if (!response.results || !Array.isArray(response.results)) {
+          console.error('[API DEBUG] Invalid response structure:', response);
+          throw new Error('Invalid API response: results property is missing or not an array');
+        }
+        
+        console.log(`[API DEBUG] API returned ${response.results.length} recipes`);
         
         // Convert API recipes to our app format
         const recipes = response.results.map(convertApiToRecipe);
@@ -525,6 +742,8 @@ export async function getRecipesWithCache(
             console.warn('Failed to write to cache:', cacheError);
             // Continue even if cache write fails
           }
+        } else {
+          console.warn('[API DEBUG] API returned zero recipes, not caching');
         }
         
         return recipes;

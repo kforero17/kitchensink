@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Text, Animated, Easing, Alert } from 'react-native';
+import { View, StyleSheet, Text, Animated, Easing } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -47,46 +47,55 @@ const LoadingMealPlanScreen: React.FC = () => {
         setIsLoading(true);
         setLoadingState('loading_preferences');
         
-        // Load all user preferences
+        // Get all user preferences
         const dietaryPrefs = await getDietaryPreferences();
         const foodPrefs = await getFoodPreferences();
         const cookingPrefs = await getCookingPreferences();
         const budgetPrefs = await getBudgetPreferences();
         
         if (!dietaryPrefs || !foodPrefs || !cookingPrefs || !budgetPrefs) {
-          throw new Error('Failed to load user preferences');
+          throw new Error('One or more preferences not found');
         }
         
-        // Get the user's selected meal types
-        const selectedMealTypes = cookingPrefs.mealTypes || [];
+        // Set up meal counts based on selected meal types
+        const mealTypes = cookingPrefs.mealTypes || [];
+        logger.debug('Selected meal types:', mealTypes);
         
-        // If no meal types selected, use all meal types
-        if (selectedMealTypes.length === 0) {
-          selectedMealTypes.push('breakfast', 'lunch', 'dinner', 'snacks');
-        }
-        
-        // Set up meal counts based on selected meal types (3-5 recipes per selected type)
-        const mealCounts = {
-          breakfast: selectedMealTypes.includes('breakfast') ? 3 : 0,
-          lunch: selectedMealTypes.includes('lunch') ? 3 : 0,
-          dinner: selectedMealTypes.includes('dinner') ? 3 : 0,
-          snacks: selectedMealTypes.includes('snacks') ? 2 : 0,
+        // Default 0 for all meal types
+        const counts = {
+          breakfast: 0,
+          lunch: 0,
+          dinner: 0,
+          snacks: 0
         };
         
-        // Log for debugging
-        logger.debug('Generating meal plan with preferences:', {
-          dietary: dietaryPrefs,
-          food: foodPrefs,
-          cooking: cookingPrefs,
-          budget: budgetPrefs,
-          selectedMealTypes,
-          mealCounts
+        // Determine the number of meals per type
+        // If user specified a particular count, respect that exactly
+        const mealsPerType = cookingPrefs.weeklyMealPrepCount || 3;
+        logger.debug(`User requested ${mealsPerType} meals per type`);
+        
+        // Set the requested number for each meal type
+        mealTypes.forEach(type => {
+          // Only assign to valid meal types
+          if (type in counts) {
+            counts[type as keyof typeof counts] = mealsPerType;
+          }
         });
         
-        // Update loading state
-        setLoadingState('fetching_recipes');
+        // Ensure there's at least one meal type with a non-zero count
+        if (Object.values(counts).every(count => count === 0)) {
+          // Default to all meal types if none selected
+          counts.breakfast = mealsPerType;
+          counts.lunch = mealsPerType;
+          counts.dinner = mealsPerType;
+          counts.snacks = mealsPerType;
+          logger.debug('No meal types selected, defaulting to all types');
+        }
         
-        // Fetch recipes from API service
+        logger.debug('Final meal counts:', counts);
+        
+        // Now fetch recipes with API preferences
+        setLoadingState('fetching_recipes');
         const recipes = await apiRecipeService.getRecipes({
           dietary: dietaryPrefs,
           food: foodPrefs,
@@ -94,19 +103,22 @@ const LoadingMealPlanScreen: React.FC = () => {
           budget: budgetPrefs
         });
         
-        // Check if we have recipes
-        logger.debug('Recipe service returned:', {
-          totalRecipes: recipes.length,
-          breakfastRecipes: recipes.filter(r => r.tags.includes('breakfast')).length,
-          lunchRecipes: recipes.filter(r => r.tags.includes('lunch')).length,
-          dinnerRecipes: recipes.filter(r => r.tags.includes('dinner')).length,
-          snackRecipes: recipes.filter(r => r.tags.includes('snacks')).length,
-        });
+        logger.debug(`API returned ${recipes.length} total recipes`);
         
-        // Update loading state
-        setLoadingState('generating_plan');
+        // Log the distribution of recipes by meal type
+        const breakfastRecipes = recipes.filter(r => r.tags.includes('breakfast')).length;
+        const lunchRecipes = recipes.filter(r => r.tags.includes('lunch')).length;
+        const dinnerRecipes = recipes.filter(r => r.tags.includes('dinner')).length;
+        const snackRecipes = recipes.filter(r => r.tags.includes('snacks')).length;
+        
+        logger.debug(`Recipe distribution: breakfast=${breakfastRecipes}, lunch=${lunchRecipes}, dinner=${dinnerRecipes}, snacks=${snackRecipes}`);
+        
+        if (recipes.length === 0) {
+          throw new Error('No recipes found. Try adjusting your preferences.');
+        }
         
         // Generate the meal plan
+        setLoadingState('generating_plan');
         const result = await generateMealPlan(
           recipes,
           {
@@ -115,54 +127,28 @@ const LoadingMealPlanScreen: React.FC = () => {
             cooking: cookingPrefs,
             budget: budgetPrefs
           },
-          mealCounts
+          counts
         );
         
-        // Log the generated recipes by meal type
-        const generatedPlan = {
-          totalRecipes: result.recipes.length,
-          breakfastRecipes: result.recipes.filter(r => r.tags.includes('breakfast')).length,
-          lunchRecipes: result.recipes.filter(r => r.tags.includes('lunch')).length,
-          dinnerRecipes: result.recipes.filter(r => r.tags.includes('dinner')).length,
-          snackRecipes: result.recipes.filter(r => r.tags.includes('snacks')).length,
-        };
-        
-        logger.debug('Generated meal plan:', generatedPlan);
-        
-        // Save the meal plan to context
+        // Success! Set the meal plan and navigate to next screen
         setMealPlan(result.recipes);
         
-        // If constraints were relaxed, we could show a message
         if (result.constraintsRelaxed && result.message) {
+          // Just log the message instead of showing an alert to users
           logger.debug('Constraints relaxed:', result.message);
         }
         
-        // Update loading state
         setLoadingState('done');
         
-        // Navigate to meal plan screen after a delay
+        // Navigate to meal plan screen
         setTimeout(() => {
           setIsLoading(false);
           navigation.replace('MealPlan');
-        }, 1500);
-        
+        }, 500);
       } catch (error: any) {
-        logger.error('Failed to generate meal plan:', error);
+        logger.error('Error generating meal plan:', error);
+        setError(error instanceof Error ? error.message : 'Unknown error occurred');
         setLoadingState('error');
-        
-        // Set error message
-        let errorMessage = 'Failed to generate your meal plan. Please try again.';
-        
-        // Handle specific error cases
-        if (error.message && error.message.includes('API')) {
-          errorMessage = 'Could not connect to recipe service. Using backup recipes.';
-        } else if (error.message && error.message.includes('preferences')) {
-          errorMessage = 'Failed to load your preferences. Please set them up again.';
-        } else if (error.message && error.message.includes('plan')) {
-          errorMessage = 'Could not generate a meal plan that meets all your requirements. Please try with fewer restrictions.';
-        }
-        
-        setError(errorMessage);
         
         // Navigate back to home screen after a delay
         setTimeout(() => {

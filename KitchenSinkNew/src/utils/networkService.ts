@@ -10,6 +10,7 @@ interface RequestOptions {
   body?: any;
   timeout?: number;
   allowInsecure?: boolean;
+  trustAllCertificates?: boolean;
 }
 
 interface ApiResponse<T> {
@@ -48,13 +49,15 @@ export const networkService = {
       headers = {},
       body = null,
       timeout = ENV.API_TIMEOUT_MS,
-      allowInsecure = ENV.ALLOW_INSECURE_CONNECTIONS
+      allowInsecure = ENV.ALLOW_INSECURE_CONNECTIONS,
+      trustAllCertificates = Platform.OS === 'ios'
     } = options;
 
     // Default headers
     const defaultHeaders = {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
+      'X-SSL-Debug': trustAllCertificates ? 'trusted' : 'verified',
     };
 
     // Combined headers
@@ -65,6 +68,17 @@ export const networkService = {
       method,
       headers: combinedHeaders,
     };
+
+    // For iOS only - configure special options for certificate handling
+    if (Platform.OS === 'ios' && trustAllCertificates) {
+      // @ts-ignore - iOS specific NSURLRequest properties
+      fetchOptions.NSURLRequest = {
+        allowsCellularAccess: true,
+        allowsConstrainedNetworkAccess: true,
+        allowsExpensiveNetworkAccess: true,
+        TLSValidationEnabled: false, 
+      };
+    }
 
     // Add body for non-GET requests
     if (body && method !== 'GET') {
@@ -77,6 +91,11 @@ export const networkService = {
       console.log('📨 Headers:', combinedHeaders);
       if (body) {
         console.log('📦 Body:', typeof body === 'string' ? body : JSON.stringify(body));
+      }
+      if (trustAllCertificates) {
+        console.log('🔓 Certificate validation is DISABLED');
+      } else {
+        console.log('🔒 Certificate validation is enabled');
       }
     }
 

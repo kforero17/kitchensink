@@ -6,6 +6,7 @@ import { Platform, Linking } from 'react-native';
 import Constants from 'expo-constants';
 import { clearAllPreferences } from './src/utils/preferences';
 import logger from './src/utils/logger';
+import { initializeProxyConfig } from './src/utils/proxyConfig';
 
 const App = () => {
   useEffect(() => {
@@ -13,6 +14,9 @@ const App = () => {
       try {
         // Clear all preferences on app start
         await clearAllPreferences();
+        
+        // Initialize proxy configuration
+        await initializeProxyConfig();
         
         // Debug logging
         logger.debug('App Configuration:', {

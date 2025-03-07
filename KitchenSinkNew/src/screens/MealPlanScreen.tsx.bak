@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Animated, ActivityIndicator, Alert } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Animated, ActivityIndicator, Alert, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation } from '@react-navigation/native';
@@ -13,10 +13,42 @@ import { BudgetPreferences } from '../types/BudgetPreferences';
 import { swapRecipe } from '../utils/recipeSwapper';
 import logger from '../utils/logger';
 import { apiRecipeService } from '../services/apiRecipeService';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
-// Update MealType to include a combined lunch_dinner type
-type MealType = 'breakfast' | 'lunch' | 'dinner' | 'lunch_dinner' | 'snacks';
+type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
 type MealPlanNavigationProp = NativeStackNavigationProp<RootStackParamList, 'MealPlan'>;
+
+// Simple placeholder component that doesn't attempt to load remote images
+const RecipePlaceholder: React.FC<{ recipeId: string }> = ({ recipeId }) => {
+  // Choose a consistent icon based on the recipe ID
+  const getPlaceholderIcon = (id: string) => {
+    const icons = [
+      'food', 'food-apple', 'food-fork-drink', 'food-variant', 
+      'noodles', 'pasta', 'rice', 'silverware-fork-knife',
+      'hamburger', 'pizza', 'bowl', 'carrot'
+    ];
+    
+    // Convert the ID to a number for consistency
+    const idNumber = parseInt(id.replace(/\D/g, ''), 10) || 0;
+    const iconIndex = idNumber % icons.length;
+    return icons[iconIndex];
+  };
+
+  return (
+    <View style={styles.imageContainer}>
+      <View style={styles.placeholderContainer}>
+        <MaterialCommunityIcons 
+          name={getPlaceholderIcon(recipeId)} 
+          size={70} 
+          color="#666" 
+        />
+        <Text style={styles.placeholderText}>
+          {recipeId.includes('mock') ? 'Sample Recipe' : 'Recipe Image'}
+        </Text>
+      </View>
+    </View>
+  );
+};
 
 const MealPlanScreen: React.FC = () => {
   const navigation = useNavigation<MealPlanNavigationProp>();
@@ -39,24 +71,6 @@ const MealPlanScreen: React.FC = () => {
     loadBudget();
   }, []);
 
-  // Set initial tab - if we have lunch/dinner recipes, default to that tab
-  useEffect(() => {
-    if (mealPlan.length > 0) {
-      // Check if we have any lunch or dinner recipes
-      const hasLunchOrDinner = mealPlan.some(recipe => 
-        recipe.tags.includes('lunch') || recipe.tags.includes('dinner')
-      );
-      
-      if (hasLunchOrDinner) {
-        setSelectedTab('lunch_dinner');
-      } else if (mealPlan.some(recipe => recipe.tags.includes('breakfast'))) {
-        setSelectedTab('breakfast');
-      } else if (mealPlan.some(recipe => recipe.tags.includes('snacks'))) {
-        setSelectedTab('snacks');
-      }
-    }
-  }, [mealPlan]);
-
   // Record recipe history when meal plan is first viewed
   useEffect(() => {
     if (mealPlan.length > 0) {
@@ -74,38 +88,24 @@ const MealPlanScreen: React.FC = () => {
     // Get all recipe IDs that have been shown in higher priority categories
     const usedRecipeIds = new Set<string>();
     
-    // Define priority order for meal types (breakfast → lunch/dinner → snacks)
-    const mealTypePriority: MealType[] = ['breakfast', 'lunch_dinner', 'snacks'];
+    // Define priority order for meal types (breakfast → lunch → dinner → snacks)
+    const mealTypePriority: MealType[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
     
     // If current type is not the highest priority, collect IDs from higher priority types
-    const currentTypeIndex = mealTypePriority.indexOf(type === 'lunch' || type === 'dinner' ? 'lunch_dinner' : type);
+    const currentTypeIndex = mealTypePriority.indexOf(type);
     
     // For each higher priority meal type, add its recipe IDs to the used set
     for (let i = 0; i < currentTypeIndex; i++) {
       const higherPriorityType = mealTypePriority[i];
-      
-      if (higherPriorityType === 'lunch_dinner') {
-        // For the combined lunch_dinner type, add both lunch and dinner tagged recipes
-        mealPlan
-          .filter(recipe => recipe.tags.includes('lunch') || recipe.tags.includes('dinner'))
-          .forEach(recipe => usedRecipeIds.add(recipe.id));
-      } else {
-        mealPlan
-          .filter(recipe => recipe.tags.includes(higherPriorityType))
-          .forEach(recipe => usedRecipeIds.add(recipe.id));
-      }
+      mealPlan
+        .filter(recipe => recipe.tags.includes(higherPriorityType))
+        .forEach(recipe => usedRecipeIds.add(recipe.id));
     }
     
-    // Handle the special case of the combined lunch_dinner category
-    if (type === 'lunch_dinner') {
-      return mealPlan.filter(recipe => 
-        (recipe.tags.includes('lunch') || recipe.tags.includes('dinner')) && 
-        !usedRecipeIds.has(recipe.id)
-      );
-    }
-    
-    // For backward compatibility - if someone still selects the individual tabs
-    if (type === 'lunch' || type === 'dinner') {
+    // Special case: if looking at dinner and we have the combined lunch+dinner mode
+    // don't show recipes that are tagged as lunch in the dinner tab
+    if (type === 'dinner' && !mealPlan.some(recipe => recipe.tags.includes('lunch'))) {
+      // We're in combined mode, no need for additional filtering
       return mealPlan.filter(recipe => 
         recipe.tags.includes(type) && 
         !usedRecipeIds.has(recipe.id)
@@ -140,22 +140,8 @@ const MealPlanScreen: React.FC = () => {
     try {
       setSwappingRecipeId(recipeId);
       
-      // For the combined lunch_dinner category, we need to determine the actual meal type
-      // of the recipe to make sure we swap with the correct type
-      const recipe = mealPlan.find(r => r.id === recipeId);
-      let actualMealType = mealType;
-      
-      // If we're in the combined lunch_dinner category, find the actual meal type
-      if (mealType === 'lunch_dinner' && recipe) {
-        if (recipe.tags.includes('lunch')) {
-          actualMealType = 'lunch';
-        } else if (recipe.tags.includes('dinner')) {
-          actualMealType = 'dinner';
-        }
-      }
-      
       // Use the centralized swapRecipe utility
-      const alternativeRecipe = await swapRecipe(recipeId, actualMealType, mealPlan);
+      const alternativeRecipe = await swapRecipe(recipeId, mealType, mealPlan);
       
       if (!alternativeRecipe) {
         Alert.alert(
@@ -223,57 +209,6 @@ const MealPlanScreen: React.FC = () => {
     }
   };
 
-  // Helper function to convert decimal to fraction
-  const decimalToFraction = (decimal: number): string => {
-    if (decimal === 0) return '0';
-    if (decimal === 1) return '1';
-    if (decimal === 0.25) return '1/4';
-    if (decimal === 0.33 || decimal === 0.333) return '1/3';
-    if (decimal === 0.5) return '1/2';
-    if (decimal === 0.66 || decimal === 0.666) return '2/3';
-    if (decimal === 0.75) return '3/4';
-    if (decimal >= 1) {
-      const whole = Math.floor(decimal);
-      const fraction = decimalToFraction(decimal - whole);
-      return fraction === '0' ? whole.toString() : `${whole} ${fraction}`;
-    }
-    
-    // For other decimals, convert to fraction
-    const tolerance = 1.0E-6;
-    let numerator = 1;
-    let denominator = 1;
-    let error = Math.abs(decimal - numerator / denominator);
-    
-    for (let d = 2; d <= 16; d++) {
-      const n = Math.round(decimal * d);
-      const newError = Math.abs(decimal - n / d);
-      if (newError < error) {
-        numerator = n;
-        denominator = d;
-        error = newError;
-      }
-    }
-    
-    if (error < tolerance) {
-      return `${numerator}/${denominator}`;
-    }
-    
-    // If we can't find a good fraction, return the decimal
-    return decimal.toString();
-  };
-
-  // Helper function to format measurement
-  const formatMeasurement = (measurement: string): string => {
-    // Check if the measurement starts with a number
-    const match = measurement.match(/^(\d*\.?\d+)\s*(.*)$/);
-    if (match) {
-      const [_, number, unit] = match;
-      const fraction = decimalToFraction(parseFloat(number));
-      return `${fraction} ${unit}`.trim();
-    }
-    return measurement;
-  };
-
   const renderBudgetSection = () => {
     // Calculate the total cost of selected recipes
     const selectedRecipesArray = mealPlan.filter(r => selectedRecipes.has(r.id));
@@ -293,13 +228,13 @@ const MealPlanScreen: React.FC = () => {
         <View style={styles.budgetInfoContainer}>
           <View style={styles.budgetInfo}>
             <Text style={styles.budgetText}>
-              {budget.amount.toFixed(2)}
+              ${budget.amount.toFixed(2)}
             </Text>
             <Text style={styles.budgetLabel}>Budget</Text>
           </View>
           <View style={styles.budgetInfo}>
             <Text style={styles.costText}>
-              {totalCost.toFixed(2)}
+              ${totalCost.toFixed(2)}
             </Text>
             <Text style={styles.budgetLabel}>Meal Plan Cost</Text>
           </View>
@@ -321,44 +256,30 @@ const MealPlanScreen: React.FC = () => {
   };
 
   const renderMealTypeTabs = () => {
-    // Count recipes by meal type
-    const breakfastCount = mealPlan.filter(recipe => recipe.tags.includes('breakfast')).length;
+    // Get lunch count before we decide whether to show the tab
     const lunchCount = mealPlan.filter(recipe => recipe.tags.includes('lunch')).length;
     const dinnerCount = mealPlan.filter(recipe => recipe.tags.includes('dinner')).length;
-    const snacksCount = mealPlan.filter(recipe => recipe.tags.includes('snacks')).length;
     
-    // Define tabs to show - always include the combined lunch_dinner tab instead of separate ones
-    const tabs: MealType[] = ['breakfast', 'lunch_dinner', 'snacks'];
+    // Only show tabs for meal types that have recipes
+    // We're hiding lunch since we combined it with dinner in the meal plan generator
+    const tabs: MealType[] = ['breakfast', 'dinner', 'snacks'];
     
-    // Only show tabs that have recipes
-    const filteredTabs = tabs.filter(tab => {
-      if (tab === 'lunch_dinner') {
-        return lunchCount > 0 || dinnerCount > 0;
-      }
-      return mealPlan.some(recipe => recipe.tags.includes(tab));
-    });
-    
-    // If no tabs have recipes, show all tabs
-    const displayTabs = filteredTabs.length > 0 ? filteredTabs : tabs;
+    // If we have explicit lunch recipes (from previous plans), show the lunch tab too
+    if (lunchCount > 0) {
+      tabs.splice(1, 0, 'lunch');
+    }
     
     return (
       <View style={styles.tabsContainer}>
-        {displayTabs.map(tab => {
-          const isActive = (tab === 'lunch_dinner' && (selectedTab === 'lunch' || selectedTab === 'dinner' || selectedTab === 'lunch_dinner')) ||
-                          (tab === selectedTab);
+        {tabs.map(tab => {
+          const isActive = tab === selectedTab;
+          const count = getRecipesByType(tab).length;
           
-          let count = getRecipesByType(tab).length;
-          let tabLabel = '';
+          let tabLabel = tab.charAt(0).toUpperCase() + tab.slice(1);
           
-          // Set the tab label based on the tab type
-          switch(tab) {
-            case 'lunch_dinner':
-              tabLabel = "Lunch & Dinner";
-              // Update the count for the combined tab
-              count = getRecipesByType('lunch_dinner').length;
-              break;
-            default:
-              tabLabel = tab.charAt(0).toUpperCase() + tab.slice(1);
+          // Special label for dinner to indicate it includes lunch recipes
+          if (tab === 'dinner' && lunchCount === 0 && dinnerCount > 0) {
+            tabLabel = "Lunch & Dinner";
           }
           
           return (
@@ -379,15 +300,20 @@ const MealPlanScreen: React.FC = () => {
   };
 
   const renderRecipeCard = (recipe: Recipe) => {
-    const isExpanded = expandedRecipeId === recipe.id;
     const isSelected = selectedRecipes.has(recipe.id);
+    const isExpanded = expandedRecipeId === recipe.id;
     const isSwapping = swappingRecipeId === recipe.id;
+    
+    // Extract just the meal type tags for display
+    const mealTypeTags = recipe.tags.filter(tag => 
+      ['breakfast', 'lunch', 'dinner', 'snacks'].includes(tag)
+    );
     
     return (
       <View key={recipe.id} style={[styles.recipeCard, isSelected ? styles.selectedRecipeCard : null]}>
         <TouchableOpacity style={styles.recipeHeader} onPress={() => toggleRecipeDetails(recipe.id)}>
           <View style={styles.recipeTitleRow}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.checkbox, isSelected ? styles.checkboxSelected : null]} 
               onPress={() => toggleRecipeSelection(recipe.id)}
             >
@@ -395,16 +321,24 @@ const MealPlanScreen: React.FC = () => {
             </TouchableOpacity>
             <Text style={styles.recipeTitle}>{recipe.name}</Text>
           </View>
+
+          <RecipePlaceholder recipeId={recipe.id} />
+
           <View style={styles.recipeDetails}>
             <Text style={styles.recipeInfo}>
               <MaterialCommunityIcons name="clock-outline" size={14} /> {recipe.prepTime} prep + {recipe.cookTime} cook
             </Text>
             <Text style={styles.recipeInfo}>
-              <MaterialCommunityIcons name="account-outline" size={14} /> {recipe.servings} {recipe.servings === 1 ? 'serving' : 'servings'}
+              <MaterialCommunityIcons name="currency-usd" size={14} /> ${recipe.estimatedCost.toFixed(2)}
             </Text>
-            <Text style={styles.recipeInfo}>
-              <MaterialCommunityIcons name="currency-usd" size={14} /> {recipe.estimatedCost.toFixed(2)}
-            </Text>
+            
+            {/* Display what meal types this recipe is categorized as */}
+            {mealTypeTags.length > 1 && (
+              <Text style={styles.recipeTags}>
+                <MaterialCommunityIcons name="tag-multiple-outline" size={14} /> 
+                {mealTypeTags.map(tag => tag.charAt(0).toUpperCase() + tag.slice(1)).join(', ')}
+              </Text>
+            )}
           </View>
           <MaterialCommunityIcons 
             name={isExpanded ? "chevron-up" : "chevron-down"} 
@@ -413,23 +347,17 @@ const MealPlanScreen: React.FC = () => {
             style={styles.expandIcon}
           />
         </TouchableOpacity>
-        
+
         {isExpanded && (
           <View style={styles.expandedContent}>
             <Text style={styles.recipeDescription}>
-              {recipe.description
-                .split('.')
-                .filter(sentence => sentence.trim().length > 0)
-                .map((sentence, i, arr) => 
-                  `${sentence.trim()}${i < arr.length - 1 ? '.' : ''}`
-                )
-                .join(' ')}
+              {recipe.description.replace(/<\/?[^>]+(>|$)/g, '')}
             </Text>
             
             <Text style={styles.sectionTitle}>Ingredients</Text>
             {recipe.ingredients.map((ingredient, index) => (
               <Text key={index} style={styles.ingredient}>
-                • {formatMeasurement(ingredient.measurement)} {ingredient.item}
+                • {ingredient.measurement} {ingredient.item}
               </Text>
             ))}
             
@@ -440,7 +368,7 @@ const MealPlanScreen: React.FC = () => {
               </Text>
             ))}
             
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.swapButton}
               onPress={() => handleSwapRecipe(recipe.id, selectedTab)}
               disabled={isSwapping}
@@ -469,15 +397,11 @@ const MealPlanScreen: React.FC = () => {
       {renderBudgetSection()}
       {renderMealTypeTabs()}
       
-      <ScrollView style={styles.recipeList}>
+      <ScrollView style={styles.content}>
         {getRecipesByType(selectedTab).length > 0 ? (
           getRecipesByType(selectedTab).map(renderRecipeCard)
         ) : (
-          <Text style={styles.emptyState}>
-            {selectedTab === 'lunch_dinner' 
-              ? "No lunch or dinner recipes in your plan." 
-              : `No ${selectedTab} recipes in your plan.`}
-          </Text>
+          <Text style={styles.emptyState}>No {selectedTab} recipes available</Text>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -487,18 +411,196 @@ const MealPlanScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f8f8f8',
   },
   header: {
     padding: 16,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e1e4e8',
+    borderBottomColor: '#e0e0e0',
   },
   title: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#212529',
+    color: '#333',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 4,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    marginBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  tabText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#007bff',
+  },
+  activeTabText: {
+    color: '#007bff',
+    fontWeight: '600',
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  recipeCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginBottom: 16,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  recipeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  checkboxContainer: {
+    marginRight: 12,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#007bff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: '#007bff',
+  },
+  recipeTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  expandButton: {
+    padding: 4,
+  },
+  imageContainer: {
+    height: 200,
+    backgroundColor: '#f5f5f5',
+    marginVertical: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recipeImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  imageOverlay: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderContainer: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  placeholderText: {
+    marginTop: 10,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  recipeDetails: {
+    padding: 12,
+  },
+  recipeInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  recipeInfoText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#666',
+  },
+  tagContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+  },
+  tagBadge: {
+    backgroundColor: '#e0f0ff',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 8,
+    marginBottom: 4,
+  },
+  tagText: {
+    color: '#0066cc',
+    fontSize: 12,
+  },
+  expandedContent: {
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 12,
+    marginBottom: 8,
+    color: '#333',
+  },
+  ingredientText: {
+    fontSize: 14,
+    marginBottom: 4,
+    color: '#444',
+  },
+  instructionText: {
+    fontSize: 14,
+    marginBottom: 8,
+    color: '#444',
+    lineHeight: 20,
+  },
+  swapButton: {
+    backgroundColor: '#007bff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+    marginTop: 16,
+    alignSelf: 'flex-start',
+  },
+  swapButtonText: {
+    color: '#fff',
+    marginLeft: 8,
+    fontWeight: '500',
   },
   budgetContainer: {
     margin: 16,
@@ -536,117 +638,84 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 4,
   },
-  tabsContainer: {
+  refreshButton: {
+    backgroundColor: '#2196F3',
     flexDirection: 'row',
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+    marginTop: 15,
   },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
+  refreshButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  recipeTags: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  imageContainer: {
+    height: 200,
+    backgroundColor: '#f5f5f5',
+    marginVertical: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#007bff',
+  recipeImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
-  tabText: {
-    color: '#6c757d',
-    fontWeight: '500',
+  imageOverlay: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  activeTabText: {
-    color: '#007bff',
+  placeholderContainer: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
   },
-  recipeList: {
-    flex: 1,
-    paddingHorizontal: 16,
+  placeholderText: {
+    marginTop: 10,
+    color: '#666',
+    fontStyle: 'italic',
   },
-  recipeCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-    overflow: 'hidden',
+  errorText: {
+    marginTop: 8,
+    color: '#666',
+    fontStyle: 'italic',
   },
   selectedRecipeCard: {
     borderWidth: 2,
     borderColor: '#007bff',
-  },
-  recipeHeader: {
-    padding: 16,
   },
   recipeTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
   },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#ced4da',
-    marginRight: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxSelected: {
-    backgroundColor: '#007bff',
-    borderColor: '#007bff',
-  },
-  recipeTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#212529',
-    flex: 1,
-  },
-  recipeDetails: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 4
-  },
-  recipeInfo: {
-    color: '#6c757d',
-    fontSize: 14,
-    marginRight: 16,
-    marginBottom: 4
-  },
   expandIcon: {
     position: 'absolute',
     top: 16,
     right: 16,
   },
-  expandedContent: {
-    padding: 16,
-    paddingTop: 0,
-    borderTopWidth: 1,
-    borderTopColor: '#e9ecef',
-  },
   recipeDescription: {
     marginBottom: 16,
     color: '#495057',
     lineHeight: 22,
-    flexWrap: 'wrap',
     fontSize: 14,
-    paddingHorizontal: 4,
     textAlign: 'justify',
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-    marginTop: 16,
   },
   ingredient: {
     marginBottom: 4,
@@ -676,21 +745,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '600',
     marginLeft: 8,
-  },
-  refreshButton: {
-    backgroundColor: '#2196F3',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 5,
-    marginTop: 15,
-  },
-  refreshButtonText: {
-    color: '#FFFFFF',
-    marginLeft: 5,
-    fontWeight: '500',
   },
 });
 

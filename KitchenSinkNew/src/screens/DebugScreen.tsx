@@ -14,6 +14,8 @@ import { networkService } from '../utils/networkService';
 import { ENV } from '../config/environment';
 import { SPOONACULAR_CONFIG, createSpoonacularUrl } from '../config/spoonacular';
 import DirectApiTest from '../components/DirectApiTest';
+import { testSpoonacularWithCertificateBypass } from '../utils/certificateHelper';
+import { isProxyAvailable, getProxiedUrl } from '../utils/proxyConfig';
 
 const DebugScreen: React.FC = () => {
   const [results, setResults] = useState<Array<{test: string, status: 'success' | 'failure' | 'pending', message: string}>>([]);
@@ -209,6 +211,124 @@ const DebugScreen: React.FC = () => {
     }
   };
 
+  const testCertificateBypass = async () => {
+    resetResults();
+    setIsLoading(true);
+    
+    addResult('Certificate Bypass Test', 'pending', 'Testing connection to Spoonacular API with certificate bypass...');
+    
+    try {
+      const isConnected = await testSpoonacularWithCertificateBypass(SPOONACULAR_CONFIG.API_KEY);
+      
+      if (isConnected) {
+        addResult('Certificate Bypass Test', 'success', 'Successfully connected using certificate bypass.');
+      } else {
+        addResult('Certificate Bypass Test', 'failure', 'Failed to connect even with certificate bypass. Check your network or API key.');
+      }
+    } catch (error) {
+      addResult('Certificate Bypass Test', 'failure', `Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const testProxyServer = async () => {
+    resetResults();
+    setIsLoading(true);
+    
+    addResult('Proxy Server Test', 'pending', 'Checking if proxy server is available...');
+    
+    try {
+      const isAvailable = await isProxyAvailable();
+      
+      if (isAvailable) {
+        addResult('Proxy Server Test', 'success', 'Proxy server is running and available!');
+        
+        // Test a simple API request through the proxy
+        addResult('Proxy API Request', 'pending', 'Testing API request through proxy...');
+        
+        try {
+          const originalUrl = `https://api.spoonacular.com/food/ingredients/search?apiKey=${SPOONACULAR_CONFIG.API_KEY}&query=apple&number=1`;
+          const proxiedUrl = getProxiedUrl(originalUrl);
+          
+          const response = await fetch(proxiedUrl);
+          
+          if (response.ok) {
+            const data = await response.json();
+            addResult('Proxy API Request', 'success', 
+              `Successfully retrieved data through proxy! Got ${data.results?.length || 0} results.`
+            );
+          } else {
+            addResult('Proxy API Request', 'failure', 
+              `Proxy request failed with status: ${response.status}`
+            );
+          }
+        } catch (apiError: any) {
+          addResult('Proxy API Request', 'failure', 
+            `Error making proxy request: ${apiError.message}`
+          );
+        }
+      } else {
+        addResult('Proxy Server Test', 'failure', 
+          'Proxy server is not available. Make sure to run "node proxy-server/server.js" first.'
+        );
+      }
+    } catch (error) {
+      addResult('Proxy Server Test', 'failure', 
+        `Error checking proxy availability: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const testVpnCertificateInstall = async () => {
+    resetResults();
+    setIsLoading(true);
+    
+    addResult('VPN Certificate Test', 'pending', 'Testing if the corporate VPN certificate is properly installed...');
+    
+    try {
+      // Try a direct fetch to a known HTTPS site
+      const response = await fetch('https://jsonplaceholder.typicode.com/posts/1');
+      
+      if (response.ok) {
+        addResult('VPN Certificate Test', 'success', 
+          'Basic HTTPS connection works correctly. VPN certificates may be properly installed.'
+        );
+      } else {
+        addResult('VPN Certificate Test', 'failure', 
+          `HTTPS connection failed with status: ${response.status}`
+        );
+      }
+      
+      // Try Spoonacular API directly with a simple query
+      addResult('Spoonacular Direct Test', 'pending', 'Testing direct connection to Spoonacular API...');
+      try {
+        const url = `https://api.spoonacular.com/food/ingredients/search?apiKey=${SPOONACULAR_CONFIG.API_KEY}&query=apple&number=1`;
+        const response = await fetch(url);
+        
+        if (response.ok) {
+          addResult('Spoonacular Direct Test', 'success', 'Direct connection to Spoonacular API works!');
+        } else {
+          addResult('Spoonacular Direct Test', 'failure', 
+            `Direct connection failed with status: ${response.status}`
+          );
+        }
+      } catch (apiError: any) {
+        addResult('Spoonacular Direct Test', 'failure', 
+          `Direct connection error: ${apiError.message}`
+        );
+      }
+    } catch (error) {
+      addResult('VPN Certificate Test', 'failure', 
+        `Error testing VPN certificate: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const checkCryptoModule = async () => {
     addResult('Crypto Module Diagnostics', 'pending', 'Checking crypto module availability...');
     
@@ -267,7 +387,25 @@ const DebugScreen: React.FC = () => {
     collectEnvironmentInfo();
     await checkCryptoModule();
     await checkSSLConnection();
+    
+    // Test proxy server if available
+    await testProxyServer();
+    
+    // Test VPN certificate installation
+    await testVpnCertificateInstall();
+    
+    // Try regular API test 
     await testSpoonacularConnectivity();
+    
+    // If the regular test failed, try with certificate bypass
+    const regularTestFailed = results.some(result => 
+      result.test.includes('Spoonacular API') && result.status === 'failure'
+    );
+    
+    if (regularTestFailed) {
+      addResult('Failover Test', 'pending', 'Regular API connection failed, trying certificate bypass...');
+      await testCertificateBypass();
+    }
     
     addResult('Comprehensive Diagnostics', 'success', 'Completed comprehensive diagnostics');
     setIsLoading(false);
@@ -314,6 +452,38 @@ const DebugScreen: React.FC = () => {
           disabled={isLoading}
         >
             <Text style={styles.buttonText}>Test SSL Connection</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.button} 
+            onPress={testCertificateBypass}
+          disabled={isLoading}
+        >
+            <Text style={styles.buttonText}>Test Certificate Bypass</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.button} 
+            onPress={testProxyServer}
+          disabled={isLoading}
+        >
+            <Text style={styles.buttonText}>Test Proxy Server</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.button} 
+            onPress={testVpnCertificateInstall}
+          disabled={isLoading}
+        >
+            <Text style={styles.buttonText}>Test VPN Certificate</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.button} 
+            onPress={checkCryptoModule}
+          disabled={isLoading}
+        >
+            <Text style={styles.buttonText}>Check Crypto Module</Text>
         </TouchableOpacity>
       </View>
       

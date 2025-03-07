@@ -29,6 +29,44 @@ The meal planning system has been enhanced to use the Spoonacular API to access 
    SPOONACULAR_RECIPES_ENDPOINT=/recipes
    ```
 
+## Working with Corporate VPNs and Certificate Issues
+
+If you're working behind a corporate VPN that intercepts HTTPS traffic, you might encounter "Network request failed" errors when the app tries to connect to external APIs. This happens because the VPN replaces the original server's certificate with its own, which isn't trusted by React Native.
+
+### Solutions
+
+We've implemented several solutions that you can try:
+
+1. **Debug Screen with Certificate Testing**
+   - Navigate to the Debug screen in the app
+   - Use the "Test Certificate Bypass" button to check if the enhanced certificate handling works
+   - Try "Test VPN Certificate" to check if your VPN certificates are properly installed
+
+2. **Local Proxy Server** (Most reliable solution)
+   - Set up the included proxy server:
+     ```
+     cd proxy-server
+     npm install
+     node server.js
+     ```
+   - In the app's Debug screen, use "Test Proxy Server" to confirm it's working
+   - The app will automatically try to use the proxy when available
+
+3. **ATS Settings**
+   - The app already has App Transport Security (ATS) settings configured in the Info.plist file
+   - This allows non-HTTPS connections and disables certificate validation for specific domains
+
+### Troubleshooting
+
+If you still encounter certificate issues:
+
+1. Try the comprehensive diagnostics in the Debug screen
+2. Check if the proxy server is running and accessible
+3. Try using the app without VPN connection if possible
+4. Consider installing the VPN's root certificate on your development device
+
+For more details, check the `proxy-server/README.md` file.
+
 ### Running the Meal Plan Generator
 
 The meal plan generator can be run in different modes:
@@ -102,6 +140,7 @@ Recipes are cached based on a hash of the user preferences, with a 24-hour expir
 ### Project Structure
 
 - `src/utils/recipeApiService.ts`: Handles API integration and caching
+- `src/utils/certificateHelper.ts`: Deals with SSL certificate validation issues
 - `src/utils/mealPlanSelector.ts`: Contains the meal plan selection algorithm
 - `src/tests/mealPlanTest.ts`: Interactive test script for meal planning
 - `src/utils/loadEnv.ts`: Utility for loading environment variables 

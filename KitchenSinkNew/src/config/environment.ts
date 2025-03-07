@@ -44,8 +44,9 @@ export const ENV = {
   SPOONACULAR_RECIPES_ENDPOINT: getEnvVariables().SPOONACULAR_RECIPES_ENDPOINT || getDevEnv().SPOONACULAR_RECIPES_ENDPOINT,
   
   // Network Configuration
-  ALLOW_INSECURE_CONNECTIONS: Platform.OS === 'ios', // Enable for iOS by default
-  API_TIMEOUT_MS: 15000, // 15 seconds timeout
+  ALLOW_INSECURE_CONNECTIONS: true, // Enable by default for corporate VPN environments
+  API_TIMEOUT_MS: 30000, // Increased to 30 seconds for potentially slow VPN connections
+  TRUST_ALL_CERTIFICATES: true, // Added to handle corporate VPN certificate issues
   
   // Debug Information
   DEBUG_NETWORK: NETWORK_DEBUG,
@@ -70,6 +71,7 @@ export const logEnvironment = () => {
     console.log(`Platform: ${ENV.PLATFORM}`);
     console.log(`API Base URL: ${ENV.SPOONACULAR_BASE_URL}`);
     console.log(`Allow Insecure Connections: ${ENV.ALLOW_INSECURE_CONNECTIONS}`);
+    console.log(`Trust All Certificates: ${ENV.TRUST_ALL_CERTIFICATES}`);
     console.log(`API Key defined: ${ENV.SPOONACULAR_API_KEY ? 'Yes' : 'No'}`);
   }
 }; 

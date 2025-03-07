@@ -21,7 +21,8 @@ export const getRecipesByTag = (tag: string): Recipe[] => {
 
 // Helper function to get recipes by meal type
 export const getRecipesByMealType = (mealType: 'breakfast' | 'lunch' | 'dinner' | 'snacks'): Recipe[] => {
-  return recipeDatabase.filter(recipe => recipe.tags.includes(mealType));
+  // Only return recipes where the first tag matches the requested meal type
+  return recipeDatabase.filter(recipe => recipe.tags.length > 0 && recipe.tags[0] === mealType);
 };
 
 // Helper function to get recipes by dietary restriction

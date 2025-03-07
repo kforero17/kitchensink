@@ -3,7 +3,6 @@ import { DietaryPreferences } from '../types/DietaryPreferences';
 import { FoodPreferences } from '../types/FoodPreferences';
 import { CookingPreferences } from '../types/CookingPreferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
-import { recipeDatabase } from '../data/recipeDatabase';
 import { findAlternativeRecipe } from './mealPlanSelector';
 import { 
   getDietaryPreferences, 
@@ -11,6 +10,7 @@ import {
   getCookingPreferences, 
   getBudgetPreferences 
 } from './preferences';
+import { apiRecipeService } from '../services/apiRecipeService';
 import logger from './logger';
 
 /**
@@ -26,7 +26,22 @@ export async function swapRecipe(
   currentMealPlan: Recipe[]
 ): Promise<Recipe | null> {
   try {
-    // Load user preferences
+    logger.debug(`Attempting to swap recipe ${recipeId} of type ${mealType}`);
+    
+    // Handle the special combined lunch_dinner type
+    if (mealType === 'lunch_dinner') {
+      // Find the original recipe to determine if it's lunch or dinner
+      const recipe = currentMealPlan.find(r => r.id === recipeId);
+      if (recipe) {
+        if (recipe.tags.includes('lunch')) {
+          mealType = 'lunch';
+        } else if (recipe.tags.includes('dinner')) {
+          mealType = 'dinner';
+        }
+      }
+    }
+    
+    // Load required preferences
     const dietaryPrefs = await getDietaryPreferences();
     const foodPrefs = await getFoodPreferences();
     const cookingPrefs = await getCookingPreferences();
@@ -35,12 +50,23 @@ export async function swapRecipe(
     if (!dietaryPrefs || !foodPrefs || !cookingPrefs || !budgetPrefs) {
       throw new Error('Failed to load user preferences');
     }
+
+    // Force clear cache to get fresh recipes
+    apiRecipeService.setClearCache(true);
+    
+    // Fetch new recipes from API
+    const recipes = await apiRecipeService.getRecipes({
+      dietary: dietaryPrefs,
+      food: foodPrefs,
+      cooking: cookingPrefs,
+      budget: budgetPrefs
+    });
     
     // Find an alternative recipe
     const alternativeRecipe = await findAlternativeRecipe(
       recipeId,
       mealType,
-      recipeDatabase,
+      recipes, // Use API recipes instead of mock database
       currentMealPlan,
       {
         dietary: dietaryPrefs,
@@ -68,7 +94,13 @@ export async function swapRecipe(
  * Useful for ensuring we're swapping the correct type of recipe
  */
 export function validateMealType(recipe: Recipe, mealType: string): boolean {
-  return recipe.tags.includes(mealType);
+  // Handle the combined lunch_dinner category
+  if (mealType === 'lunch_dinner') {
+    return recipe.tags.includes('lunch') || recipe.tags.includes('dinner');
+  }
+  
+  // Check if this meal type is the primary meal type (first tag)
+  return recipe.tags.length > 0 && recipe.tags[0] === mealType;
 }
 
 /**
@@ -81,6 +113,19 @@ export async function getAlternativeRecipes(
   limit: number = 5
 ): Promise<Recipe[]> {
   try {
+    // Handle the combined lunch_dinner category
+    if (mealType === 'lunch_dinner') {
+      // We'll show a mix of lunch and dinner alternatives
+      const lunchAlternatives = await getAlternativeRecipes('lunch', currentMealPlan, Math.ceil(limit/2));
+      const dinnerAlternatives = await getAlternativeRecipes('dinner', currentMealPlan, Math.ceil(limit/2));
+      
+      // Combine and limit the results
+      return [...lunchAlternatives, ...dinnerAlternatives].slice(0, limit);
+    }
+    
+    // Get API service
+    const recipeService = apiRecipeService;
+    
     // Load user preferences
     const dietaryPrefs = await getDietaryPreferences();
     const foodPrefs = await getFoodPreferences();
@@ -94,8 +139,19 @@ export async function getAlternativeRecipes(
     // Get current recipe IDs to exclude them
     const currentIds = currentMealPlan.map(recipe => recipe.id);
     
+    // Force clear cache to get fresh recipes
+    apiRecipeService.setClearCache(true);
+    
+    // Fetch recipes from API
+    const recipes = await apiRecipeService.getRecipes({
+      dietary: dietaryPrefs,
+      food: foodPrefs,
+      cooking: cookingPrefs,
+      budget: budgetPrefs
+    });
+    
     // Filter eligible recipes of the requested meal type that aren't in the current meal plan
-    const eligibleRecipes = recipeDatabase.filter(recipe => 
+    const eligibleRecipes = recipes.filter(recipe => 
       recipe.tags.includes(mealType) &&
       !currentIds.includes(recipe.id)
     );

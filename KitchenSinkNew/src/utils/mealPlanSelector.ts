@@ -1,6 +1,6 @@
 import { Recipe } from '../contexts/MealPlanContext';
 import { DietaryPreferences } from '../types/DietaryPreferences';
-import { CookingPreferences } from '../types/CookingPreferences';
+import { CookingPreferences, MealType } from '../types/CookingPreferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
 import { FoodPreferences } from '../types/FoodPreferences';
 import { findMatchingIngredients, calculateIngredientSimilarity } from './ingredientMatching';
@@ -257,29 +257,21 @@ function calculateMealTypeMatchScore(
 ): number {
   if (cookingPreferences.mealTypes.length === 0) return 100;
   
-  // Check if any recipe tag matches any requested meal type directly
-  if (recipe.tags.some(tag => cookingPreferences.mealTypes.includes(tag as any))) {
+  // Check if the primary meal type (first tag) matches any requested meal type
+  if (recipe.tags.length > 0 && cookingPreferences.mealTypes.includes(recipe.tags[0] as MealType)) {
     return 100;
   }
   
-  // Fallback: Map novel meal types to existing ones
-  const mealTypeMapping: Record<string, string[]> = {
+  // Fallback: Map novel meal types to existing ones, but only if they are the primary type
+  const mealTypeMapping: Record<MealType, string[]> = {
     'breakfast': ['morning', 'am', 'brunch'],
     'lunch': ['noon', 'midday', 'brunch'],
     'dinner': ['evening', 'supper', 'night'],
-    'snacks': ['appetizer', 'side', 'dessert']
+    'snacks': ['appetizer', 'side', 'dessert'],
+    'dessert': ['sweet', 'baked']
   };
   
-  // Check for indirect matches through mapping
-  for (const [standardType, alternativeTypes] of Object.entries(mealTypeMapping)) {
-    if (cookingPreferences.mealTypes.includes(standardType as any)) {
-      if (recipe.tags.some(tag => alternativeTypes.includes(tag))) {
-        // Partial score for mapping match
-        return 80;
-      }
-    }
-  }
-  
+  // Since the primary type didn't match, we give a score of zero
   return 0;
 }
 
@@ -352,7 +344,7 @@ export function calculateMainIngredientRepetitionPenalty(
 }
 
 /**
- * Computes a composite score for a recipe based on all preferences
+ * Calculates a composite score for a recipe based on all preferences
  */
 export function computeRecipeScore(
   recipe: Recipe,
@@ -424,6 +416,39 @@ export function computeRecipeScore(
 }
 
 /**
+ * Calculates the overall score for a meal plan based on individual recipe scores and cohesiveness
+ */
+function calculateMealPlanScore(mealPlan: RecipeWithScore[]): number {
+  if (mealPlan.length === 0) return 0;
+  
+  // Calculate the average individual recipe score
+  const recipesWithScores = mealPlan.filter(recipe => typeof recipe.score === 'number');
+  
+  // If no scores are available, return a default score
+  if (recipesWithScores.length === 0) return 50;
+  
+  // Calculate average of individual scores
+  const averageScore = recipesWithScores.reduce(
+    (sum, recipe) => sum + (recipe.score || 0), 
+    0
+  ) / recipesWithScores.length;
+  
+  // Calculate ingredient diversity as a bonus
+  const uniqueIngredients = new Set<string>();
+  mealPlan.forEach(recipe => {
+    recipe.ingredients.forEach(ing => uniqueIngredients.add(ing.item.toLowerCase()));
+  });
+  
+  // Calculate diversity bonus (higher is better)
+  const ingredientDiversityRatio = uniqueIngredients.size / 
+    mealPlan.reduce((sum, recipe) => sum + recipe.ingredients.length, 0);
+  
+  const diversityBonus = ingredientDiversityRatio * 20; // Up to 20 points for diversity
+  
+  return Math.min(100, averageScore + diversityBonus);
+}
+
+/**
  * Optimizes a full meal plan for global ingredient synergy across all meal types
  */
 function optimizeGlobalMealPlan(
@@ -440,82 +465,98 @@ function optimizeGlobalMealPlan(
   },
   history: RecipeHistoryItem[]
 ): Recipe[] {
-  // Initial meal plan will start with highest scored recipes for each type
-  const initialMealPlan: Recipe[] = [];
+  // Set to track all recipe IDs to prevent duplicates across meal types
+  const usedRecipeIds = new Set<string>();
   
-  // First pass: get initial selections based on individual recipe scores
-  mealTypeRecipes.forEach(mealType => {
-    const sortedCandidates = [...mealType.candidates].sort((a, b) => (b.score || 0) - (a.score || 0));
-    const initialSelections = sortedCandidates.slice(0, mealType.count);
-    initialMealPlan.push(...initialSelections);
-  });
+  // Final meal plan
+  const mealPlan: Recipe[] = [];
   
-  // Second pass: try to improve global ingredient overlap with hill climbing
-  // Start with current plan and make incremental improvements
-  let currentPlan = [...initialMealPlan];
-  let currentScore = calculateMealPlanScore(currentPlan);
-  let improved = true;
-  
-  const MAX_ITERATIONS = 10;
-  let iteration = 0;
-  
-  while (improved && iteration < MAX_ITERATIONS) {
-    improved = false;
-    iteration++;
-    
-    // Try substituting each recipe with alternatives to see if we can improve
-    for (let i = 0; i < currentPlan.length; i++) {
-      const currentRecipe = currentPlan[i];
-      
-      // Find the meal type this recipe belongs to
-      const mealTypeInfo = mealTypeRecipes.find(mt => 
-        mt.candidates.some(r => r.id === currentRecipe.id)
-      );
-      
-      if (!mealTypeInfo) continue;
-      
-      // Get alternative candidates for this meal type
-      const alternatives = mealTypeInfo.candidates.filter(r => 
-        !currentPlan.some(selected => selected.id === r.id)
-      );
-      
-      for (const alternative of alternatives) {
-        // Create a new plan with the substitution
-        const newPlan = [...currentPlan];
-        newPlan[i] = alternative;
-        
-        // Score the new plan
-        const newScore = calculateMealPlanScore(newPlan);
-        
-        // Update if improved
-        if (newScore > currentScore) {
-          currentPlan = newPlan;
-          currentScore = newScore;
-          improved = true;
-          break;
-        }
+  // Process mealTypeRecipes in order of fewest candidates first
+  // This helps ensure that meal types with fewer options get priority
+  const sortedMealTypeRecipes = [...mealTypeRecipes]
+    .sort((a, b) => {
+      // If one has no candidates, prioritize based on count needed
+      if (a.candidates.length === 0 || b.candidates.length === 0) {
+        return b.count - a.count;
       }
       
-      if (improved) break;
+      // Otherwise, prioritize by candidate-to-count ratio
+      const aRatio = a.candidates.length / a.count;
+      const bRatio = b.candidates.length / b.count;
+      return aRatio - bRatio;
+    });
+  
+  // First pass: add best candidates for each meal type
+  sortedMealTypeRecipes.forEach(mealTypeGroup => {
+    const { type, candidates, count } = mealTypeGroup;
+    
+    // Skip if no recipes needed for this type
+    if (count === 0) return;
+    
+    // Skip if no candidates available
+    if (candidates.length === 0) {
+      logger.debug(`No candidates available for ${type}`);
+      return;
     }
-  }
-  
-  return currentPlan;
-  
-  // Helper function to score an entire meal plan
-  function calculateMealPlanScore(plan: Recipe[]): number {
-    // Calculate unique ingredient count (lower is better)
-    const uniqueIngredientCount = calculateUniqueIngredientCount(plan);
     
-    // Calculate average individual recipe scores
-    const recipeScores = plan.map(recipe => 
-      computeRecipeScore(recipe, preferences, plan.filter(r => r.id !== recipe.id), history)
-    );
-    const avgRecipeScore = recipeScores.reduce((a, b) => a + b, 0) / recipeScores.length;
+    // Filter out recipes already used in other meal types
+    const availableCandidates = candidates.filter(c => !usedRecipeIds.has(c.id));
     
-    // Combined score formula: recipe quality + ingredient efficiency
-    return avgRecipeScore - (uniqueIngredientCount / 10);
-  }
+    // Get the top N recipes for this meal type
+    const selectedRecipes: Recipe[] = [];
+    let i = 0;
+    
+    while (selectedRecipes.length < count && i < availableCandidates.length) {
+      const candidate = availableCandidates[i];
+      
+      // Add the recipe to the plan
+      selectedRecipes.push(candidate);
+      
+      // Mark the recipe ID as used
+      usedRecipeIds.add(candidate.id);
+      
+      i++;
+    }
+    
+    // Add selected recipes to the meal plan
+    mealPlan.push(...selectedRecipes);
+    
+    logger.debug(`Added ${selectedRecipes.length}/${count} ${type} recipes`);
+  });
+  
+  // Second pass: fill in any gaps with less strict criteria
+  sortedMealTypeRecipes.forEach(mealTypeGroup => {
+    const { type, candidates, count } = mealTypeGroup;
+    
+    // Count how many we've already selected
+    const alreadySelected = mealPlan.filter(r => r.tags.includes(type)).length;
+    const remaining = count - alreadySelected;
+    
+    // Skip if we have enough already
+    if (remaining <= 0) return;
+    
+    logger.debug(`Need ${remaining} more ${type} recipes`);
+    
+    // Get any recipes we haven't used yet
+    const availableCandidates = candidates.filter(c => !usedRecipeIds.has(c.id));
+    
+    // Take what we can get
+    const additionalRecipes = availableCandidates.slice(0, remaining);
+    
+    // Add these recipes to the plan
+    additionalRecipes.forEach(recipe => {
+      mealPlan.push(recipe);
+      usedRecipeIds.add(recipe.id);
+    });
+    
+    logger.debug(`Added ${additionalRecipes.length} additional ${type} recipes`);
+  });
+  
+  // Calculate overall score for the meal plan
+  const planScore = calculateMealPlanScore(mealPlan);
+  logger.debug(`Generated meal plan with score: ${planScore.toFixed(2)}`);
+  
+  return mealPlan;
 }
 
 /**
@@ -541,44 +582,221 @@ export async function generateMealPlan(
     // Get user recipe history
     const history = await getRecipeHistory();
     
-    // Only consider recipes that meet dietary requirements first
-    const eligibleRecipes = recipes.filter(recipe => 
-      meetsAllDietaryRequirements(recipe, preferences.dietary)
-    );
+    // Combine lunch and dinner counts as they often overlap
+    // This helps prevent the same recipes showing in both categories
+    const combinedMealCounts = {
+      breakfast: mealCounts.breakfast,
+      lunch: 0, // We'll combine lunch and dinner into a single category
+      dinner: mealCounts.lunch + mealCounts.dinner, // Combine lunch and dinner counts
+      snacks: mealCounts.snacks
+    };
+    
+    logger.debug('Original meal counts:', mealCounts);
+    logger.debug('Combined meal counts:', combinedMealCounts);
+    
+    // Use the combined counts for the algorithm
+    mealCounts = combinedMealCounts;
+    
+    // Define relaxation levels with specific constraints to relax
+    const relaxationLevels = [
+      {
+        name: 'Initial strict constraints',
+        relaxFactor: 0,
+        relaxedConstraints: []
+      },
+      {
+        name: 'Relaxed variety constraints',
+        relaxFactor: 0.3,
+        relaxedConstraints: ['variety', 'ingredient_overlap']
+      },
+      {
+        name: 'Relaxed cooking preferences',
+        relaxFactor: 0.6,
+        relaxedConstraints: ['variety', 'ingredient_overlap', 'cooking_time', 'complexity']
+      },
+      {
+        name: 'Relaxed food preferences',
+        relaxFactor: 0.8,
+        relaxedConstraints: ['variety', 'ingredient_overlap', 'cooking_time', 'complexity', 'favorite_ingredients', 'disliked_ingredients']
+      },
+      {
+        name: 'Minimal constraints (dietary only)',
+        relaxFactor: 1,
+        relaxedConstraints: ['variety', 'ingredient_overlap', 'cooking_time', 'complexity', 'favorite_ingredients', 'disliked_ingredients', 'meal_type_strict']
+      },
+      {
+        name: 'Extreme relaxation (last resort)',
+        relaxFactor: 1,
+        relaxedConstraints: ['variety', 'ingredient_overlap', 'cooking_time', 'complexity', 'favorite_ingredients', 'disliked_ingredients', 'meal_type_strict', 'meal_type_matching']
+      }
+    ];
+    
+    // Only consider recipes that meet essential dietary requirements (allergies, vegan/vegetarian)
+    const essentialDietaryFilter = (recipe: Recipe) => {
+      // Always respect allergies and essential dietary restrictions
+      if (preferences.dietary.allergies?.some(allergen => 
+        recipe.ingredients.some(ing => ing.item.toLowerCase().includes(allergen.toLowerCase()))
+      )) {
+        return false;
+      }
+      
+      // Always respect vegan/vegetarian preferences as they're often ethical choices
+      if (preferences.dietary.vegan && !recipe.tags.includes('vegan')) {
+        return false;
+      }
+      if (preferences.dietary.vegetarian && !recipe.tags.includes('vegetarian')) {
+        return false;
+      }
+      
+      return true;
+    };
+    
+    const eligibleRecipes = recipes.filter(essentialDietaryFilter);
+    
+    // Log the number of eligible recipes that meet dietary requirements
+    logger.debug(`Total recipes after essential dietary filtering: ${eligibleRecipes.length}/${recipes.length}`);
     
     if (eligibleRecipes.length === 0) {
-      logger.error('No recipes meet dietary requirements');
+      logger.error('No recipes meet essential dietary requirements');
       return { 
         recipes: [], 
         constraintsRelaxed: false,
-        message: 'No recipes meet your dietary requirements. Please adjust your preferences.' 
+        message: 'No recipes meet your essential dietary requirements. Please check your dietary restrictions.' 
       };
     }
     
-    // For each constraint relaxation level, try to generate a meal plan
-    for (const constraintLevel of CONSTRAINT_FALLBACK.RELAXATION_STEPS) {
-      logger.debug(`Attempting meal plan generation with constraint level: ${constraintLevel.name}`);
+    // Try each relaxation level until we get a valid meal plan
+    for (const level of relaxationLevels) {
+      logger.debug(`Attempting meal plan generation with constraint level: ${level.name}`);
       
-      // Try to generate meal plan with current constraints
-      const result = await attemptMealPlanGeneration(
-        eligibleRecipes,
-        preferences,
-        mealCounts,
-        history,
-        constraintLevel.relaxFactor
+      // Get active meal types (types with non-zero counts)
+      const activeMealTypes = Object.entries(mealCounts)
+        .filter(([_, count]) => count > 0)
+        .map(([type]) => type as MealType);
+      
+      logger.debug('Active meal types:', activeMealTypes);
+      
+      // If no active meal types, use all types as a fallback
+      if (activeMealTypes.length === 0) {
+        logger.debug('No active meal types found, using all types as fallback');
+        ['breakfast', 'lunch', 'dinner', 'snacks'].forEach(type => 
+          activeMealTypes.push(type as MealType)
+        );
+      }
+      
+      // Special case for extreme relaxation: allow meal type substitution
+      let availableRecipes = eligibleRecipes;
+      
+      // Prepare recipe candidates for each meal type
+      const mealTypeRecipeCandidates = activeMealTypes.map(mealType => {
+        const candidates = prepareRecipeCandidates(
+          mealType,
+          availableRecipes,
+          {
+            ...preferences,
+            // Apply relaxation to non-essential preferences
+            food: level.relaxedConstraints.includes('favorite_ingredients') ? 
+              { ...preferences.food, favoriteIngredients: [], dislikedIngredients: [] } :
+              preferences.food,
+            cooking: level.relaxedConstraints.includes('cooking_time') ?
+              { ...preferences.cooking, preferredCookingDuration: 'over_60_min' } :
+              preferences.cooking
+          },
+          history,
+          level.relaxFactor
+        );
+        
+        return {
+          type: mealType,
+          candidates,
+          count: mealCounts[mealType as keyof typeof mealCounts]
+        };
+      });
+      
+      // Last resort: if we still have insufficient recipe candidates in the extreme relaxation level,
+      // assign generic recipes to meal types that need them
+      if (level.name === 'Extreme relaxation (last resort)') {
+        const insufficientMealTypes = mealTypeRecipeCandidates.filter(
+          mt => mt.candidates.length < mt.count && mt.count > 0
+        );
+        
+        if (insufficientMealTypes.length > 0) {
+          logger.debug('Applying last resort recipe assignment for meal types:', 
+            insufficientMealTypes.map(mt => mt.type).join(', ')
+          );
+          
+          // Sort available recipes by their score
+          const universalCandidates = eligibleRecipes.map(recipe => ({
+            ...recipe,
+            score: computeRecipeScore(recipe, preferences, [], history, 1)
+          })).sort((a, b) => (b.score || 0) - (a.score || 0));
+          
+          // Take the top-scoring recipes and assign them to meal types that need them
+          let recipesUsed: string[] = [];
+          
+          mealTypeRecipeCandidates.forEach(mealTypeGroup => {
+            if (mealTypeGroup.candidates.length < mealTypeGroup.count) {
+              const neededCount = mealTypeGroup.count - mealTypeGroup.candidates.length;
+              
+              // Find recipes not yet used in any meal type
+              const additionalRecipes = universalCandidates
+                .filter(r => !recipesUsed.includes(r.id))
+                .slice(0, neededCount);
+              
+              // Mark these recipes as used
+              recipesUsed = [...recipesUsed, ...additionalRecipes.map(r => r.id)];
+              
+              // Add these to the candidates list for this meal type
+              mealTypeGroup.candidates = [...mealTypeGroup.candidates, ...additionalRecipes];
+              
+              logger.debug(`Assigned ${additionalRecipes.length} generic recipes to ${mealTypeGroup.type}`);
+            }
+          });
+        }
+      }
+      
+      // Check if we have enough candidates for each meal type
+      const insufficientMealTypes = mealTypeRecipeCandidates.filter(
+        mt => mt.candidates.length < mt.count && mt.count > 0
       );
       
-      // If we got a valid meal plan, return it
-      if (result.success) {
-        const constraintsRelaxed = constraintLevel.relaxFactor > 0;
+      if (insufficientMealTypes.length > 0) {
+        logger.debug('Insufficient recipe candidates for meal types:', 
+          insufficientMealTypes.map(mt => mt.type).join(', ')
+        );
+        continue; // Try next relaxation level
+      }
+      
+      // Perform global optimization across all meal types
+      const optimizedMealPlan = optimizeGlobalMealPlan(
+        mealTypeRecipeCandidates,
+        preferences,
+        history
+      );
+      
+      // Validate the meal plan
+      const finalPlanCounts: Record<string, number> = {};
+      activeMealTypes.forEach(type => {
+        finalPlanCounts[type] = optimizedMealPlan.filter(r => r.tags.includes(type)).length;
+      });
+      
+      const validPlan = activeMealTypes.every(type => 
+        finalPlanCounts[type] >= mealCounts[type as keyof typeof mealCounts]
+      );
+      
+      if (validPlan) {
+        const constraintsRelaxed = level.relaxFactor > 0;
         let message;
         
         if (constraintsRelaxed) {
-          message = `Some preferences were relaxed to create your meal plan: ${constraintLevel.name}`;
+          message = `Some preferences were relaxed to create your meal plan: ${level.name}`;
+          if (level.relaxedConstraints.length > 0) {
+            message += `. Relaxed: ${level.relaxedConstraints.join(', ').replace(/_/g, ' ')}`;
+          }
         }
         
         return { 
-          recipes: result.mealPlan, 
+          recipes: optimizedMealPlan, 
           constraintsRelaxed, 
           message 
         };
@@ -586,6 +804,54 @@ export async function generateMealPlan(
     }
     
     // If we've tried all relaxation levels and still have no plan
+    // Return the top-scored general recipes as a fallback
+    
+    // Calculate the total number of meals requested across all types
+    const totalMealsRequested = Object.values(mealCounts).reduce((sum, count) => sum + count, 0);
+    
+    // Ensure we return at least the number of meals requested, with a minimum of 3
+    const minFallbackCount = Math.max(totalMealsRequested, 3);
+    
+    const fallbackRecipes = eligibleRecipes
+      .map(recipe => ({
+        ...recipe, 
+        score: computeRecipeScore(recipe, preferences, [], history, 1)
+      }))
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .slice(0, minFallbackCount);
+
+    if (fallbackRecipes.length > 0) {
+      logger.debug(`Returning ${fallbackRecipes.length} fallback recipes after exhausting all relaxation levels`);
+      
+      // If the user requested specific meal types, add those tags to the fallback recipes
+      const requestedMealTypes = Object.entries(mealCounts)
+        .filter(([_, count]) => count > 0)
+        .map(([type]) => type);
+      
+      // If there are requested meal types, assign them to the fallback recipes
+      // This ensures they appear under the correct tabs in the UI
+      if (requestedMealTypes.length > 0) {
+        // Try to evenly distribute recipes among the requested meal types
+        const recipesPerType = Math.ceil(fallbackRecipes.length / requestedMealTypes.length);
+        
+        fallbackRecipes.forEach((recipe, index) => {
+          const targetType = requestedMealTypes[Math.floor(index / recipesPerType)];
+          if (targetType && !recipe.tags.includes(targetType)) {
+            // Add the meal type tag at the beginning for proper UI display
+            recipe.tags = [targetType, ...recipe.tags.filter(tag => tag !== targetType)];
+          }
+        });
+        
+        logger.debug('Assigned fallback recipes to requested meal types');
+      }
+
+      return {
+        recipes: fallbackRecipes,
+        constraintsRelaxed: true,
+        message: 'We had to significantly relax your preferences to find recipes. Consider broadening your preferences.'
+      };
+    }
+
     return {
       recipes: [],
       constraintsRelaxed: true,
@@ -598,82 +864,10 @@ export async function generateMealPlan(
 }
 
 /**
- * Helper function to attempt meal plan generation with specific constraints
- */
-async function attemptMealPlanGeneration(
-  recipes: Recipe[],
-  preferences: {
-    dietary: DietaryPreferences;
-    food: FoodPreferences;
-    cooking: CookingPreferences;
-    budget: BudgetPreferences;
-  },
-  mealCounts: {
-    breakfast: number;
-    lunch: number;
-    dinner: number;
-    snacks: number;
-  },
-  history: RecipeHistoryItem[],
-  relaxFactor: number = 0
-): Promise<{ success: boolean, mealPlan: Recipe[] }> {
-  // Only include meal types that have non-zero counts
-  const activeMealTypes = Object.entries(mealCounts)
-    .filter(([_, count]) => count > 0)
-    .map(([type]) => type);
-
-  logger.debug('Active meal types:', activeMealTypes);
-  
-  // Prepare recipe candidates for each selected meal type
-  const mealTypeRecipeCandidates = activeMealTypes.map(mealType => ({
-    type: mealType,
-    candidates: prepareRecipeCandidates(mealType, recipes, preferences, history, relaxFactor),
-    count: mealCounts[mealType as keyof typeof mealCounts]
-  }));
-  
-  // Check if we have enough candidates for each meal type
-  const insufficientMealTypes = mealTypeRecipeCandidates.filter(
-    mt => mt.candidates.length < mt.count && mt.count > 0
-  );
-  
-  if (insufficientMealTypes.length > 0) {
-    logger.debug('Insufficient recipe candidates for meal types:', 
-      insufficientMealTypes.map(mt => mt.type).join(', ')
-    );
-    return { success: false, mealPlan: [] };
-  }
-  
-  // Perform global optimization across all meal types
-  const optimizedMealPlan = optimizeGlobalMealPlan(
-    mealTypeRecipeCandidates,
-    preferences,
-    history
-  );
-  
-  // Validate the meal plan - ensure we have the right number of each type
-  const finalPlanCounts: Record<string, number> = {};
-  
-  // Initialize counts for all active meal types
-  activeMealTypes.forEach(type => {
-    finalPlanCounts[type] = optimizedMealPlan.filter(r => r.tags.includes(type)).length;
-  });
-  
-  // Check if we have enough recipes for each active meal type
-  const validPlan = activeMealTypes.every(type => 
-    finalPlanCounts[type] >= mealCounts[type as keyof typeof mealCounts]
-  );
-  
-  return {
-    success: validPlan,
-    mealPlan: optimizedMealPlan
-  };
-}
-
-/**
  * Helper function to prepare scored recipe candidates for a meal type
  */
 function prepareRecipeCandidates(
-  mealType: string,
+  mealType: MealType,
   recipes: Recipe[],
   preferences: {
     dietary: DietaryPreferences;
@@ -689,35 +883,114 @@ function prepareRecipeCandidates(
   // Check if this meal type is in the user's preferred meal types
   const preferredMealTypes = preferences.cooking.mealTypes || [];
   
-  // Filter eligible recipes for this meal type
+  // If this meal type is not in preferred types, return empty array
+  if (!preferredMealTypes.includes(mealType)) {
+    logger.debug(`Meal type ${mealType} not in preferred types, skipping`);
+    return [];
+  }
+
+  // First try strict matching where primary meal type (first tag) is the requested meal type
   let eligibleRecipes = recipes.filter(recipe => 
-    recipe.tags.includes(mealType) && 
+    recipe.tags.length > 0 && 
+    recipe.tags[0] === mealType &&
     meetsAllDietaryRequirements(recipe, preferences.dietary)
   );
   
-  // If no recipes match directly, try fallback mapping for meal types
+  // If strict matching found no recipes, try a more flexible match
   if (eligibleRecipes.length === 0) {
-    const mealTypeMapping: Record<string, string[]> = {
-      'breakfast': ['morning', 'am', 'brunch'],
-      'lunch': ['noon', 'midday', 'brunch'],
-      'dinner': ['evening', 'supper', 'night'],
-      'snacks': ['appetizer', 'side', 'dessert']
-    };
+    logger.debug(`No recipes found with ${mealType} as primary tag, trying secondary tag matching`);
     
-    const alternativeTypes = mealTypeMapping[mealType] || [];
+    // Find recipes that have the meal type tag anywhere
     eligibleRecipes = recipes.filter(recipe => 
-      recipe.tags.some(tag => alternativeTypes.includes(tag)) &&
+      recipe.tags.includes(mealType) &&
       meetsAllDietaryRequirements(recipe, preferences.dietary)
     );
+    
+    // IMPORTANT: Reorder the tags to prioritize the requested meal type
+    // This ensures the recipe shows up under the selected meal type in the UI
+    eligibleRecipes = eligibleRecipes.map(recipe => {
+      // Make a copy to avoid modifying the original
+      const modifiedRecipe = {...recipe};
+      
+      // If this isn't the first tag, reorder tags to make the requested meal type first
+      if (modifiedRecipe.tags[0] !== mealType && modifiedRecipe.tags.includes(mealType)) {
+        // Remove mealType from its current position
+        const tags = [...modifiedRecipe.tags];
+        const index = tags.indexOf(mealType);
+        tags.splice(index, 1);
+        
+        // Add it at the beginning
+        modifiedRecipe.tags = [mealType, ...tags];
+        logger.debug(`Reordered tags for recipe ${modifiedRecipe.id} to prioritize ${mealType}`);
+      }
+      
+      return modifiedRecipe;
+    });
   }
   
-  logger.debug(`Found ${eligibleRecipes.length} eligible recipes for ${mealType}`);
+  // If still no recipes, try even more flexible matching in relaxed mode
+  if (eligibleRecipes.length === 0 && relaxFactor > 0.5) {
+    logger.debug(`No recipes with ${mealType} tag found, applying relaxed matching`);
+    
+    // Define meal type mapping for fallback
+    const mealTypeMapping: Record<string, string[]> = {
+      'breakfast': ['morning', 'brunch'],
+      'lunch': ['main course', 'main dish', 'midday'],
+      'dinner': ['main course', 'main dish', 'evening', 'supper'],
+      'snacks': ['appetizer', 'side dish', 'finger food', 'snack']
+    };
+    
+    const relatedTags = mealTypeMapping[mealType] || [];
+    
+    // Find recipes with related tags
+    eligibleRecipes = recipes.filter(recipe => 
+      recipe.tags.some(tag => relatedTags.some(relatedTag => tag.includes(relatedTag))) &&
+      meetsAllDietaryRequirements(recipe, preferences.dietary)
+    );
+    
+    // Add the requested meal type tag to these recipes so they appear under the correct category
+    eligibleRecipes = eligibleRecipes.map(recipe => {
+      // Make a copy of the recipe to avoid modifying the original
+      const modifiedRecipe = {...recipe};
+      
+      // If the recipe doesn't already have the mealType tag, add it as the first tag
+      if (!modifiedRecipe.tags.includes(mealType)) {
+        modifiedRecipe.tags = [mealType, ...modifiedRecipe.tags];
+        logger.debug(`Added ${mealType} tag to recipe ${modifiedRecipe.id} from relaxed matching`);
+      } 
+      // If it has the tag but not as the first one, reorder
+      else if (modifiedRecipe.tags[0] !== mealType) {
+        // Remove mealType from its current position
+        const tags = [...modifiedRecipe.tags];
+        const index = tags.indexOf(mealType);
+        tags.splice(index, 1);
+        
+        // Add it at the beginning
+        modifiedRecipe.tags = [mealType, ...tags];
+        logger.debug(`Reordered tags for recipe ${modifiedRecipe.id} to prioritize ${mealType}`);
+      }
+      
+      return modifiedRecipe;
+    });
+  }
   
-  // Score eligible recipes individually first
-  return eligibleRecipes.map(recipe => ({
-    ...recipe,
-    score: computeRecipeScore(recipe, preferences, [], history, relaxFactor)
-  }));
+  // Log the number of eligible recipes found
+  logger.debug(`Found ${eligibleRecipes.length} eligible ${mealType} recipes`);
+  
+  // Score all eligible recipes
+  const scoredRecipes = eligibleRecipes.map(recipe => {
+    const score = computeRecipeScore(
+      recipe,
+      preferences,
+      [],
+      history,
+      relaxFactor
+    );
+    return { ...recipe, score };
+  });
+  
+  // Sort by score, descending
+  return scoredRecipes.sort((a, b) => (b.score || 0) - (a.score || 0));
 }
 
 /**
