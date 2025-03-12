@@ -76,6 +76,8 @@ export const BudgetPreferencesScreen: React.FC<Props> = ({ navigation }) => {
 
     try {
       await saveBudgetPreferences(preferences);
+      
+      // This is the last step in the onboarding process
       navigation.navigate('LoadingMealPlan');
     } catch (error) {
       Alert.alert(

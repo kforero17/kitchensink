@@ -1,7 +1,7 @@
 {
   "name": "proxy-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "This simple proxy server helps React Native applications bypass SSL certificate validation issues when working behind corporate VPNs.",
   "main": "index.js",
   "scripts": {
     "start": "node server.js",

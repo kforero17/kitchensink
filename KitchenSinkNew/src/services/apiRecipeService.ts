@@ -10,6 +10,7 @@ import { additionalMockRecipes, dessertMockRecipes } from '../data/mockRecipes';
 import { allSeasonalRecipes } from '../data/seasonalRecipes';
 import { checkConnectivity } from '../utils/networkUtils';
 import logger from '../utils/logger';
+import { pantryService } from './pantryService';
 
 // Maximum retry attempts for API requests
 const MAX_RETRY_ATTEMPTS = 2;
@@ -49,16 +50,29 @@ export class ApiRecipeService {
     food: FoodPreferences;
     cooking: CookingPreferences;
     budget: BudgetPreferences;
+    usePantryItems?: boolean;
   }): Promise<Recipe[]> {
     // Check if we're currently rate limited
     if (this.isRateLimited && this.rateLimitResetTime) {
       const now = new Date();
       if (now < this.rateLimitResetTime) {
         logger.debug('API is rate limited, using mock data instead');
-        return this.getMockRecipes();
+        return this.getMockRecipes(preferences.usePantryItems);
       } else {
         // Reset rate limiting if the time has passed
         this.resetRateLimiting();
+      }
+    }
+    
+    // Get available pantry items if requested
+    let availablePantryIngredients: string[] = [];
+    if (preferences.usePantryItems) {
+      try {
+        const pantryItems = await pantryService.getAllPantryItems();
+        availablePantryIngredients = pantryItems.map(item => item.name.toLowerCase());
+        logger.debug(`Found ${availablePantryIngredients.length} pantry items for recipe generation`);
+      } catch (error) {
+        logger.error('Error getting pantry items for recipe generation:', error);
       }
     }
     
@@ -69,7 +83,7 @@ export class ApiRecipeService {
         const hasConnectivity = await checkConnectivity();
         if (!hasConnectivity) {
           logger.debug('No internet connectivity detected, falling back to mock data');
-          return this.getMockRecipes();
+          return this.getMockRecipes(preferences.usePantryItems);
         }
         
         // Clear cache if requested
@@ -78,11 +92,29 @@ export class ApiRecipeService {
           await clearRecipeCache();
         }
         
+        // Prepare API request with pantry items if available
+        const apiPreferences = { ...preferences };
+        if (preferences.usePantryItems && availablePantryIngredients.length > 0) {
+          // Add pantry ingredients to the API request
+          // The API implementation would need to be updated to handle this
+          (apiPreferences as any).availablePantryIngredients = availablePantryIngredients;
+        }
+        
         // Fetch recipes from API with cache support
-        logger.debug('Fetching recipes from API with preferences:', preferences);
-        const recipes = await getRecipesWithCache(preferences);
-        logger.debug(`Successfully fetched ${recipes.length} recipes from API`);
-        return recipes;
+        logger.debug('Fetching recipes from API with preferences:', apiPreferences);
+        const recipes = await getRecipesWithCache(apiPreferences);
+        
+        // If pantry items should be prioritized, sort recipes by ingredient match
+        let processedRecipes = [...recipes];
+        if (preferences.usePantryItems && availablePantryIngredients.length > 0) {
+          processedRecipes = this.prioritizeRecipesByPantryItems(
+            recipes, 
+            availablePantryIngredients
+          );
+        }
+        
+        logger.debug(`Successfully fetched ${processedRecipes.length} recipes from API`);
+        return processedRecipes;
       } catch (error) {
         // Handle specific API errors
         if (error instanceof Error) {
@@ -107,21 +139,118 @@ export class ApiRecipeService {
         
         // Fall back to mock data on any error
         logger.debug('Using mock data due to API error');
-        return this.getMockRecipes();
+        return this.getMockRecipes(preferences.usePantryItems);
       }
     }
     
     // If API is disabled, use mock data
     logger.debug('API usage is disabled, using mock data');
-    return this.getMockRecipes();
+    return this.getMockRecipes(preferences.usePantryItems);
   }
   
   /**
    * Get mock recipe data as fallback
    */
-  getMockRecipes(): Recipe[] {
-    logger.debug(`Using ${recipeDatabase.length} mock recipes`);
-    return [...recipeDatabase];
+  getMockRecipes(usePantryItems?: boolean): Promise<Recipe[]> {
+    return new Promise(async (resolve) => {
+      // Get base recipe data
+      const mockRecipeData = [...recipeDatabase];
+      logger.debug(`Using ${mockRecipeData.length} mock recipes`);
+      
+      // If not using pantry items, return as is
+      if (!usePantryItems) {
+        resolve(mockRecipeData);
+        return;
+      }
+      
+      try {
+        // Get pantry items
+        const pantryItems = await pantryService.getAllPantryItems();
+        const availablePantryIngredients = pantryItems.map(item => item.name.toLowerCase());
+        
+        if (availablePantryIngredients.length === 0) {
+          resolve(mockRecipeData);
+          return;
+        }
+        
+        // Prioritize recipes by pantry item match
+        const prioritizedRecipes = this.prioritizeRecipesByPantryItems(
+          mockRecipeData, 
+          availablePantryIngredients
+        );
+        
+        resolve(prioritizedRecipes);
+      } catch (error) {
+        logger.error('Error prioritizing mock recipes by pantry items:', error);
+        resolve(mockRecipeData);
+      }
+    });
+  }
+  
+  /**
+   * Prioritize recipes based on how many pantry ingredients they use
+   * @param recipes List of recipes to prioritize
+   * @param pantryIngredients List of available pantry ingredients
+   * @returns Sorted list of recipes with pantry match count
+   */
+  private prioritizeRecipesByPantryItems(
+    recipes: Recipe[], 
+    pantryIngredients: string[]
+  ): Recipe[] {
+    // Skip if no pantry ingredients
+    if (pantryIngredients.length === 0) return recipes;
+    
+    // Calculate pantry match score for each recipe
+    const recipesWithScore = recipes.map(recipe => {
+      // Extract ingredient names, handling different formats
+      const ingredients = recipe.ingredients.map(ing => {
+        if (typeof ing === 'string') {
+          return ing.toLowerCase();
+        } else if ('item' in ing) {
+          return ing.item.toLowerCase();
+        } else if ('name' in ing) {
+          return (ing as any).name.toLowerCase();
+        }
+        return '';
+      }).filter(ing => ing !== '');
+      
+      // Count how many pantry items are used in this recipe
+      const pantryMatchCount = ingredients.filter(ingredient => 
+        pantryIngredients.some(pantryItem => 
+          ingredient.includes(pantryItem) || pantryItem.includes(ingredient)
+        )
+      ).length;
+      
+      // Calculate a match percentage (how much of the recipe is from pantry)
+      const matchPercentage = ingredients.length > 0 
+        ? (pantryMatchCount / ingredients.length) * 100 
+        : 0;
+      
+      return {
+        recipe,
+        pantryMatchCount,
+        matchPercentage,
+      };
+    });
+    
+    // Sort by match percentage (highest first)
+    recipesWithScore.sort((a, b) => b.matchPercentage - a.matchPercentage);
+    
+    // Add match info to recipe metadata and return sorted recipes
+    return recipesWithScore.map(item => {
+      const enhancedRecipe = { ...item.recipe } as Recipe & { metadata?: any };
+      
+      // Initialize metadata if it doesn't exist
+      if (!enhancedRecipe.metadata) {
+        enhancedRecipe.metadata = {};
+      }
+      
+      // Add pantry match info to metadata
+      enhancedRecipe.metadata.pantryMatchCount = item.pantryMatchCount;
+      enhancedRecipe.metadata.pantryMatchPercentage = Math.round(item.matchPercentage);
+      
+      return enhancedRecipe;
+    });
   }
   
   /**

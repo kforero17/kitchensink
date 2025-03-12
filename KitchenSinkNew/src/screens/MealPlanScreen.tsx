@@ -13,6 +13,7 @@ import { BudgetPreferences } from '../types/BudgetPreferences';
 import { swapRecipe } from '../utils/recipeSwapper';
 import logger from '../utils/logger';
 import { apiRecipeService } from '../services/apiRecipeService';
+import PantryIngredientMatch from '../components/PantryIngredientMatch';
 
 // Update MealType to include a combined lunch_dinner type
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'lunch_dinner' | 'snacks';
@@ -405,6 +406,9 @@ const MealPlanScreen: React.FC = () => {
             <Text style={styles.recipeInfo}>
               <MaterialCommunityIcons name="currency-usd" size={14} /> {recipe.estimatedCost.toFixed(2)}
             </Text>
+            
+            {/* Add compact pantry match indicator */}
+            <PantryIngredientMatch ingredients={recipe.ingredients} compact={true} />
           </View>
           <MaterialCommunityIcons 
             name={isExpanded ? "chevron-up" : "chevron-down"} 
@@ -425,6 +429,9 @@ const MealPlanScreen: React.FC = () => {
                 )
                 .join(' ')}
             </Text>
+            
+            {/* Add full pantry match component */}
+            <PantryIngredientMatch ingredients={recipe.ingredients} />
             
             <Text style={styles.sectionTitle}>Ingredients</Text>
             {recipe.ingredients.map((ingredient, index) => (
@@ -464,6 +471,37 @@ const MealPlanScreen: React.FC = () => {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Your Meal Plan</Text>
+        
+        {/* Add Grocery List Button */}
+        {mealPlan.length > 0 && (
+          <TouchableOpacity 
+            style={styles.groceryButton}
+            onPress={() => {
+              // Check if we have any recipes selected
+              if (selectedRecipes.size === 0) {
+                // No recipes selected, prompt user to select some
+                Alert.alert(
+                  "No Recipes Selected",
+                  "Please select at least one recipe to create a grocery list.",
+                  [{ text: "OK" }]
+                );
+                return;
+              }
+              
+              // Convert the Set to an array and navigate to grocery list
+              const selectedRecipesArray = Array.from(selectedRecipes)
+                .map(id => mealPlan.find(recipe => recipe.id === id))
+                .filter(recipe => recipe !== undefined);
+              
+              navigation.navigate('GroceryList', { 
+                selectedRecipes: selectedRecipesArray 
+              });
+            }}
+          >
+            <MaterialCommunityIcons name="cart-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.groceryButtonText}>Create Grocery List</Text>
+          </TouchableOpacity>
+        )}
       </View>
       
       {renderBudgetSection()}
@@ -494,6 +532,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e1e4e8',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   title: {
     fontSize: 24,
@@ -691,6 +732,21 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginLeft: 5,
     fontWeight: '500',
+  },
+  groceryButton: {
+    backgroundColor: '#4CAF50',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 5,
+  },
+  groceryButtonText: {
+    color: '#FFFFFF',
+    marginLeft: 5,
+    fontWeight: '500',
+    fontSize: 14,
   },
 });
 

@@ -13,6 +13,7 @@ import {
   getBudgetPreferences
 } from '../utils/preferences';
 import { apiRecipeService } from '../services/apiRecipeService';
+import { getPreferenceValue } from '../utils/preferences';
 import logger from '../utils/logger';
 import { MealType } from '../types/CookingPreferences';
 
@@ -52,6 +53,9 @@ const LoadingMealPlanScreen: React.FC = () => {
         const foodPrefs = await getFoodPreferences();
         const cookingPrefs = await getCookingPreferences();
         const budgetPrefs = await getBudgetPreferences();
+        
+        // Check if user has enabled using pantry items in recipe generation
+        const usePantryItems = await getPreferenceValue('usePantryItems', true);
         
         if (!dietaryPrefs || !foodPrefs || !cookingPrefs || !budgetPrefs) {
           throw new Error('One or more preferences not found');
@@ -100,10 +104,22 @@ const LoadingMealPlanScreen: React.FC = () => {
           dietary: dietaryPrefs,
           food: foodPrefs,
           cooking: cookingPrefs,
-          budget: budgetPrefs
+          budget: budgetPrefs,
+          usePantryItems
         });
         
         logger.debug(`API returned ${recipes.length} total recipes`);
+        
+        if (usePantryItems) {
+          logger.debug('Pantry-aware recipe generation was enabled');
+          
+          // Log recipes with high pantry match percentages
+          const pantryMatches = recipes.filter((recipe: any) => 
+            recipe.metadata?.pantryMatchPercentage > 25
+          );
+          
+          logger.debug(`${pantryMatches.length} recipes have significant pantry matches`);
+        }
         
         // Log the distribution of recipes by meal type
         const breakfastRecipes = recipes.filter(r => r.tags.includes('breakfast')).length;

@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Recipe } from '../contexts/MealPlanContext';
 import logger from './logger';
+import auth from '@react-native-firebase/auth';
+import { firestoreService } from '../services/firebaseService';
 
 const RECIPE_HISTORY_KEY = 'recipe_history';
 const MAX_HISTORY_ITEMS = 100;
@@ -125,6 +127,63 @@ export async function recordMealPlan(
     return true;
   } catch (error) {
     logger.error('Error recording meal plan:', error);
+    return false;
+  }
+}
+
+/**
+ * Save the current meal plan to the user's Firestore account
+ * This is used during user account creation to persist the generated recipes
+ * @param recipes Array of recipes in the current meal plan
+ * @returns Promise resolving to boolean indicating success
+ */
+export async function saveMealPlanToFirestore(recipes: Recipe[]): Promise<boolean> {
+  try {
+    if (!auth().currentUser) {
+      // Can't save if not authenticated
+      return false;
+    }
+    
+    // First record the meal plan usage
+    await recordMealPlan(recipes);
+    
+    // Then save each recipe to the user's collection
+    const savedRecipes = await Promise.all(
+      recipes.map(async (recipe) => {
+        // Transform Recipe to RecipeDocument format
+        const recipeDoc = {
+          name: recipe.name,
+          servings: recipe.servings,
+          readyInMinutes: parseInt(recipe.prepTime || '0') + parseInt(recipe.cookTime || '0'),
+          ingredients: recipe.ingredients.map(ing => ({
+            name: ing.item,
+            amount: 1, // Default amount
+            unit: ing.measurement,
+            originalString: `${ing.measurement} ${ing.item}`
+          })),
+          instructions: recipe.instructions.map((inst, index) => ({
+            number: index + 1,
+            instruction: inst
+          })),
+          imageUrl: recipe.imageUrl,
+          tags: recipe.tags || [],
+          isFavorite: true, // Mark as favorite by default since the user selected these
+          summary: recipe.description || '',
+          sourceUrl: '',
+          cuisines: [],
+          diets: [],
+          dishTypes: []
+        };
+        
+        // Save to Firestore
+        return await firestoreService.saveRecipe(recipeDoc);
+      })
+    );
+    
+    // Return true if all recipes were saved successfully
+    return savedRecipes.every(id => id !== null);
+  } catch (error) {
+    logger.error('Error saving meal plan to Firestore:', error);
     return false;
   }
 } 

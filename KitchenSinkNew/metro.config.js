@@ -23,10 +23,9 @@ config.experimental = {
   networkInspector: true
 };
 
-// Add watchFolders to handle potential monorepo structure
+// Only watch the app's own node_modules
 config.watchFolders = [
   ...config.watchFolders || [],
-  path.resolve(__dirname, '../node_modules'),
   path.resolve(__dirname, 'node_modules')
 ];
 
