@@ -159,7 +159,7 @@ const LoadingMealPlanScreen: React.FC = () => {
         // Navigate to meal plan screen
         setTimeout(() => {
           setIsLoading(false);
-          navigation.replace('MealPlan');
+          navigation.replace('MealPlan', {});
         }, 500);
       } catch (error: any) {
         logger.error('Error generating meal plan:', error);

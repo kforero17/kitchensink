@@ -57,11 +57,11 @@ const App = () => {
 
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <MealPlanProvider>
+      <MealPlanProvider>
+        <AuthProvider>
           <AppNavigator />
-        </MealPlanProvider>
-      </AuthProvider>
+        </AuthProvider>
+      </MealPlanProvider>
     </SafeAreaProvider>
   );
 };

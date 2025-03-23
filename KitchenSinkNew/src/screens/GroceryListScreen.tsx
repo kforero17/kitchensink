@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView, ActivityIndicator, Alert, Animated, PanResponder, Dimensions, Share } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView, ActivityIndicator, Alert, Animated, PanResponder, Dimensions, Share, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import AuthModal from '../components/AuthModal';
 import AuthPrompt from '../components/AuthPrompt';
 import { groceryListService } from '../services/groceryListService';
+import { firestoreService } from '../services/firebaseService';
 
 type GroceryListScreenRouteProp = RouteProp<RootStackParamList, 'GroceryList'>;
 type GroceryListScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GroceryList'>;
@@ -463,7 +464,7 @@ const SwipeableIngredient = ({
 const GroceryListScreen: React.FC = () => {
   const navigation = useNavigation<GroceryListScreenNavigationProp>();
   const route = useRoute<GroceryListScreenRouteProp>();
-  const { selectedRecipes = [] } = route.params || {};
+  const { selectedRecipes = [], existingListId } = route.params || {};
   const { user, hasCompletedOnboarding, setHasCompletedOnboarding } = useAuth();
   
   const [loading, setLoading] = useState(true);
@@ -473,35 +474,82 @@ const GroceryListScreen: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showAuthPrompt, setShowAuthPrompt] = useState(false);
   const [savedLists, setSavedLists] = useState<any[]>([]);
+  const [savingInProgress, setSavingInProgress] = useState(false);
+  const [listName, setListName] = useState('My Grocery List');
   
-  // Show auth prompt when user completes the initial flow
+  // Load existing grocery list if existingListId is provided
   useEffect(() => {
-    if (!user && !hasCompletedOnboarding) {
-      // Wait a bit before showing the auth prompt to allow the user to see the grocery list first
-      const timer = setTimeout(() => {
-        setShowAuthPrompt(true);
-        setHasCompletedOnboarding(true);
-      }, 1500);
-      
-      return () => clearTimeout(timer);
+    const loadExistingList = async () => {
+      if (existingListId && user) {
+        setLoading(true);
+        try {
+          // Get grocery list by ID
+          const groceryList = await groceryListService.getGroceryList(existingListId);
+          
+          if (groceryList) {
+            setListName(groceryList.name);
+            
+            // Group items by category
+            const groupedItems: Record<string, Ingredient[]> = {};
+            
+            groceryList.items.forEach(item => {
+              const category = item.category || 'Other';
+              if (!groupedItems[category]) {
+                groupedItems[category] = [];
+              }
+              
+              groupedItems[category].push({
+                name: item.name,
+                measurement: item.measurement,
+                category: item.category,
+                recipeId: item.recipeId || '',
+                recipeName: item.recipeName || '',
+                recommendedPackage: item.recommendedPackage || ''
+              });
+              
+              // Mark items as removed if they are checked
+              if (item.isChecked) {
+                setRemovedIngredients(prev => {
+                  const newSet = new Set(prev);
+                  newSet.add(item.name.toLowerCase());
+                  return newSet;
+                });
+              }
+            });
+            
+            setCategorizedIngredients(groupedItems);
+          }
+        } catch (error) {
+          console.error('Error loading grocery list:', error);
+          Alert.alert('Error', 'Failed to load grocery list. Please try again.');
+        } finally {
+          setLoading(false);
+        }
+      }
+    };
+    
+    if (existingListId) {
+      loadExistingList();
     }
-  }, [user, hasCompletedOnboarding]);
-  
+  }, [existingListId, user]);
+
   // Process recipes to extract and categorize ingredients
   useEffect(() => {
     const loadData = async () => {
       try {
+        // Only process recipes if we're not loading an existing list
+        if (existingListId || !selectedRecipes || selectedRecipes.length === 0) {
+          if (!existingListId) {
+            setLoading(false);
+          }
+          return;
+        }
+
         setLoading(true);
         
         // Initialize with empty objects/arrays to prevent undefined errors
         setIngredients([]);
         setCategorizedIngredients({});
-        
-        // Check if we have recipes to process
-        if (!selectedRecipes || selectedRecipes.length === 0) {
-          setLoading(false);
-          return;
-        }
         
         // Extract and process ingredients
         const allIngredients: Ingredient[] = [];
@@ -658,7 +706,7 @@ const GroceryListScreen: React.FC = () => {
     };
     
     loadData();
-  }, [selectedRecipes]);
+  }, [selectedRecipes, existingListId]);
   
   useEffect(() => {
     const loadSavedLists = async () => {
@@ -674,6 +722,19 @@ const GroceryListScreen: React.FC = () => {
 
     loadSavedLists();
   }, []);
+  
+  // Show auth prompt when user completes the initial flow
+  useEffect(() => {
+    if (!user && !hasCompletedOnboarding) {
+      // Wait a bit before showing the auth prompt to allow the user to see the grocery list first
+      const timer = setTimeout(() => {
+        setShowAuthPrompt(true);
+        setHasCompletedOnboarding(true);
+      }, 1500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [user, hasCompletedOnboarding]);
   
   // Handle removing an ingredient
   const handleRemoveIngredient = (ingredientName: string) => {
@@ -739,79 +800,156 @@ const GroceryListScreen: React.FC = () => {
   
   const handleSaveList = async () => {
     try {
-      // Create the grocery list to save
-      const listToSave = {
-        id: `list_${Date.now()}`,
-        createdAt: new Date().toISOString(),
-        categories: { ...categorizedIngredients },
-        removedItems: Array.from(removedIngredients),
-        recipes: selectedRecipes.map((recipe: any) => ({
-          id: recipe.id,
-          name: recipe.name,
-        })),
-      };
-
-      // Get previously saved lists
-      let lists = [...savedLists];
-      lists.push(listToSave);
-
-      // Save to AsyncStorage
-      await AsyncStorage.setItem('@grocery_lists', JSON.stringify(lists));
-      setSavedLists(lists);
-
-      // Show auth modal if user is not authenticated (regardless of list count)
+      setSavingInProgress(true);
+      // Check if user is logged in - if not, show auth prompt
       if (!user) {
-        setShowAuthModal(true);
-        Alert.alert(
-          'List Saved Locally', 
-          'Your grocery list has been saved locally. Sign in to sync it across your devices.',
-          [{ text: 'OK' }]
-        );
+        setShowAuthPrompt(true);
+        setSavingInProgress(false);
+        return;
+      }
+
+      // Generate the grocery list from categorized ingredients
+      const groceryItems = Object.values(categorizedIngredients)
+        .flat()
+        .filter(item => !removedIngredients.has(item.name.toLowerCase()))
+        .map(item => ({
+          name: item.name,
+          measurement: item.measurement,
+          category: item.category || 'Other',
+          isChecked: false,
+          recipeId: item.recipeId,
+          recipeName: item.recipeName,
+          recommendedPackage: item.recommendedPackage
+        }));
+
+      // If we're updating an existing list
+      if (existingListId) {
+        const success = await groceryListService.updateGroceryList(existingListId, {
+          name: listName,
+          items: groceryItems
+        });
+        
+        setSavingInProgress(false);
+        
+        if (success) {
+          Alert.alert(
+            'Success',
+            'Your grocery list has been updated!',
+            [{ text: 'OK', onPress: () => navigation.navigate('Profile') }]
+          );
+        } else {
+          Alert.alert('Error', 'Failed to update grocery list. Please try again.');
+        }
       } else {
-        Alert.alert('Success', 'Your grocery list has been saved.');
+        // Create a new list
+        const listId = await groceryListService.createGroceryList(
+          listName, 
+          groceryItems
+        );
+
+        setSavingInProgress(false);
+        
+        if (listId) {
+          Alert.alert(
+            'Success',
+            'Your grocery list has been saved! You can access all your saved lists in your profile.',
+            [{ text: 'Go to Profile', onPress: () => navigation.navigate('Profile') }]
+          );
+        } else {
+          Alert.alert('Error', 'Failed to save grocery list. Please try again.');
+        }
       }
     } catch (error) {
+      setSavingInProgress(false);
+      Alert.alert('Error', 'Something went wrong. Please try again.');
       console.error('Error saving grocery list:', error);
-      Alert.alert('Error', 'Failed to save your grocery list. Please try again.');
     }
   };
 
-  const handleAuthSuccess = () => {
-    setShowAuthModal(false);
-    
-    // Save the current grocery list to the user's account
-    const saveListAfterAuth = async () => {
-      try {
-        // Create a new list with the current ingredients
-        const groceryItems = Object.values(categorizedIngredients)
-          .flat()
-          .filter(item => !removedIngredients.has(item.name))
-          .map(item => ({
-            name: item.name,
-            measurement: item.measurement,
-            category: item.category,
-            recipeId: item.recipeId,
-            recipeName: item.recipeName,
-            recommendedPackage: item.recommendedPackage || '',
-            isChecked: false
-          }));
-          
-        // Save to Firestore
-        const listId = await groceryListService.createGroceryList('Current Meal Plan', groceryItems);
-        
-        if (listId) {
-          Alert.alert('Success', 'Your grocery list has been saved to your account.');
-          // Navigate to profile screen
-          navigation.navigate('Profile');
+  // Enhanced auth success handler with data migration
+  const handleAuthSuccess = async () => {
+    try {
+      // Close the modal
+      setShowAuthPrompt(false);
+      setShowAuthModal(false);
+      
+      // Show loading indicator
+      setSavingInProgress(true);
+      
+      // Wait for the auth state to update
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Create grocery list items from categorized ingredients
+      const groceryItems = Object.values(categorizedIngredients)
+        .flat()
+        .filter(item => !removedIngredients.has(item.name.toLowerCase()))
+        .map(item => ({
+          name: item.name,
+          measurement: item.measurement,
+          category: item.category || 'Other',
+          isChecked: false
+        }));
+      
+      // Save grocery list
+      const listId = await groceryListService.createGroceryList(
+        'My First Grocery List', 
+        groceryItems
+      );
+      
+      // If there are selected recipes, save them
+      if (selectedRecipes && selectedRecipes.length > 0) {
+        // Save recipes to Firestore
+        for (const recipe of selectedRecipes) {
+          await firestoreService.saveRecipe({
+            name: recipe.name,
+            servings: recipe.servings,
+            readyInMinutes: parseInt(recipe.prepTime || '0') + parseInt(recipe.cookTime || '0'),
+            ingredients: recipe.ingredients.map((ing: { item: string; measurement: string }) => ({
+              name: ing.item,
+              amount: 1, // Default amount
+              unit: ing.measurement,
+              originalString: `${ing.measurement} ${ing.item}`
+            })),
+            instructions: recipe.instructions.map((inst: string, index: number) => ({
+              number: index + 1,
+              instruction: inst
+            })),
+            imageUrl: recipe.imageUrl,
+            tags: recipe.tags || [],
+            isFavorite: true,
+            summary: recipe.description || '',
+            sourceUrl: '',
+            cuisines: [],
+            diets: [],
+            dishTypes: []
+          });
         }
-      } catch (error) {
-        console.error('Error saving grocery list after auth:', error);
-        Alert.alert('Error', 'Failed to save your grocery list. You can try saving it again from your profile.');
-        navigation.navigate('Profile');
       }
-    };
-    
-    saveListAfterAuth();
+      
+      // Mark onboarding as completed
+      setHasCompletedOnboarding(true);
+      
+      // Hide loading indicator
+      setSavingInProgress(false);
+      
+      // Show success message and navigate to profile
+      Alert.alert(
+        'Profile Created Successfully!',
+        'Your account has been set up and your grocery list and recipes have been saved. You can access everything from your profile.',
+        [{ 
+          text: 'Go to Profile', 
+          onPress: () => navigation.navigate('Profile')
+        }]
+      );
+    } catch (error) {
+      setSavingInProgress(false);
+      console.error('Error in handleAuthSuccess:', error);
+      Alert.alert(
+        'Profile Created',
+        'Your account has been created, but we encountered an issue saving your data. Please try again from your profile.',
+        [{ text: 'OK', onPress: () => navigation.navigate('Profile') }]
+      );
+    }
   };
   
   const handleShareList = async () => {
@@ -913,11 +1051,18 @@ const GroceryListScreen: React.FC = () => {
       
       <View style={styles.actionsContainer}>
         <TouchableOpacity
-          style={styles.saveButton}
+          style={[styles.saveButton, savingInProgress && styles.disabledButton]}
           onPress={handleSaveList}
+          disabled={loading || savingInProgress}
         >
-          <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
-          <Text style={styles.saveButtonText}>Save List</Text>
+          {savingInProgress ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <MaterialCommunityIcons name="content-save" size={20} color="#fff" />
+              <Text style={styles.saveButtonText}>Save List</Text>
+            </>
+          )}
         </TouchableOpacity>
         
         <TouchableOpacity
@@ -929,17 +1074,68 @@ const GroceryListScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
       
-      {/* Auth Modal */}
+      {/* Auth Prompt Modal */}
+      <Modal
+        visible={showAuthPrompt}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowAuthPrompt(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <MaterialCommunityIcons name="account-plus" size={40} color="#007AFF" style={styles.modalIcon} />
+            
+            <Text style={styles.modalTitle}>Create a Profile</Text>
+            
+            <Text style={styles.modalDescription}>
+              Sign up to save your meal plan, grocery list, and preferences. Your data will be securely stored and available on any device.
+            </Text>
+            
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={styles.skipButton}
+                onPress={() => {
+                  setShowAuthPrompt(false);
+                  Alert.alert(
+                    'Not Saved',
+                    'Your grocery list was created but not saved to your account.',
+                    [{ text: 'OK' }]
+                  );
+                }}
+              >
+                <Text style={styles.skipButtonText}>Skip for now</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.signUpButton}
+                onPress={() => {
+                  setShowAuthPrompt(false);
+                  setShowAuthModal(true);
+                }}
+              >
+                <Text style={styles.signUpButtonText}>Create Profile</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Include the AuthModal component */}
       <AuthModal
         visible={showAuthModal}
         onClose={() => setShowAuthModal(false)}
         onSuccess={handleAuthSuccess}
       />
       
-      <AuthPrompt 
-        visible={showAuthPrompt}
-        onClose={() => setShowAuthPrompt(false)}
-      />
+      {/* Global loading overlay for data saving operations */}
+      {savingInProgress && (
+        <View style={styles.globalLoadingOverlay}>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={styles.loadingText}>Saving your data...</Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -1112,15 +1308,17 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     backgroundColor: '#4CAF50',
-    paddingVertical: 12,
-    borderRadius: 8,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 8,
+    margin: 16,
   },
   saveButtonText: {
     color: 'white',
+    fontWeight: '600',
     fontSize: 16,
-    fontWeight: 'bold',
     marginLeft: 8,
   },
   shareButton: {
@@ -1172,6 +1370,96 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#4CAF50',
     fontStyle: 'normal',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    width: '90%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  modalIcon: {
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalDescription: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  skipButton: {
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    flex: 1,
+    marginRight: 8,
+    alignItems: 'center',
+  },
+  skipButtonText: {
+    color: '#666',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  signUpButton: {
+    backgroundColor: '#007AFF',
+    padding: 12,
+    borderRadius: 8,
+    flex: 1,
+    marginLeft: 8,
+    alignItems: 'center',
+  },
+  signUpButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  disabledButton: {
+    opacity: 0.7,
+  },
+  globalLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  loadingContainer: {
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    minWidth: 200,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#333',
   },
 });
 

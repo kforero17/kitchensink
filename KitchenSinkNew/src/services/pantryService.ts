@@ -74,46 +74,58 @@ class PantryService {
         status = 'low';
       }
       
+      // Generate a local ID and set dates
+      const id = 'local-' + Date.now().toString();
+      const timestamp = new Date();
+      
+      // Create the complete item
+      const newItem: PantryItemDocument = {
+        id,
+        ...item,
+        status,
+        createdAt: { toDate: () => timestamp } as any,
+        updatedAt: { toDate: () => timestamp } as any,
+      };
+      
+      // Get existing items
+      const existingItems = await this.getAllPantryItems();
+      
+      // Always save to AsyncStorage first
+      await AsyncStorage.setItem(
+        PANTRY_ITEMS_KEY,
+        JSON.stringify([...existingItems, newItem])
+      );
+      
+      // If authenticated, also save to Firestore
       if (this.shouldUseFirestore()) {
-        // Use Firestore for authenticated users
-        const pantryRef = this.getPantryCollectionRef();
-        if (!pantryRef) throw new Error('User not authenticated');
-        
-        const timestamp = firestore.FieldValue.serverTimestamp();
-        
-        const docRef = await pantryRef.add({
-          ...item,
-          status,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        });
-        
-        return docRef.id;
-      } else {
-        // Use AsyncStorage for anonymous users
-        const id = 'local-' + Date.now().toString();
-        const timestamp = new Date();
-        
-        // Get existing items
-        const existingItems = await this.getAllPantryItems();
-        
-        // Add new item
-        const newItem: PantryItemDocument = {
-          id,
-          ...item,
-          status,
-          createdAt: { toDate: () => timestamp } as any,
-          updatedAt: { toDate: () => timestamp } as any,
-        };
-        
-        // Save to AsyncStorage
-        await AsyncStorage.setItem(
-          PANTRY_ITEMS_KEY,
-          JSON.stringify([...existingItems, newItem])
-        );
-        
-        return id;
+        try {
+          const pantryRef = this.getPantryCollectionRef();
+          if (pantryRef) {
+            const timestamp = firestore.FieldValue.serverTimestamp();
+            
+            const docRef = await pantryRef.add({
+              ...item,
+              status,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            });
+            
+            // Update local item with Firestore ID
+            newItem.id = docRef.id;
+            
+            // Update AsyncStorage with new ID
+            const updatedItems = existingItems.filter(i => i.id !== id).concat(newItem);
+            await AsyncStorage.setItem(PANTRY_ITEMS_KEY, JSON.stringify(updatedItems));
+            
+            return docRef.id;
+          }
+        } catch (firestoreError) {
+          logger.error('Error saving pantry item to Firestore:', firestoreError);
+          // We still return the local ID since we saved to AsyncStorage successfully
+        }
       }
+      
+      return id;
     } catch (error) {
       logger.error('Error adding pantry item:', error);
       return null;

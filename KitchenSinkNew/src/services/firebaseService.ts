@@ -16,6 +16,35 @@ import { BudgetPreferences } from '../types/BudgetPreferences';
 import logger from '../utils/logger';
 
 /**
+ * Utility function to clean objects before sending to Firestore
+ * Removes undefined values that cause errors
+ */
+const cleanForFirestore = (data: any): any => {
+  if (data === null || data === undefined) {
+    return null;
+  }
+
+  if (Array.isArray(data)) {
+    return data.map(item => cleanForFirestore(item));
+  }
+
+  if (typeof data === 'object' && data !== null) {
+    const cleanObject: {[key: string]: any} = {};
+    
+    Object.keys(data).forEach(key => {
+      // Remove undefined values, but keep null values
+      if (data[key] !== undefined) {
+        cleanObject[key] = cleanForFirestore(data[key]);
+      }
+    });
+    
+    return cleanObject;
+  }
+  
+  return data;
+};
+
+/**
  * Firestore Database Service
  * 
  * Provides methods for interacting with Firestore database
@@ -72,8 +101,8 @@ class FirestoreService {
       const userData: Partial<UserDocument> = {
         uid: userId,
         email,
-        displayName,
-        photoURL,
+        displayName: displayName || undefined,
+        photoURL: photoURL || undefined,
         preferences: {
           dietary: {
             vegetarian: false,
@@ -110,10 +139,13 @@ class FirestoreService {
         updatedAt: timestamp as any
       };
       
+      // Clean the data to remove undefined values
+      const cleanedData = cleanForFirestore(userData);
+      
       await firestore()
         .collection(FIRESTORE_PATHS.USERS)
         .doc(userId)
-        .set(userData);
+        .set(cleanedData);
       
       logger.debug('New user initialized in Firestore', { userId });
     } catch (error) {
@@ -496,22 +528,25 @@ class FirestoreService {
         .limit(1)
         .get();
       
+      // Clean the recipe data
+      const cleanedRecipe = cleanForFirestore({
+        ...recipe,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      });
+      
       if (!querySnapshot.empty) {
         // Update existing recipe
         const existingDoc = querySnapshot.docs[0];
         await existingDoc.ref.update({
-          ...recipe,
+          ...cleanedRecipe,
           updatedAt: timestamp
         });
         return existingDoc.id;
       }
       
       // Create new recipe
-      const docRef = await recipesRef.add({
-        ...recipe,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      });
+      const docRef = await recipesRef.add(cleanedRecipe);
       
       return docRef.id;
     } catch (error) {

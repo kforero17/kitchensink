@@ -59,33 +59,134 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const subscriber = auth().onAuthStateChanged(async (userState) => {
       setUser(userState);
       
+      // Add debug logging for auth state
+      console.log('Auth state changed:', userState ? `User ${userState.uid} logged in` : 'No user logged in');
+      
       // When a user logs in, ensure they have a Firestore user document
       if (userState) {
         try {
-          // Check if user document exists in Firestore
-          const userExists = await firestoreService.userExists();
+          // Log user details for debugging
+          console.log('Current user details:', {
+            uid: userState.uid,
+            email: userState.email,
+            emailVerified: userState.emailVerified,
+            displayName: userState.displayName,
+            isAnonymous: userState.isAnonymous,
+            metadata: userState.metadata
+          });
+          
+          // Get current token for debugging
+          try {
+            const token = await userState.getIdToken(true);
+            console.log('User token successfully refreshed');
+          } catch (tokenError) {
+            console.error('Error refreshing user token:', tokenError);
+          }
+          
+          // Add retry logic for Firestore operations
+          const retryOperation = async <T,>(
+            operation: () => Promise<T>,
+            maxRetries: number = 3,
+            delay: number = 1000
+          ): Promise<T> => {
+            let lastError: any;
+            
+            for (let i = 0; i < maxRetries; i++) {
+              try {
+                return await operation();
+              } catch (error: any) {
+                lastError = error;
+                
+                // Check if it's a temporary Firestore issue
+                if (error.message?.includes('firestore/unavailable') || 
+                    error.message?.includes('The service is currently unavailable')) {
+                  logger.debug(`Firestore operation failed, retrying (${i + 1}/${maxRetries})...`);
+                  // Wait before retry with exponential backoff
+                  await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+                  continue;
+                }
+                
+                // Also retry permission denied errors in case security rules are updating
+                if (error.message?.includes('firestore/permission-denied')) {
+                  logger.debug(`Firestore permission denied, retrying (${i + 1}/${maxRetries})...`);
+                  // Wait before retry with exponential backoff
+                  await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+                  continue;
+                }
+                
+                // If it's not a temporary issue, don't retry
+                throw error;
+              }
+            }
+            
+            // If we've exhausted retries, throw the last error
+            throw lastError;
+          };
+          
+          // Check if user document exists in Firestore with retry
+          const userExists = await retryOperation(async () => {
+            logger.debug('Checking if user document exists in Firestore...');
+            return await firestoreService.userExists();
+          });
           
           if (!userExists) {
-            // Create new user document in Firestore
-            await firestoreService.initializeNewUser(
-              userState.uid,
-              userState.email || 'no-email@example.com',
-              userState.displayName || undefined,
-              userState.photoURL || undefined
-            );
+            // Create new user document in Firestore with retry
+            logger.debug('User document does not exist, creating it in Firestore...');
+            await retryOperation(async () => {
+              await firestoreService.initializeNewUser(
+                userState.uid,
+                userState.email || 'no-email@example.com',
+                userState.displayName || undefined,
+                userState.photoURL || undefined
+              );
+            });
+            
             logger.debug('Created new Firestore user document', { uid: userState.uid });
             
-            // Migrate any existing AsyncStorage preferences to Firestore
-            await migratePreferencesToFirestore();
+            // Migrate any existing AsyncStorage preferences to Firestore with retry
+            logger.debug('Migrating preferences from AsyncStorage to Firestore...');
+            let migrationSuccess = false;
+            try {
+              migrationSuccess = await retryOperation(async () => {
+                return await migratePreferencesToFirestore();
+              });
+              logger.debug('Preference migration result:', migrationSuccess ? 'Success' : 'Failed');
+            } catch (error) {
+              logger.error('Failed to migrate preferences to Firestore:', error);
+            }
             
-            // Migrate any existing local grocery lists to Firestore
-            await groceryListService.migrateLocalGroceryListToFirestore();
+            // Migrate any existing local grocery lists to Firestore with retry
+            logger.debug('Migrating grocery lists from AsyncStorage to Firestore...');
+            try {
+              const grocerySuccess = await retryOperation(async () => {
+                return await groceryListService.migrateLocalGroceryListToFirestore();
+              });
+              logger.debug('Grocery list migration result:', grocerySuccess ? 'Success' : 'Failed');
+            } catch (error) {
+              logger.error('Failed to migrate grocery lists to Firestore:', error);
+            }
             
-            // Migrate any existing local pantry items to Firestore
-            await pantryService.migrateLocalPantryItemsToFirestore();
+            // Migrate any existing local pantry items to Firestore with retry
+            logger.debug('Migrating pantry items from AsyncStorage to Firestore...');
+            try {
+              const pantrySuccess = await retryOperation(async () => {
+                return await pantryService.migrateLocalPantryItemsToFirestore();
+              });
+              logger.debug('Pantry items migration result:', pantrySuccess ? 'Success' : 'Failed');
+            } catch (error) {
+              logger.error('Failed to migrate pantry items to Firestore:', error);
+            }
 
-            // Save meal plan to Firestore
-            await saveMealPlanToFirestore(mealPlan);
+            // Save meal plan to Firestore with retry
+            logger.debug('Migrating meal plan to Firestore...');
+            try {
+              const mealPlanSuccess = await retryOperation(async () => {
+                return await saveMealPlanToFirestore(mealPlan);
+              });
+              logger.debug('Meal plan migration result:', mealPlanSuccess ? 'Success' : 'Failed');
+            } catch (error) {
+              logger.error('Failed to migrate meal plan to Firestore:', error);
+            }
           } else {
             logger.debug('User document already exists in Firestore', { uid: userState.uid });
           }

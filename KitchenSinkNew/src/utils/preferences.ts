@@ -40,14 +40,21 @@ export async function clearAllPreferences(): Promise<void> {
 
 export async function saveDietaryPreferences(preferences: DietaryPreferences): Promise<boolean> {
   try {
+    // Always save to AsyncStorage first (regardless of auth status)
+    await AsyncStorage.setItem(STORAGE_KEYS.DIETARY_PREFERENCES, JSON.stringify(preferences));
+    
+    // If authenticated, also save to Firestore
     if (shouldUseFirestore()) {
-      // Use Firestore if authenticated
-      return await firestoreService.saveDietaryPreferences(preferences);
-    } else {
-      // Use AsyncStorage as fallback
-      await AsyncStorage.setItem(STORAGE_KEYS.DIETARY_PREFERENCES, JSON.stringify(preferences));
-      return true;
+      try {
+        await firestoreService.saveDietaryPreferences(preferences);
+      } catch (firestoreError) {
+        // Log Firestore error but don't fail the operation
+        logger.error('Error saving dietary preferences to Firestore:', firestoreError);
+        // We still return true since we saved to AsyncStorage successfully
+      }
     }
+    
+    return true;
   } catch (error) {
     logger.error('Error saving dietary preferences:', error);
     return false;
@@ -56,14 +63,25 @@ export async function saveDietaryPreferences(preferences: DietaryPreferences): P
 
 export async function getDietaryPreferences(): Promise<DietaryPreferences | null> {
   try {
+    // Try to get from AsyncStorage first
+    const data = await AsyncStorage.getItem(STORAGE_KEYS.DIETARY_PREFERENCES);
+    const localPrefs = data ? JSON.parse(data) : null;
+    
+    // If authenticated, try to get from Firestore
     if (shouldUseFirestore()) {
-      // Use Firestore if authenticated
-      return await firestoreService.getDietaryPreferences();
-    } else {
-      // Use AsyncStorage as fallback
-      const data = await AsyncStorage.getItem(STORAGE_KEYS.DIETARY_PREFERENCES);
-      return data ? JSON.parse(data) : null;
+      try {
+        const firestorePrefs = await firestoreService.getDietaryPreferences();
+        // Return Firestore data if available, otherwise use local data
+        return firestorePrefs || localPrefs;
+      } catch (firestoreError) {
+        logger.error('Error getting dietary preferences from Firestore:', firestoreError);
+        // Fall back to local data on Firestore error
+        return localPrefs;
+      }
     }
+    
+    // Return local data
+    return localPrefs;
   } catch (error) {
     logger.error('Error getting dietary preferences:', error);
     return null;
@@ -72,14 +90,21 @@ export async function getDietaryPreferences(): Promise<DietaryPreferences | null
 
 export async function saveFoodPreferences(preferences: FoodPreferences): Promise<boolean> {
   try {
+    // Always save to AsyncStorage first (regardless of auth status)
+    await AsyncStorage.setItem(STORAGE_KEYS.FOOD_PREFERENCES, JSON.stringify(preferences));
+    
+    // If authenticated, also save to Firestore
     if (shouldUseFirestore()) {
-      // Use Firestore if authenticated
-      return await firestoreService.saveFoodPreferences(preferences);
-    } else {
-      // Use AsyncStorage as fallback
-      await AsyncStorage.setItem(STORAGE_KEYS.FOOD_PREFERENCES, JSON.stringify(preferences));
-      return true;
+      try {
+        await firestoreService.saveFoodPreferences(preferences);
+      } catch (firestoreError) {
+        // Log Firestore error but don't fail the operation
+        logger.error('Error saving food preferences to Firestore:', firestoreError);
+        // We still return true since we saved to AsyncStorage successfully
+      }
     }
+    
+    return true;
   } catch (error) {
     logger.error('Error saving food preferences:', error);
     return false;
@@ -88,14 +113,25 @@ export async function saveFoodPreferences(preferences: FoodPreferences): Promise
 
 export async function getFoodPreferences(): Promise<FoodPreferences | null> {
   try {
+    // Try to get from AsyncStorage first
+    const data = await AsyncStorage.getItem(STORAGE_KEYS.FOOD_PREFERENCES);
+    const localPrefs = data ? JSON.parse(data) : null;
+    
+    // If authenticated, try to get from Firestore
     if (shouldUseFirestore()) {
-      // Use Firestore if authenticated
-      return await firestoreService.getFoodPreferences();
-    } else {
-      // Use AsyncStorage as fallback
-      const data = await AsyncStorage.getItem(STORAGE_KEYS.FOOD_PREFERENCES);
-      return data ? JSON.parse(data) : null;
+      try {
+        const firestorePrefs = await firestoreService.getFoodPreferences();
+        // Return Firestore data if available, otherwise use local data
+        return firestorePrefs || localPrefs;
+      } catch (firestoreError) {
+        logger.error('Error getting food preferences from Firestore:', firestoreError);
+        // Fall back to local data on Firestore error
+        return localPrefs;
+      }
     }
+    
+    // Return local data
+    return localPrefs;
   } catch (error) {
     logger.error('Error getting food preferences:', error);
     return null;
@@ -104,14 +140,21 @@ export async function getFoodPreferences(): Promise<FoodPreferences | null> {
 
 export async function saveCookingPreferences(preferences: CookingPreferences): Promise<boolean> {
   try {
+    // Always save to AsyncStorage first (regardless of auth status)
+    await AsyncStorage.setItem(STORAGE_KEYS.COOKING_PREFERENCES, JSON.stringify(preferences));
+    
+    // If authenticated, also save to Firestore
     if (shouldUseFirestore()) {
-      // Use Firestore if authenticated
-      return await firestoreService.saveCookingPreferences(preferences);
-    } else {
-      // Use AsyncStorage as fallback
-      await AsyncStorage.setItem(STORAGE_KEYS.COOKING_PREFERENCES, JSON.stringify(preferences));
-      return true;
+      try {
+        await firestoreService.saveCookingPreferences(preferences);
+      } catch (firestoreError) {
+        // Log Firestore error but don't fail the operation
+        logger.error('Error saving cooking preferences to Firestore:', firestoreError);
+        // We still return true since we saved to AsyncStorage successfully
+      }
     }
+    
+    return true;
   } catch (error) {
     logger.error('Error saving cooking preferences:', error);
     return false;
@@ -120,14 +163,25 @@ export async function saveCookingPreferences(preferences: CookingPreferences): P
 
 export async function getCookingPreferences(): Promise<CookingPreferences | null> {
   try {
+    // Try to get from AsyncStorage first
+    const data = await AsyncStorage.getItem(STORAGE_KEYS.COOKING_PREFERENCES);
+    const localPrefs = data ? JSON.parse(data) : null;
+    
+    // If authenticated, try to get from Firestore
     if (shouldUseFirestore()) {
-      // Use Firestore if authenticated
-      return await firestoreService.getCookingPreferences();
-    } else {
-      // Use AsyncStorage as fallback
-      const data = await AsyncStorage.getItem(STORAGE_KEYS.COOKING_PREFERENCES);
-      return data ? JSON.parse(data) : null;
+      try {
+        const firestorePrefs = await firestoreService.getCookingPreferences();
+        // Return Firestore data if available, otherwise use local data
+        return firestorePrefs || localPrefs;
+      } catch (firestoreError) {
+        logger.error('Error getting cooking preferences from Firestore:', firestoreError);
+        // Fall back to local data on Firestore error
+        return localPrefs;
+      }
     }
+    
+    // Return local data
+    return localPrefs;
   } catch (error) {
     logger.error('Error getting cooking preferences:', error);
     return null;
@@ -136,14 +190,21 @@ export async function getCookingPreferences(): Promise<CookingPreferences | null
 
 export async function saveBudgetPreferences(preferences: BudgetPreferences): Promise<boolean> {
   try {
+    // Always save to AsyncStorage first (regardless of auth status)
+    await AsyncStorage.setItem(STORAGE_KEYS.BUDGET_PREFERENCES, JSON.stringify(preferences));
+    
+    // If authenticated, also save to Firestore
     if (shouldUseFirestore()) {
-      // Use Firestore if authenticated
-      return await firestoreService.saveBudgetPreferences(preferences);
-    } else {
-      // Use AsyncStorage as fallback
-      await AsyncStorage.setItem(STORAGE_KEYS.BUDGET_PREFERENCES, JSON.stringify(preferences));
-      return true;
+      try {
+        await firestoreService.saveBudgetPreferences(preferences);
+      } catch (firestoreError) {
+        // Log Firestore error but don't fail the operation
+        logger.error('Error saving budget preferences to Firestore:', firestoreError);
+        // We still return true since we saved to AsyncStorage successfully
+      }
     }
+    
+    return true;
   } catch (error) {
     logger.error('Error saving budget preferences:', error);
     return false;
@@ -152,14 +213,25 @@ export async function saveBudgetPreferences(preferences: BudgetPreferences): Pro
 
 export async function getBudgetPreferences(): Promise<BudgetPreferences | null> {
   try {
+    // Try to get from AsyncStorage first
+    const data = await AsyncStorage.getItem(STORAGE_KEYS.BUDGET_PREFERENCES);
+    const localPrefs = data ? JSON.parse(data) : null;
+    
+    // If authenticated, try to get from Firestore
     if (shouldUseFirestore()) {
-      // Use Firestore if authenticated
-      return await firestoreService.getBudgetPreferences();
-    } else {
-      // Use AsyncStorage as fallback
-      const data = await AsyncStorage.getItem(STORAGE_KEYS.BUDGET_PREFERENCES);
-      return data ? JSON.parse(data) : null;
+      try {
+        const firestorePrefs = await firestoreService.getBudgetPreferences();
+        // Return Firestore data if available, otherwise use local data
+        return firestorePrefs || localPrefs;
+      } catch (firestoreError) {
+        logger.error('Error getting budget preferences from Firestore:', firestoreError);
+        // Fall back to local data on Firestore error
+        return localPrefs;
+      }
     }
+    
+    // Return local data
+    return localPrefs;
   } catch (error) {
     logger.error('Error getting budget preferences:', error);
     return null;
@@ -221,15 +293,27 @@ export async function migratePreferencesToFirestore(): Promise<boolean> {
  */
 export async function getPreferenceValue<T>(key: string, defaultValue: T): Promise<T> {
   try {
-    // First check if this preference exists in app settings
+    // First check AsyncStorage for this specific key
     let value: T | null = null;
     
-    if (shouldUseFirestore()) {
-      // Try to get from Firestore
-      const settings = await firestoreService.getAppSettings();
-      value = settings && settings[key] !== undefined ? settings[key] as T : null;
-    } else {
-      // Try to get from AsyncStorage
+    try {
+      // Try to get directly from specific key
+      const rawValue = await AsyncStorage.getItem(key);
+      if (rawValue) {
+        try {
+          // Try to parse as JSON first
+          value = JSON.parse(rawValue) as T;
+        } catch {
+          // If parsing fails, use raw value
+          value = rawValue as unknown as T;
+        }
+      }
+    } catch (error) {
+      // Ignore errors with direct key lookup
+    }
+    
+    // If not found in direct key, check AsyncStorage app settings
+    if (value === null) {
       try {
         const settings = await AsyncStorage.getItem(STORAGE_KEYS.APP_SETTINGS);
         if (settings) {
@@ -241,22 +325,14 @@ export async function getPreferenceValue<T>(key: string, defaultValue: T): Promi
       }
     }
     
-    // If value not found in app settings, try to get it from its own key
-    if (value === null) {
+    // If authenticated, also try Firestore
+    if (value === null && shouldUseFirestore()) {
       try {
-        // Try to get from AsyncStorage using direct key
-        const rawValue = await AsyncStorage.getItem(key);
-        if (rawValue) {
-          try {
-            // Try to parse as JSON first
-            value = JSON.parse(rawValue) as T;
-          } catch {
-            // If parsing fails, use raw value
-            value = rawValue as unknown as T;
-          }
-        }
-      } catch (error) {
-        // Ignore errors
+        const settings = await firestoreService.getAppSettings();
+        value = settings && settings[key] !== undefined ? settings[key] as T : null;
+      } catch (firestoreError) {
+        logger.error(`Error getting preference value for ${key} from Firestore:`, firestoreError);
+        // Proceed with local values if Firestore fails
       }
     }
     
@@ -276,26 +352,40 @@ export async function getPreferenceValue<T>(key: string, defaultValue: T): Promi
  */
 export async function savePreferenceValue<T>(key: string, value: T): Promise<boolean> {
   try {
-    if (shouldUseFirestore()) {
-      // If using Firestore, save to app settings
-      return await firestoreService.saveAppSetting(key, value);
-    } else {
-      // Save to AsyncStorage app settings
-      let settings = {};
-      try {
-        const existingSettings = await AsyncStorage.getItem(STORAGE_KEYS.APP_SETTINGS);
-        if (existingSettings) {
-          settings = JSON.parse(existingSettings);
-        }
-      } catch (error) {
-        // If parsing fails, use empty object
+    // Always save to AsyncStorage app settings first
+    let settings = {};
+    try {
+      const existingSettings = await AsyncStorage.getItem(STORAGE_KEYS.APP_SETTINGS);
+      if (existingSettings) {
+        settings = JSON.parse(existingSettings);
       }
-      
-      // Update settings
-      settings = { ...settings, [key]: value };
-      await AsyncStorage.setItem(STORAGE_KEYS.APP_SETTINGS, JSON.stringify(settings));
-      return true;
+    } catch (error) {
+      // If parsing fails, use empty object
     }
+    
+    // Update settings
+    settings = { ...settings, [key]: value };
+    await AsyncStorage.setItem(STORAGE_KEYS.APP_SETTINGS, JSON.stringify(settings));
+    
+    // Additionally save directly to key-specific entry for backward compatibility
+    if (typeof value === 'object') {
+      await AsyncStorage.setItem(key, JSON.stringify(value));
+    } else {
+      await AsyncStorage.setItem(key, String(value));
+    }
+    
+    // If authenticated, also save to Firestore
+    if (shouldUseFirestore()) {
+      try {
+        await firestoreService.saveAppSetting(key, value);
+      } catch (firestoreError) {
+        // Log Firestore error but don't fail the operation
+        logger.error(`Error saving preference value for ${key} to Firestore:`, firestoreError);
+        // We still return true since we saved to AsyncStorage successfully
+      }
+    }
+    
+    return true;
   } catch (error) {
     logger.error(`Error saving preference value for ${key}:`, error);
     return false;

@@ -23,9 +23,12 @@ export type RootStackParamList = {
   CookingHabits: undefined;
   BudgetPreferences: undefined;
   LoadingMealPlan: undefined;
-  MealPlan: undefined;
+  MealPlan: {
+    selectedRecipe?: any;
+  };
   GroceryList: {
     selectedRecipes: any[];
+    existingListId?: string;
   };
   Profile: undefined;
   Debug: undefined;

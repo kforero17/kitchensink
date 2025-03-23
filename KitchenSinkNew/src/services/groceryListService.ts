@@ -28,29 +28,46 @@ class GroceryListService {
    */
   async createGroceryList(name: string, items: GroceryItem[] = []): Promise<string | null> {
     try {
+      // Generate a local ID
+      const localId = 'local-' + Date.now().toString();
+      
+      // Create the grocery list object
+      const groceryList = {
+        id: localId,
+        name,
+        items,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      // Always save to AsyncStorage first
+      await AsyncStorage.setItem(
+        CURRENT_GROCERY_LIST_KEY, 
+        JSON.stringify(groceryList)
+      );
+      
+      // If authenticated, also save to Firestore
       if (this.shouldUseFirestore()) {
-        // Use Firestore if authenticated
-        return await firestoreService.createGroceryList(name, items);
-      } else {
-        // Use AsyncStorage for anonymous users
-        // Just save as current list since we don't support multiple lists for anon users
-        const groceryList = {
-          id: 'local-grocery-list',
-          name,
-          items,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        
-        await AsyncStorage.setItem(
-          CURRENT_GROCERY_LIST_KEY, 
-          JSON.stringify(groceryList)
-        );
-        
-        return 'local-grocery-list';
+        try {
+          const firebaseId = await firestoreService.createGroceryList(name, items);
+          if (firebaseId) {
+            // Update local copy with Firebase ID
+            groceryList.id = firebaseId;
+            await AsyncStorage.setItem(
+              CURRENT_GROCERY_LIST_KEY, 
+              JSON.stringify(groceryList)
+            );
+            return firebaseId;
+          }
+        } catch (firestoreError) {
+          logger.error('Error creating grocery list in Firestore:', firestoreError);
+          // Continue with local ID since we saved to AsyncStorage successfully
+        }
       }
+      
+      return localId;
     } catch (error) {
-      logger.error('Error creating grocery list', error);
+      logger.error('Error creating grocery list:', error);
       return null;
     }
   }
@@ -125,30 +142,44 @@ class GroceryListService {
     data: Partial<Pick<GroceryListDocument, 'name' | 'items'>>
   ): Promise<boolean> {
     try {
-      if (this.shouldUseFirestore()) {
-        // Use Firestore if authenticated
-        return await firestoreService.updateGroceryList(listId, data);
-      } else {
-        // For anonymous users
-        const currentData = await AsyncStorage.getItem(CURRENT_GROCERY_LIST_KEY);
-        if (!currentData) return false;
-        
-        const list = JSON.parse(currentData);
-        const updatedList = {
-          ...list,
-          ...data,
-          updatedAt: new Date().toISOString()
-        };
-        
-        await AsyncStorage.setItem(
-          CURRENT_GROCERY_LIST_KEY, 
-          JSON.stringify(updatedList)
+      // Get current grocery list from AsyncStorage
+      const currentData = await AsyncStorage.getItem(CURRENT_GROCERY_LIST_KEY);
+      if (!currentData) {
+        // Create a new list if none exists
+        const success = await this.createGroceryList(
+          data.name || 'My Grocery List', 
+          data.items || []
         );
-        
-        return true;
+        return success !== null;
       }
+      
+      // Update local data
+      const list = JSON.parse(currentData);
+      const updatedList = {
+        ...list,
+        ...data,
+        updatedAt: new Date().toISOString()
+      };
+      
+      // Always save to AsyncStorage first
+      await AsyncStorage.setItem(
+        CURRENT_GROCERY_LIST_KEY, 
+        JSON.stringify(updatedList)
+      );
+      
+      // If authenticated, also update in Firestore
+      if (this.shouldUseFirestore()) {
+        try {
+          await firestoreService.updateGroceryList(listId, data);
+        } catch (firestoreError) {
+          logger.error('Error updating grocery list in Firestore:', firestoreError);
+          // We still return true since we saved to AsyncStorage successfully
+        }
+      }
+      
+      return true;
     } catch (error) {
-      logger.error('Error updating grocery list', error);
+      logger.error('Error updating grocery list:', error);
       return false;
     }
   }

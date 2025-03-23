@@ -39,8 +39,9 @@ export async function recordRecipeUsage(
   mealType: string
 ): Promise<boolean> {
   try {
-    // Get current history
-    const history = await getRecipeHistory();
+    // Get current history from AsyncStorage
+    const historyData = await AsyncStorage.getItem(RECIPE_HISTORY_KEY);
+    const history = historyData ? JSON.parse(historyData) as RecipeHistoryItem[] : [];
     
     // Create new history item
     const newItem: RecipeHistoryItem = {
@@ -57,8 +58,19 @@ export async function recordRecipeUsage(
       updatedHistory.length = MAX_HISTORY_ITEMS;
     }
     
-    // Save updated history
+    // Always save to AsyncStorage first
     await AsyncStorage.setItem(RECIPE_HISTORY_KEY, JSON.stringify(updatedHistory));
+    
+    // If authenticated, also try to save to Firestore
+    if (auth().currentUser) {
+      try {
+        // Save to Firestore if we implement this feature in the future
+        // This would require adding a recipeHistory collection to the Firestore schema
+      } catch (firestoreError) {
+        logger.error('Error recording recipe usage to Firestore:', firestoreError);
+        // We still return true since we saved to AsyncStorage successfully
+      }
+    }
     
     return true;
   } catch (error) {
@@ -132,58 +144,69 @@ export async function recordMealPlan(
 }
 
 /**
- * Save the current meal plan to the user's Firestore account
- * This is used during user account creation to persist the generated recipes
+ * Save the current meal plan to storage
+ * Uses Firestore if the user is authenticated, AsyncStorage if not
  * @param recipes Array of recipes in the current meal plan
  * @returns Promise resolving to boolean indicating success
  */
 export async function saveMealPlanToFirestore(recipes: Recipe[]): Promise<boolean> {
   try {
-    if (!auth().currentUser) {
-      // Can't save if not authenticated
-      return false;
-    }
-    
-    // First record the meal plan usage
+    // First record the meal plan usage locally
     await recordMealPlan(recipes);
     
-    // Then save each recipe to the user's collection
-    const savedRecipes = await Promise.all(
-      recipes.map(async (recipe) => {
-        // Transform Recipe to RecipeDocument format
-        const recipeDoc = {
-          name: recipe.name,
-          servings: recipe.servings,
-          readyInMinutes: parseInt(recipe.prepTime || '0') + parseInt(recipe.cookTime || '0'),
-          ingredients: recipe.ingredients.map(ing => ({
-            name: ing.item,
-            amount: 1, // Default amount
-            unit: ing.measurement,
-            originalString: `${ing.measurement} ${ing.item}`
-          })),
-          instructions: recipe.instructions.map((inst, index) => ({
-            number: index + 1,
-            instruction: inst
-          })),
-          imageUrl: recipe.imageUrl,
-          tags: recipe.tags || [],
-          isFavorite: true, // Mark as favorite by default since the user selected these
-          summary: recipe.description || '',
-          sourceUrl: '',
-          cuisines: [],
-          diets: [],
-          dishTypes: []
-        };
-        
-        // Save to Firestore
-        return await firestoreService.saveRecipe(recipeDoc);
-      })
-    );
+    // Save recipes to local storage as well
+    const MEAL_PLAN_KEY = 'current_meal_plan';
+    await AsyncStorage.setItem(MEAL_PLAN_KEY, JSON.stringify(recipes));
     
-    // Return true if all recipes were saved successfully
-    return savedRecipes.every(id => id !== null);
+    // If authenticated, also save to Firestore
+    if (auth().currentUser) {
+      try {
+        // Then save each recipe to the user's collection
+        const savedRecipes = await Promise.all(
+          recipes.map(async (recipe) => {
+            // Transform Recipe to RecipeDocument format
+            const recipeDoc = {
+              name: recipe.name,
+              servings: recipe.servings,
+              readyInMinutes: parseInt(recipe.prepTime || '0') + parseInt(recipe.cookTime || '0'),
+              ingredients: recipe.ingredients.map(ing => ({
+                name: ing.item,
+                amount: 1, // Default amount
+                unit: ing.measurement,
+                originalString: `${ing.measurement} ${ing.item}`
+              })),
+              instructions: recipe.instructions.map((inst, index) => ({
+                number: index + 1,
+                instruction: inst
+              })),
+              imageUrl: recipe.imageUrl,
+              tags: recipe.tags || [],
+              isFavorite: true, // Mark as favorite by default since the user selected these
+              summary: recipe.description || '',
+              sourceUrl: '',
+              cuisines: [],
+              diets: [],
+              dishTypes: []
+            };
+            
+            // Save to Firestore
+            return await firestoreService.saveRecipe(recipeDoc);
+          })
+        );
+        
+        // Return true if all recipes were saved successfully
+        return savedRecipes.every(id => id !== null);
+      } catch (firestoreError) {
+        logger.error('Error saving recipes to Firestore:', firestoreError);
+        // We still return true since we saved to AsyncStorage successfully
+        return true;
+      }
+    }
+    
+    // If not authenticated, we've still saved locally
+    return true;
   } catch (error) {
-    logger.error('Error saving meal plan to Firestore:', error);
+    logger.error('Error saving meal plan:', error);
     return false;
   }
 } 

@@ -26,6 +26,8 @@ import { pantryService } from '../services/pantryService';
 import { groceryListService } from '../services/groceryListService';
 import { theme } from '../styles/theme';
 import AuthModal from '../components/AuthModal';
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 
 type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -197,11 +199,60 @@ const ProfileScreen: React.FC = () => {
     loadUserData();
   };
 
+  const handleTestFirestore = async () => {
+    try {
+      console.log('Testing Firestore permissions...');
+      
+      // Get current Firebase user
+      const currentUser = auth().currentUser;
+      if (!currentUser) {
+        Alert.alert('Error', 'You need to be logged in to test Firestore permissions.');
+        return;
+      }
+      
+      console.log('Current user:', currentUser.uid);
+      
+      // Test writing to a user-specific document (should be allowed)
+      const testDocRef = firestore()
+        .collection('users')
+        .doc(currentUser.uid)
+        .collection('test')
+        .doc('permissions_test');
+      
+      await testDocRef.set({
+        timestamp: firestore.FieldValue.serverTimestamp(),
+        message: 'Permissions test successful'
+      });
+      
+      console.log('Successfully wrote to test document');
+      
+      // Test reading the document back
+      const docSnapshot = await testDocRef.get();
+      console.log('Read test document:', docSnapshot.exists);
+      
+      Alert.alert(
+        'Firestore Test',
+        'Successfully wrote to and read from Firestore! Your permissions are working correctly.'
+      );
+    } catch (error) {
+      console.error('Firestore test error:', error);
+      Alert.alert(
+        'Firestore Test Failed',
+        `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  };
+
   const renderRecipeItem = (recipe: RecipeDocument) => (
     <TouchableOpacity 
       key={recipe.id}
       style={styles.listItem}
-      onPress={() => Alert.alert('Coming Soon', 'Recipe details view coming soon!')}
+      onPress={() => {
+        // Navigate to meal plan with this recipe as the selected recipe
+        navigation.navigate('MealPlan', {
+          selectedRecipe: recipe
+        });
+      }}
     >
       <View style={styles.listItemContent}>
         <View style={styles.itemImageContainer}>
@@ -258,7 +309,12 @@ const ProfileScreen: React.FC = () => {
     <TouchableOpacity 
       key={list.id}
       style={styles.listItem}
-      onPress={() => Alert.alert('Coming Soon', 'Grocery list details view coming soon!')}
+      onPress={() => {
+        navigation.navigate('GroceryList', { 
+          selectedRecipes: savedRecipes,
+          existingListId: list.id
+        });
+      }}
     >
       <View style={styles.listItemContent}>
         <View style={[styles.categoryIcon, { backgroundColor: '#5856D6' }]}>
@@ -583,6 +639,15 @@ const ProfileScreen: React.FC = () => {
                 </TouchableOpacity>
               </View>
             )}
+
+            {__DEV__ && (
+              <TouchableOpacity 
+                style={styles.debugButton} 
+                onPress={handleTestFirestore}
+              >
+                <Text style={styles.debugButtonText}>Test Firestore Permissions</Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
       </ScrollView>
@@ -829,6 +894,18 @@ const styles = StyleSheet.create({
     marginLeft: 16,
     fontSize: 16,
     color: '#dc3545',
+  },
+  debugButton: {
+    marginTop: 20,
+    backgroundColor: '#ff6b6b',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+    alignSelf: 'center',
+  },
+  debugButtonText: {
+    color: 'white',
+    fontWeight: '600',
   },
 });
 
