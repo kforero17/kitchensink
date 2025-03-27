@@ -154,10 +154,21 @@ class PantryService {
         });
       } else {
         // Use AsyncStorage for anonymous users
-        const data = await AsyncStorage.getItem(PANTRY_ITEMS_KEY);
-        if (!data) return [];
-        
-        return JSON.parse(data) as PantryItemDocument[];
+        try {
+          // Safely access AsyncStorage - if not available, return empty array
+          if (typeof AsyncStorage === 'undefined' || AsyncStorage === null) {
+            logger.error("AsyncStorage is undefined or not available");
+            return [];
+          }
+          
+          const data = await AsyncStorage.getItem(PANTRY_ITEMS_KEY);
+          if (!data) return [];
+          
+          return JSON.parse(data) as PantryItemDocument[];
+        } catch (asyncError) {
+          logger.error("AsyncStorage error:", asyncError);
+          return [];
+        }
       }
     } catch (error) {
       logger.error('Error getting pantry items:', error);
@@ -657,6 +668,12 @@ class PantryService {
         return false;
       }
       
+      // Safely check if AsyncStorage is available
+      if (typeof AsyncStorage === 'undefined' || AsyncStorage === null) {
+        logger.error("AsyncStorage is undefined or not available");
+        return false;
+      }
+      
       // Get local pantry items
       const data = await AsyncStorage.getItem(PANTRY_ITEMS_KEY);
       if (!data) return true; // Nothing to migrate
@@ -672,7 +689,7 @@ class PantryService {
         if (itemId) successCount++;
       }
       
-      // Clear local storage if all items were migrated
+      // Remove local list after successful migration
       if (successCount === localItems.length) {
         await AsyncStorage.removeItem(PANTRY_ITEMS_KEY);
         logger.debug('Successfully migrated pantry items to Firestore');

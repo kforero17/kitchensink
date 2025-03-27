@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { BackButton } from '../components/BackButton';
+import { useRoute } from '@react-navigation/native';
 import {
   CookingPreferences,
   PreferenceOption,
@@ -24,11 +25,14 @@ import {
   CookingSkillLevel,
   MealType,
 } from '../types/CookingPreferences';
-import { saveCookingPreferences } from '../utils/preferences';
+import { saveCookingPreferences, getCookingPreferences } from '../utils/preferences';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CookingHabits'>;
 
 export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
+  const route = useRoute();
+  const isFromProfile = route.params?.fromProfile === true;
+  
   const [preferences, setPreferences] = useState<CookingPreferences>({
     cookingFrequency: 'few_times_week',
     preferredCookingDuration: 'under_30_min',
@@ -38,6 +42,22 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
     weeklyMealPrepCount: 3,
     householdSize: 2,
   });
+
+  // Load existing preferences
+  useEffect(() => {
+    const loadPreferences = async () => {
+      try {
+        const savedPrefs = await getCookingPreferences();
+        if (savedPrefs) {
+          setPreferences(savedPrefs);
+        }
+      } catch (error) {
+        console.error('Error loading cooking preferences:', error);
+      }
+    };
+    
+    loadPreferences();
+  }, []);
 
   const handleOptionSelect = <T extends string>(
     key: keyof CookingPreferences,
@@ -111,7 +131,11 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
   const handleContinue = async () => {
     try {
       await saveCookingPreferences(preferences);
-      navigation.navigate('BudgetPreferences');
+      if (isFromProfile) {
+        navigation.navigate('Profile');
+      } else {
+        navigation.navigate('BudgetPreferences', { fromProfile: isFromProfile });
+      }
     } catch (error) {
       console.error('Error saving cooking preferences:', error);
     }
@@ -121,7 +145,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
         <View style={styles.header}>
-          <BackButton />
+          <BackButton onPress={isFromProfile ? () => navigation.navigate('Profile') : undefined} />
         </View>
         <Text style={styles.title}>Cooking Habits</Text>
         <Text style={styles.subtitle}>
@@ -269,7 +293,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            <Text style={styles.buttonText}>Continue</Text>
+            <Text style={styles.buttonText}>{isFromProfile ? 'Save Changes' : 'Continue'}</Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>

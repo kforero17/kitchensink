@@ -7,13 +7,14 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useMealPlan } from '../contexts/MealPlanContext';
 import { Recipe } from '../contexts/MealPlanContext';
-import { recordMealPlan } from '../utils/recipeHistory';
+import { recordMealPlan, saveMealPlanToFirestore } from '../utils/recipeHistory';
 import { getBudgetPreferences } from '../utils/preferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
 import { swapRecipe } from '../utils/recipeSwapper';
 import logger from '../utils/logger';
 import { apiRecipeService } from '../services/apiRecipeService';
 import PantryIngredientMatch from '../components/PantryIngredientMatch';
+import { firestoreService } from '../services/firebaseService';
 
 // Update MealType to include a combined lunch_dinner type
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'lunch_dinner' | 'snacks';
@@ -28,6 +29,7 @@ const MealPlanScreen: React.FC = () => {
   const [swappingRecipeId, setSwappingRecipeId] = useState<string | null>(null);
   const { mealPlan, setMealPlan } = useMealPlan();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   // Load budget preferences when component mounts
   useEffect(() => {
@@ -58,12 +60,13 @@ const MealPlanScreen: React.FC = () => {
     }
   }, [mealPlan]);
 
-  // Record recipe history when meal plan is first viewed
+  // Record recipe view history when meal plan is first viewed 
+  // This only records view history and doesn't save to profile
   useEffect(() => {
     if (mealPlan.length > 0) {
       recordMealPlan(mealPlan)
-        .then(() => console.log('Meal plan recorded to history'))
-        .catch(err => console.error('Failed to record meal plan history:', err));
+        .then(() => console.log('Meal plan view history recorded'))
+        .catch(err => console.error('Failed to record meal plan view history:', err));
     }
   }, [mealPlan]);
 
@@ -306,17 +309,48 @@ const MealPlanScreen: React.FC = () => {
           </View>
         </View>
         
-        {/* Add Refresh Button */}
-        <TouchableOpacity 
-          style={styles.refreshButton}
-          onPress={handleRefreshRecipes}
-          disabled={isRefreshing}
-        >
-          <MaterialCommunityIcons name="refresh" size={20} color="#FFFFFF" />
-          <Text style={styles.refreshButtonText}>
-            {isRefreshing ? 'Refreshing...' : 'Refresh Recipes'}
-          </Text>
-        </TouchableOpacity>
+        {/* Action Buttons Container */}
+        <View style={styles.actionButtonsContainer}>
+          {/* Add Save Button */}
+          <TouchableOpacity 
+            style={[styles.saveButton, isSaving ? styles.buttonDisabled : null]}
+            onPress={async () => {
+              if (isSaving) return;
+              
+              const saved = await saveSelectedRecipesToProfile();
+              if (saved) {
+                Alert.alert(
+                  "Recipes Saved",
+                  "Your selected recipes have been saved to your profile. You can continue customizing your meal plan or view your saved recipes in your profile later.",
+                  [{ text: "OK" }]
+                );
+              }
+            }}
+            onLongPress={resetAllWeeklyFlags}
+            disabled={isSaving}
+          >
+            {isSaving ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <MaterialCommunityIcons name="content-save" size={20} color="#FFFFFF" />
+            )}
+            <Text style={styles.saveButtonText}>
+              {isSaving ? 'Saving...' : `Save Selected (${selectedRecipes.size})`}
+            </Text>
+          </TouchableOpacity>
+          
+          {/* Add Refresh Button */}
+          <TouchableOpacity 
+            style={styles.refreshButton}
+            onPress={handleRefreshRecipes}
+            disabled={isRefreshing}
+          >
+            <MaterialCommunityIcons name="refresh" size={20} color="#FFFFFF" />
+            <Text style={styles.refreshButtonText}>
+              {isRefreshing ? 'Refreshing...' : 'Refresh Recipes'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -467,6 +501,87 @@ const MealPlanScreen: React.FC = () => {
     );
   };
 
+  // Save selected recipes to user profile
+  const saveSelectedRecipesToProfile = async () => {
+    if (selectedRecipes.size === 0) {
+      Alert.alert(
+        "No Recipes Selected",
+        "Please select at least one recipe to save to your weekly meal plan.",
+        [{ text: "OK" }]
+      );
+      return false;
+    }
+
+    try {
+      setIsSaving(true);
+      
+      // Convert the selected recipes Set to an array of Recipe objects
+      const selectedRecipesArray = Array.from(selectedRecipes)
+        .map(id => mealPlan.find(recipe => recipe.id === id))
+        .filter((recipe): recipe is Recipe => recipe !== undefined);
+      
+      console.log(`Saving ${selectedRecipesArray.length} selected recipes to profile:`);
+      selectedRecipesArray.forEach(recipe => {
+        console.log(`- ${recipe.name} (${recipe.tags.join(', ')})`);
+      });
+      
+      // Determine if we should replace existing recipes or append to them
+      // For now, we'll replace existing recipes when saving from the meal plan screen
+      // This preserves the original behavior but makes it explicit
+      const replaceExisting = true;
+      
+      // Save only the selected recipes to Firestore
+      const saveResult = await saveMealPlanToFirestore(selectedRecipesArray, replaceExisting);
+      
+      // Check for success (true) return value 
+      if (saveResult === false) {
+        throw new Error('Failed to save recipes to profile');
+      }
+      
+      console.log('Successfully saved selected recipes to profile');
+      
+      // Show success message but don't navigate away - let the user continue with meal planning
+      Alert.alert(
+        "Recipes Saved",
+        "Your selected recipes have been saved to your profile. You can continue customizing your meal plan or view your saved recipes in your profile later.",
+        [{ text: "OK" }]
+      );
+      
+      return true;
+    } catch (error) {
+      console.error('Failed to save selected recipes to profile:', error);
+      Alert.alert(
+        "Error",
+        "There was a problem saving your recipes. Please try again.",
+        [{ text: "OK" }]
+      );
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // For debugging: Reset all weekly meal plan flags
+  const resetAllWeeklyFlags = async () => {
+    try {
+      console.log('Resetting all weekly meal plan flags...');
+      await firestoreService.resetAllWeeklyMealPlanFlags();
+      console.log('Successfully reset all weekly meal plan flags');
+      Alert.alert(
+        "Debug: Flags Reset",
+        "All weekly meal plan flags have been reset. This is a debugging function.",
+        [{ text: "OK" }]
+      );
+    } catch (error) {
+      console.error('Error resetting weekly meal plan flags:', error);
+      Alert.alert(
+        "Error",
+        "Failed to reset weekly meal plan flags.",
+        [{ text: "OK" }]
+      );
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -475,37 +590,80 @@ const MealPlanScreen: React.FC = () => {
         {/* Add Grocery List Button */}
         {mealPlan.length > 0 && (
           <TouchableOpacity 
-            style={styles.groceryButton}
-            onPress={() => {
-              // Check if we have any recipes selected
-              if (selectedRecipes.size === 0) {
-                // No recipes selected, prompt user to select some
-                Alert.alert(
-                  "No Recipes Selected",
-                  "Please select at least one recipe to create a grocery list.",
-                  [{ text: "OK" }]
-                );
-                return;
+            style={[styles.groceryButton, isSaving ? styles.buttonDisabled : null]}
+            onPress={async () => {
+              if (isSaving) return;
+              
+              // First save selected recipes to profile
+              const saved = await saveSelectedRecipesToProfile();
+              if (saved) {
+                // Then navigate to grocery list with selected recipes
+                const selectedRecipesArray = Array.from(selectedRecipes)
+                  .map(id => mealPlan.find(recipe => recipe.id === id))
+                  .filter(recipe => recipe !== undefined);
+                
+                navigation.navigate('GroceryList', { 
+                  selectedRecipes: selectedRecipesArray 
+                });
               }
-              
-              // Convert the Set to an array and navigate to grocery list
-              const selectedRecipesArray = Array.from(selectedRecipes)
-                .map(id => mealPlan.find(recipe => recipe.id === id))
-                .filter(recipe => recipe !== undefined);
-              
-              navigation.navigate('GroceryList', { 
-                selectedRecipes: selectedRecipesArray 
-              });
             }}
+            disabled={isSaving}
           >
-            <MaterialCommunityIcons name="cart-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.groceryButtonText}>Create Grocery List</Text>
+            {isSaving ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <MaterialCommunityIcons name="cart-outline" size={20} color="#FFFFFF" />
+            )}
+            <Text style={styles.groceryButtonText}>
+              {isSaving ? 'Saving...' : 'Create Grocery List'}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
       
+      {/* Instructions for users */}
+      <View style={styles.instructionsContainer}>
+        <Text style={styles.instructionsText}>
+          <MaterialCommunityIcons name="information-outline" size={16} color="#007bff" />{' '}
+          Select recipes you want to include in your weekly meal plan, then tap "Save Selected" to save them to your profile.
+        </Text>
+      </View>
+      
       {renderBudgetSection()}
       {renderMealTypeTabs()}
+      
+      {/* Selection Actions Bar */}
+      {mealPlan.length > 0 && (
+        <View style={styles.selectionBar}>
+          <Text style={styles.selectionText}>
+            {selectedRecipes.size} of {mealPlan.length} recipes selected
+          </Text>
+          <View style={styles.selectionActions}>
+            <TouchableOpacity
+              style={styles.selectionButton}
+              onPress={() => {
+                // Select all recipes in the current meal plan
+                const allIds = new Set(mealPlan.map(recipe => recipe.id));
+                setSelectedRecipes(allIds);
+              }}
+            >
+              <MaterialCommunityIcons name="select-all" size={16} color="#333" />
+              <Text style={styles.selectionButtonText}>Select All</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.selectionButton}
+              onPress={() => {
+                // Clear selection
+                setSelectedRecipes(new Set());
+              }}
+            >
+              <MaterialCommunityIcons name="close" size={16} color="#333" />
+              <Text style={styles.selectionButtonText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
       
       <ScrollView style={styles.recipeList}>
         {getRecipesByType(selectedTab).length > 0 ? (
@@ -718,7 +876,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 8,
   },
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 15,
+    gap: 10,
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: '#4CAF50',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    marginLeft: 5,
+    fontWeight: '500',
+  },
   refreshButton: {
+    flex: 1,
     backgroundColor: '#2196F3',
     flexDirection: 'row',
     alignItems: 'center',
@@ -726,7 +906,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 15,
     borderRadius: 5,
-    marginTop: 15,
   },
   refreshButtonText: {
     color: '#FFFFFF',
@@ -746,6 +925,49 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginLeft: 5,
     fontWeight: '500',
+    fontSize: 14,
+  },
+  selectionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e1e4e8',
+  },
+  selectionText: {
+    flex: 1,
+    color: '#6c757d',
+    fontSize: 14,
+  },
+  selectionActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  selectionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#ced4da',
+    borderRadius: 4,
+  },
+  selectionButtonText: {
+    color: '#6c757d',
+    fontWeight: '500',
+    marginLeft: 5,
+  },
+  buttonDisabled: {
+    backgroundColor: '#ced4da',
+  },
+  instructionsContainer: {
+    padding: 16,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e1e4e8',
+  },
+  instructionsText: {
+    color: '#6c757d',
     fontSize: 14,
   },
 });

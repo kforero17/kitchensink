@@ -16,10 +16,14 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { getDietaryPreferences, saveDietaryPreferences } from '../utils/preferences';
 import { DietaryPreferences } from '../types/DietaryPreferences';
+import { BackButton } from '../components/BackButton';
+import { useRoute } from '@react-navigation/native';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DietaryPreferences'>;
 
 export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
+  const route = useRoute();
+  const isFromProfile = route.params?.fromProfile === true;
   const [preferences, setPreferences] = useState<DietaryPreferences>({
     vegan: false,
     vegetarian: false,
@@ -82,7 +86,11 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     try {
       const success = await saveDietaryPreferences(preferences);
       if (success) {
-        navigation.navigate('FoodPreferences');
+        if (isFromProfile) {
+          navigation.navigate('Profile');
+        } else {
+          navigation.navigate('FoodPreferences', { fromProfile: isFromProfile });
+        }
       } else {
         throw new Error('Failed to save preferences');
       }
@@ -110,6 +118,11 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
+        <View style={styles.header}>
+          <BackButton 
+            onPress={isFromProfile ? () => navigation.navigate('Profile') : undefined}
+          />
+        </View>
         <Text style={styles.title}>Dietary Preferences</Text>
         <Text style={styles.subtitle}>
           Help us personalize your recipe recommendations
@@ -190,7 +203,9 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            <Text style={styles.buttonText}>Continue</Text>
+            <Text style={styles.buttonText}>
+              {isFromProfile ? 'Save Changes' : 'Continue'}
+            </Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>
@@ -309,5 +324,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     color: '#666',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
   },
 }); 

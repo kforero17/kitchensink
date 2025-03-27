@@ -1,6 +1,6 @@
-import firestore from '@react-native-firebase/firestore';
+import logger from '../utils/logger';
 import auth from '@react-native-firebase/auth';
-import { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { 
   UserDocument, 
   UserPreferences, 
@@ -13,7 +13,6 @@ import { DietaryPreferences } from '../types/DietaryPreferences';
 import { FoodPreferences } from '../types/FoodPreferences';
 import { CookingPreferences } from '../types/CookingPreferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
-import logger from '../utils/logger';
 
 /**
  * Utility function to clean objects before sending to Firestore
@@ -523,30 +522,46 @@ class FirestoreService {
       const recipesRef = userRef.collection(FIRESTORE_PATHS.RECIPES);
       
       // Check if recipe already exists by name to avoid duplicates
-      const querySnapshot = await recipesRef
-        .where('name', '==', recipe.name)
-        .limit(1)
-        .get();
+      const existingQuery = recipesRef.where('name', '==', recipe.name);
+      const querySnapshot = await existingQuery.limit(1).get();
+      
+      // Ensure isWeeklyMealPlan has a default value
+      const isWeeklyMealPlan = recipe.isWeeklyMealPlan ?? false;
       
       // Clean the recipe data
       const cleanedRecipe = cleanForFirestore({
         ...recipe,
+        isWeeklyMealPlan, // Assign the variable here
         createdAt: timestamp,
         updatedAt: timestamp
       });
       
       if (!querySnapshot.empty) {
-        // Update existing recipe
+        // Update existing recipe - preserve existing values if not provided
         const existingDoc = querySnapshot.docs[0];
+        const existingData = existingDoc.data();
+        
+        // Always update isWeeklyMealPlan flag if it's explicitly set to true
+        // This ensures recipes get properly tagged when added to a meal plan
+        if (isWeeklyMealPlan) {
+          cleanedRecipe.isWeeklyMealPlan = true;
+        } else {
+          // Otherwise preserve the existing flag value
+          cleanedRecipe.isWeeklyMealPlan = existingData.isWeeklyMealPlan || false;
+        }
+        
         await existingDoc.ref.update({
           ...cleanedRecipe,
           updatedAt: timestamp
         });
+        
+        console.log(`Updated existing recipe: ${recipe.name}, isWeeklyMealPlan: ${cleanedRecipe.isWeeklyMealPlan}`);
         return existingDoc.id;
       }
       
       // Create new recipe
       const docRef = await recipesRef.add(cleanedRecipe);
+      console.log(`Created new recipe: ${recipe.name}, isWeeklyMealPlan: ${isWeeklyMealPlan}`);
       
       return docRef.id;
     } catch (error) {
@@ -592,6 +607,8 @@ class FirestoreService {
     limit?: number;
     tags?: string[];
     isFavorite?: boolean;
+    isWeeklyMealPlan?: boolean;
+    forceRefresh?: number; // Timestamp to force cache bypass
   }): Promise<RecipeDocument[]> {
     try {
       const userRef = this.getUserDocRef();
@@ -601,7 +618,13 @@ class FirestoreService {
       
       let query: FirebaseFirestoreTypes.Query = recipesRef;
       
-      // Apply filters if provided
+      // Start with base query with required conditions
+      if (options?.isWeeklyMealPlan !== undefined) {
+        // Explicitly filter for weekly meal plan recipes
+        query = query.where('isWeeklyMealPlan', '==', options.isWeeklyMealPlan);
+      }
+      
+      // Additional filters
       if (options?.isFavorite !== undefined) {
         query = query.where('isFavorite', '==', options.isFavorite);
       }
@@ -614,7 +637,18 @@ class FirestoreService {
         query = query.limit(options.limit);
       }
       
-      const querySnapshot = await query.get();
+      // If forceRefresh is provided, use it to create a cache-busting source option
+      let querySnapshot;
+      if (options?.forceRefresh) {
+        // Use getOptions to force server read and bypass cache
+        querySnapshot = await query.get({ source: 'server' });
+        console.log('Forcing fresh data from server for recipes query');
+      } else {
+        querySnapshot = await query.get();
+      }
+      
+      // Log number of recipes found for debugging
+      console.log(`Found ${querySnapshot.size} recipes matching query${options?.isWeeklyMealPlan ? ' (weekly meal plan)' : ''}`);
       
       let recipes = querySnapshot.docs.map(doc => {
         const data = doc.data() as Omit<RecipeDocument, 'id'>;
@@ -765,6 +799,92 @@ class FirestoreService {
     } catch (error) {
       logger.error(`Error deleting app setting ${key}`, error);
       return false;
+    }
+  }
+
+  /**
+   * Reset the weekly meal plan flag on all recipes
+   * This is useful for cleaning up data
+   * @returns Promise resolving to true if successful
+   */
+  async resetAllWeeklyMealPlanFlags(): Promise<boolean> {
+    try {
+      const userRef = this.getUserDocRef();
+      if (!userRef) throw new Error('User not authenticated');
+      
+      const recipesRef = userRef.collection(FIRESTORE_PATHS.RECIPES);
+      
+      // First get all recipes that have isWeeklyMealPlan = true
+      const querySnapshot = await recipesRef.where('isWeeklyMealPlan', '==', true).get();
+      
+      console.log(`Found ${querySnapshot.size} recipes with isWeeklyMealPlan=true to reset`);
+      
+      if (querySnapshot.size === 0) {
+        console.log('No recipes with isWeeklyMealPlan=true found, nothing to reset');
+        return true;
+      }
+      
+      // Use a batch to update multiple documents
+      const batch = firestore().batch();
+      
+      // Track recipes being reset
+      const resetRecipes: string[] = [];
+      
+      querySnapshot.forEach(doc => {
+        const data = doc.data();
+        resetRecipes.push(data.name);
+        
+        batch.update(doc.ref, { 
+          isWeeklyMealPlan: false,
+          updatedAt: firestore.FieldValue.serverTimestamp()
+        });
+      });
+      
+      // Log which recipes are being reset
+      console.log(`Resetting weekly meal plan flag for recipes: ${resetRecipes.join(', ')}`);
+      
+      // Commit the batch
+      await batch.commit();
+      console.log(`Reset isWeeklyMealPlan flag on ${querySnapshot.size} recipes`);
+      
+      return true;
+    } catch (error) {
+      logger.error('Error resetting weekly meal plan flags', error);
+      return false;
+    }
+  }
+
+  /**
+   * Test Firestore permissions by writing and reading a test document
+   * @returns Promise that resolves on success or rejects on error
+   */
+  async testFirestorePermissions(): Promise<void> {
+    try {
+      const userRef = this.getUserDocRef();
+      if (!userRef) throw new Error('User not authenticated');
+      
+      // Test writing to a user-specific document (should be allowed)
+      const testDocRef = userRef
+        .collection('test')
+        .doc('permissions_test');
+      
+      await testDocRef.set({
+        timestamp: firestore.FieldValue.serverTimestamp(),
+        message: 'Permissions test successful'
+      });
+      
+      console.log('Successfully wrote to test document');
+      
+      // Test reading the document back
+      const docSnapshot = await testDocRef.get();
+      if (!docSnapshot.exists) {
+        throw new Error('Test document not found after writing');
+      }
+      
+      console.log('Successfully read test document');
+    } catch (error) {
+      logger.error('Firestore permissions test failed', error);
+      throw error;
     }
   }
 }

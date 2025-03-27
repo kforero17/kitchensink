@@ -3,6 +3,7 @@ import { Recipe } from '../contexts/MealPlanContext';
 import logger from './logger';
 import auth from '@react-native-firebase/auth';
 import { firestoreService } from '../services/firebaseService';
+import { safeStorage } from './asyncStorageUtils';
 
 const RECIPE_HISTORY_KEY = 'recipe_history';
 const MAX_HISTORY_ITEMS = 100;
@@ -19,7 +20,8 @@ export interface RecipeHistoryItem {
  */
 export async function getRecipeHistory(): Promise<RecipeHistoryItem[]> {
   try {
-    const historyData = await AsyncStorage.getItem(RECIPE_HISTORY_KEY);
+    // Use safeStorage instead of AsyncStorage directly
+    const historyData = await safeStorage.getItem(RECIPE_HISTORY_KEY);
     if (!historyData) {
       return [];
     }
@@ -39,8 +41,8 @@ export async function recordRecipeUsage(
   mealType: string
 ): Promise<boolean> {
   try {
-    // Get current history from AsyncStorage
-    const historyData = await AsyncStorage.getItem(RECIPE_HISTORY_KEY);
+    // Get current history using safeStorage
+    const historyData = await safeStorage.getItem(RECIPE_HISTORY_KEY);
     const history = historyData ? JSON.parse(historyData) as RecipeHistoryItem[] : [];
     
     // Create new history item
@@ -58,8 +60,8 @@ export async function recordRecipeUsage(
       updatedHistory.length = MAX_HISTORY_ITEMS;
     }
     
-    // Always save to AsyncStorage first
-    await AsyncStorage.setItem(RECIPE_HISTORY_KEY, JSON.stringify(updatedHistory));
+    // Always save to safeStorage first
+    await safeStorage.setItem(RECIPE_HISTORY_KEY, JSON.stringify(updatedHistory));
     
     // If authenticated, also try to save to Firestore
     if (auth().currentUser) {
@@ -147,20 +149,43 @@ export async function recordMealPlan(
  * Save the current meal plan to storage
  * Uses Firestore if the user is authenticated, AsyncStorage if not
  * @param recipes Array of recipes in the current meal plan
+ * @param replaceExisting If true, will reset all weekly meal plan flags before saving (default: true)
  * @returns Promise resolving to boolean indicating success
  */
-export async function saveMealPlanToFirestore(recipes: Recipe[]): Promise<boolean> {
+export async function saveMealPlanToFirestore(
+  recipes: Recipe[],
+  replaceExisting: boolean = true
+): Promise<boolean> {
   try {
     // First record the meal plan usage locally
     await recordMealPlan(recipes);
     
     // Save recipes to local storage as well
     const MEAL_PLAN_KEY = 'current_meal_plan';
-    await AsyncStorage.setItem(MEAL_PLAN_KEY, JSON.stringify(recipes));
+    await safeStorage.setItem(MEAL_PLAN_KEY, JSON.stringify(recipes));
     
     // If authenticated, also save to Firestore
     if (auth().currentUser) {
       try {
+        console.log(`Starting to save ${recipes.length} selected recipes to profile as weekly meal plan`);
+        
+        // Generate operation ID to track this specific save operation
+        const operationId = Math.random().toString(36).substring(2, 10);
+        console.log(`Save operation ID: ${operationId}`);
+        
+        // First create a list of recipe names for debugging
+        const recipeNames = recipes.map(r => r.name);
+        console.log(`Saving recipes with names: ${recipeNames.join(', ')} [OP: ${operationId}]`);
+        
+        // Reset all weekly meal plan flags if replacing existing selections
+        if (replaceExisting) {
+          console.log('Resetting all weekly meal plan flags before saving new selections...');
+          await firestoreService.resetAllWeeklyMealPlanFlags();
+          console.log('Flags reset complete. Now saving selected recipes...');
+        } else {
+          console.log('Appending to existing weekly meal plan without resetting flags.');
+        }
+        
         // Then save each recipe to the user's collection
         const savedRecipes = await Promise.all(
           recipes.map(async (recipe) => {
@@ -182,6 +207,7 @@ export async function saveMealPlanToFirestore(recipes: Recipe[]): Promise<boolea
               imageUrl: recipe.imageUrl,
               tags: recipe.tags || [],
               isFavorite: true, // Mark as favorite by default since the user selected these
+              isWeeklyMealPlan: true, // Mark as part of the weekly meal plan
               summary: recipe.description || '',
               sourceUrl: '',
               cuisines: [],
@@ -190,9 +216,14 @@ export async function saveMealPlanToFirestore(recipes: Recipe[]): Promise<boolea
             };
             
             // Save to Firestore
+            console.log(`Saving recipe: ${recipe.name} [OP: ${operationId}]`);
             return await firestoreService.saveRecipe(recipeDoc);
           })
         );
+        
+        // Verify all recipes were saved
+        const successCount = savedRecipes.filter(id => id !== null).length;
+        console.log(`Successfully saved ${successCount}/${recipes.length} recipes [OP: ${operationId}]`);
         
         // Return true if all recipes were saved successfully
         return savedRecipes.every(id => id !== null);

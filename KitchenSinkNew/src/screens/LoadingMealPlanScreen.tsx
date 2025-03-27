@@ -146,8 +146,15 @@ const LoadingMealPlanScreen: React.FC = () => {
           counts
         );
         
+        // Ensure all recipes are marked as NOT part of the weekly meal plan by default
+        // This is important - only recipes that user explicitly selects should be marked as weekly meal plan
+        const processedRecipes = result.recipes.map(recipe => ({
+          ...recipe,
+          isWeeklyMealPlan: false // Explicitly set to false on generation
+        }));
+        
         // Success! Set the meal plan and navigate to next screen
-        setMealPlan(result.recipes);
+        setMealPlan(processedRecipes);
         
         if (result.constraintsRelaxed && result.message) {
           // Just log the message instead of showing an alert to users
@@ -159,7 +166,13 @@ const LoadingMealPlanScreen: React.FC = () => {
         // Navigate to meal plan screen
         setTimeout(() => {
           setIsLoading(false);
-          navigation.replace('MealPlan', {});
+          console.log('Loading meal plan completed successfully. Navigating to MealPlan screen...');
+          
+          // Use a specific flag to prevent any possible return to Profile
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'MealPlan', params: { fromGenerator: true }}],
+          });
         }, 500);
       } catch (error: any) {
         logger.error('Error generating meal plan:', error);
@@ -169,7 +182,7 @@ const LoadingMealPlanScreen: React.FC = () => {
         // Navigate back to home screen after a delay
         setTimeout(() => {
           setIsLoading(false);
-          navigation.replace('Home');
+          navigation.navigate('Home');
         }, 3000);
       }
     };

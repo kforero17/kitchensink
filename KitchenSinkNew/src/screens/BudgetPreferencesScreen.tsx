@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,22 +13,42 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { useRoute } from '@react-navigation/native';
 import {
   BudgetPreferences,
   PreferenceOption,
   BUDGET_FREQUENCY_OPTIONS,
   BudgetFrequency,
 } from '../types/BudgetPreferences';
-import { saveBudgetPreferences } from '../utils/preferences';
+import { saveBudgetPreferences, getBudgetPreferences } from '../utils/preferences';
 import { BackButton } from '../components/BackButton';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BudgetPreferences'>;
 
 export const BudgetPreferencesScreen: React.FC<Props> = ({ navigation }) => {
+  const route = useRoute();
+  const isFromProfile = route.params?.fromProfile === true;
+  
   const [preferences, setPreferences] = useState<BudgetPreferences>({
     amount: 0,
     frequency: 'weekly',
   });
+
+  // Load existing preferences
+  useEffect(() => {
+    const loadPreferences = async () => {
+      try {
+        const savedPrefs = await getBudgetPreferences();
+        if (savedPrefs) {
+          setPreferences(savedPrefs);
+        }
+      } catch (error) {
+        console.error('Error loading budget preferences:', error);
+      }
+    };
+    
+    loadPreferences();
+  }, []);
 
   const handleFrequencySelect = (frequency: BudgetFrequency) => {
     setPreferences(prev => ({
@@ -77,8 +97,12 @@ export const BudgetPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     try {
       await saveBudgetPreferences(preferences);
       
-      // This is the last step in the onboarding process
-      navigation.navigate('LoadingMealPlan');
+      if (isFromProfile) {
+        navigation.navigate('Profile');
+      } else {
+        // This is the last step in the onboarding process
+        navigation.navigate('LoadingMealPlan');
+      }
     } catch (error) {
       Alert.alert(
         'Error',
@@ -92,7 +116,7 @@ export const BudgetPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
         <View style={styles.header}>
-          <BackButton />
+          <BackButton onPress={isFromProfile ? () => navigation.navigate('Profile') : undefined} />
         </View>
 
         <Text style={styles.title}>Budget Preferences</Text>
@@ -134,7 +158,9 @@ export const BudgetPreferencesScreen: React.FC<Props> = ({ navigation }) => {
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            <Text style={styles.buttonText}>Generate Meal Plan</Text>
+            <Text style={styles.buttonText}>
+              {isFromProfile ? 'Save Changes' : 'Generate Meal Plan'}
+            </Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>

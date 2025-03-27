@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,17 +11,22 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import firestore from '@react-native-firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { pantryService } from '../services/pantryService';
 import { PantryItemDocument, MeasurementUnit, ItemStatus } from '../types/FirestoreSchema';
 import { theme } from '../styles/theme';
 import { useAuth } from '../contexts/AuthContext';
 import { Picker } from '@react-native-picker/picker';
+import { RootStackParamList } from '../navigation/AppNavigator';
 
 // List of categories for pantry items
 const CATEGORIES = [
@@ -68,23 +73,53 @@ const formatDate = (date: Date | null): string => {
   return date.toLocaleDateString();
 };
 
+type PantryScreenRouteProp = RouteProp<RootStackParamList, 'Pantry' | 'PantryEdit'>;
+type PantryScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Pantry' | 'PantryEdit'>;
+
 const PantryScreen: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<PantryScreenNavigationProp>();
+  const route = useRoute<PantryScreenRouteProp>();
+  const isFromProfile = route.params?.fromProfile === true;
+  // Check if this screen is being rendered in edit mode (PantryEdit route)
+  const isEditMode = route.name === 'PantryEdit';
   const { user } = useAuth();
   
   // State for pantry items
   const [pantryItems, setPantryItems] = useState<PantryItemDocument[]>([]);
   const [filteredItems, setFilteredItems] = useState<PantryItemDocument[]>([]);
+  const [categorizedItems, setCategorizedItems] = useState<Record<string, PantryItemDocument[]>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [deletingItem, setDeletingItem] = useState<string | null>(null);
+  
+  // State for showing/hiding the swipe tip
+  const [showSwipeTip, setShowSwipeTip] = useState(!isEditMode);
+  const swipeTipAnimation = useRef(new Animated.Value(1)).current;
   
   // State for add/edit modal
   const [modalVisible, setModalVisible] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [isItemEditMode, setIsItemEditMode] = useState(false);
   const [currentItem, setCurrentItem] = useState<Partial<PantryItemDocument>>({});
   const [showDatePicker, setShowDatePicker] = useState(false);
+  
+  // Auto-hide swipe tip after a delay
+  useEffect(() => {
+    if (showSwipeTip) {
+      const timer = setTimeout(() => {
+        Animated.timing(swipeTipAnimation, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true
+        }).start(() => {
+          setShowSwipeTip(false);
+        });
+      }, 8000); // Hide after 8 seconds
+      
+      return () => clearTimeout(timer);
+    }
+  }, [showSwipeTip]);
   
   // Load pantry items
   const loadPantryItems = async () => {
@@ -93,6 +128,23 @@ const PantryScreen: React.FC = () => {
       const items = await pantryService.getAllPantryItems();
       setPantryItems(items);
       applyFilters(items, searchQuery, selectedCategory);
+      
+      // Organize items by category for the edit mode view
+      const categorized: Record<string, PantryItemDocument[]> = {};
+      items.forEach(item => {
+        const category = item.category || 'Other';
+        if (!categorized[category]) {
+          categorized[category] = [];
+        }
+        categorized[category].push(item);
+      });
+      
+      // Sort each category alphabetically by item name
+      Object.keys(categorized).forEach(category => {
+        categorized[category].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      
+      setCategorizedItems(categorized);
     } catch (error) {
       console.error('Error loading pantry items:', error);
       Alert.alert('Error', 'Failed to load pantry items. Please try again later.');
@@ -153,14 +205,14 @@ const PantryScreen: React.FC = () => {
       category: CATEGORIES[0],
       notes: '',
     });
-    setIsEditMode(false);
+    setIsItemEditMode(false);
     setModalVisible(true);
   };
   
   // Open edit item modal
   const handleEditItem = (item: PantryItemDocument) => {
     setCurrentItem(item);
-    setIsEditMode(true);
+    setIsItemEditMode(true);
     setModalVisible(true);
   };
   
@@ -176,6 +228,7 @@ const PantryScreen: React.FC = () => {
           style: 'destructive',
           onPress: async () => {
             try {
+              setDeletingItem(itemId);
               const success = await pantryService.deletePantryItem(itemId);
               if (success) {
                 // Refresh the list
@@ -186,6 +239,8 @@ const PantryScreen: React.FC = () => {
             } catch (error) {
               console.error('Error deleting pantry item:', error);
               Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+            } finally {
+              setDeletingItem(null);
             }
           },
         },
@@ -207,7 +262,7 @@ const PantryScreen: React.FC = () => {
       }
       
       // For edit mode
-      if (isEditMode && currentItem.id) {
+      if (isItemEditMode && currentItem.id) {
         const { id, createdAt, updatedAt, ...updates } = currentItem as PantryItemDocument;
         const success = await pantryService.updatePantryItem(id, updates);
         
@@ -288,49 +343,205 @@ const PantryScreen: React.FC = () => {
     );
   };
   
-  // Render list item
+  // Swipeable Pantry Item Component
+  const SwipeablePantryItem = ({ item }: { item: PantryItemDocument }) => {
+    const pan = useRef(new Animated.ValueXY()).current;
+    const swipeThreshold = -100; // Distance required to trigger delete action
+    const isDeleting = deletingItem === item.id;
+    
+    // Create a fade-in animation for the hint indicator
+    const [showHint, setShowHint] = useState(false);
+    const hintOpacity = useRef(new Animated.Value(0)).current;
+    
+    // Track if the item is fully swiped
+    const [isFullySwiped, setIsFullySwiped] = useState(false);
+    
+    // Show hint when component mounts (first time only)
+    useEffect(() => {
+      if (!showHint) {
+        setShowHint(true);
+        // Animate hint opacity
+        Animated.sequence([
+          Animated.delay(500), // Wait a moment before showing hint
+          Animated.timing(hintOpacity, {
+            toValue: 0.7,
+            duration: 300,
+            useNativeDriver: true
+          }),
+          Animated.delay(1000), // Keep hint visible for a second
+          Animated.timing(hintOpacity, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true
+          })
+        ]).start();
+      }
+    }, []);
+    
+    // Reset swipe position when item is deleted or new items load
+    useEffect(() => {
+      Animated.spring(pan, {
+        toValue: { x: 0, y: 0 },
+        friction: 5,
+        tension: 40,
+        useNativeDriver: false
+      }).start();
+      setIsFullySwiped(false);
+    }, [pantryItems.length]);
+    
+    const panResponder = useRef(
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false, // Don't capture taps
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          // Only activate for horizontal swipes and prevent tap handling
+          return Math.abs(gestureState.dx) > Math.abs(gestureState.dy * 3) && Math.abs(gestureState.dx) > 10;
+        },
+        onPanResponderGrant: () => {
+          pan.extractOffset();
+        },
+        onPanResponderMove: (_, gestureState) => {
+          // Only allow left swipes (negative dx) with a maximum limit
+          if (gestureState.dx < 0) {
+            // Limit how far the item can be swiped to the left
+            const limitedDx = Math.max(gestureState.dx, swipeThreshold * 1.2);
+            Animated.event(
+              [null, { dx: pan.x }],
+              { useNativeDriver: false }
+            )({ nativeEvent: { gestureState: { ...gestureState, dx: limitedDx } } });
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dx < swipeThreshold) {
+            // Swiped far enough to reveal delete button
+            Animated.spring(pan, {
+              toValue: { x: swipeThreshold, y: 0 },
+              friction: 6,
+              tension: 40,
+              useNativeDriver: false
+            }).start(() => {
+              setIsFullySwiped(true);
+            });
+          } else {
+            // Not swiped far enough, return to original position with a bounce effect
+            Animated.spring(pan, {
+              toValue: { x: 0, y: 0 },
+              friction: 5,
+              tension: 40,
+              useNativeDriver: false
+            }).start(() => {
+              setIsFullySwiped(false);
+            });
+          }
+        },
+        onPanResponderTerminationRequest: () => false, // Don't release responder during gesture
+      })
+    ).current;
+
+    // Show delete button based on swipe distance
+    const deleteButtonOpacity = pan.x.interpolate({
+      inputRange: [swipeThreshold, 0],
+      outputRange: [1, 0],
+      extrapolate: 'clamp'
+    });
+    
+    // Calculate background color for delete action
+    const deleteBackgroundColor = pan.x.interpolate({
+      inputRange: [swipeThreshold, 0],
+      outputRange: [theme.colors.error, 'transparent'],
+      extrapolate: 'clamp'
+    });
+
+    return (
+      // Apply panResponder to the outer container to handle swipe gestures
+      <View style={styles.swipeableContainer} {...panResponder.panHandlers}>
+        {/* Delete background that appears on swipe */}
+        <Animated.View 
+          style={[
+            styles.deleteBackground,
+            { backgroundColor: deleteBackgroundColor }
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.deleteBackgroundButton}
+            onPress={() => isFullySwiped && handleDeleteItem(item.id)}
+            disabled={!isFullySwiped || isDeleting}
+          >
+            <Animated.View style={{ opacity: deleteButtonOpacity }}>
+              {isDeleting ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <View style={styles.deleteIconContainer}>
+                  <Ionicons name="trash" size={24} color="white" />
+                  <Text style={styles.deleteText}>Delete</Text>
+                </View>
+              )}
+            </Animated.View>
+          </TouchableOpacity>
+        </Animated.View>
+        
+        {/* Swipe hint indicator */}
+        {showHint && (
+          <Animated.View 
+            style={[
+              styles.swipeHint,
+              { opacity: hintOpacity }
+            ]}
+          >
+            <MaterialCommunityIcons 
+              name="gesture-swipe-left" 
+              size={24} 
+              color="white" 
+            />
+          </Animated.View>
+        )}
+        
+        {/* Main content - No responder handlers here */}
+        <Animated.View 
+          style={[
+            styles.itemContainer,
+            { 
+              transform: [{ translateX: pan.x }],
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.2,
+              shadowRadius: 2,
+              elevation: 2,
+              backgroundColor: theme.colors.cardBackground,
+              opacity: 0.95 // Slightly reduce opacity to indicate not interactive
+            }
+          ]}
+          pointerEvents="none" // Completely disable all touch interactions
+        >
+          <View style={styles.itemContentContainer}>
+            <View style={styles.itemHeader}>
+              <Text style={styles.itemName}>{item.name}</Text>
+              {item.status && renderStatusTag(item.status)}
+            </View>
+            
+            <View style={styles.itemDetails}>
+              <Text style={styles.itemDetail}>
+                Quantity: {item.quantity} {item.unit}
+              </Text>
+              
+              {item.category && (
+                <Text style={styles.itemDetail}>Category: {item.category}</Text>
+              )}
+              
+              {item.expirationDate && (
+                <Text style={styles.itemDetail}>
+                  Expires: {formatDate(item.expirationDate.toDate())}
+                </Text>
+              )}
+            </View>
+          </View>
+        </Animated.View>
+      </View>
+    );
+  };
+  
+  // Render a single item - Updated to use the swipeable component
   const renderItem = ({ item }: { item: PantryItemDocument }) => (
-    <TouchableOpacity 
-      style={styles.itemContainer}
-      onPress={() => handleEditItem(item)}
-    >
-      <View style={styles.itemHeader}>
-        <Text style={styles.itemName}>{item.name}</Text>
-        {item.status && renderStatusTag(item.status)}
-      </View>
-      
-      <View style={styles.itemDetails}>
-        <Text style={styles.itemDetail}>
-          Quantity: {item.quantity} {item.unit}
-        </Text>
-        
-        {item.category && (
-          <Text style={styles.itemDetail}>Category: {item.category}</Text>
-        )}
-        
-        {item.expirationDate && (
-          <Text style={styles.itemDetail}>
-            Expires: {formatDate(item.expirationDate.toDate())}
-          </Text>
-        )}
-      </View>
-      
-      <View style={styles.itemActions}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleEditItem(item)}
-        >
-          <Ionicons name="pencil" size={20} color={theme.colors.primary} />
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleDeleteItem(item.id)}
-        >
-          <Ionicons name="trash" size={20} color={theme.colors.error} />
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
+    <SwipeablePantryItem item={item} />
   );
   
   // Render category filter chips
@@ -379,37 +590,76 @@ const PantryScreen: React.FC = () => {
     </ScrollView>
   );
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>My Pantry</Text>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={handleAddItem}
-        >
-          <Ionicons name="add" size={24} color="white" />
-        </TouchableOpacity>
-      </View>
-      
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color={theme.colors.text} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search pantry items..."
-          value={searchQuery}
-          onChangeText={handleSearch}
-          clearButtonMode="while-editing"
-        />
-      </View>
-      
-      {renderCategoryChips()}
-      
-      {loading && !refreshing ? (
+  // Render standard view or categorized edit view based on mode
+  const renderContent = () => {
+    if (loading && !refreshing) {
+      return (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={styles.loadingText}>Loading pantry items...</Text>
         </View>
-      ) : filteredItems.length === 0 ? (
+      );
+    }
+    
+    if (isEditMode) {
+      // Render categorized view with edit capabilities
+      if (Object.keys(categorizedItems).length === 0) {
+        return (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="basket-outline" size={64} color={theme.colors.neutral} />
+            <Text style={styles.emptyText}>Your pantry is empty</Text>
+            <TouchableOpacity
+              style={styles.emptyButton}
+              onPress={handleAddItem}
+            >
+              <Text style={styles.emptyButtonText}>Add Items</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }
+      
+      return (
+        <ScrollView style={styles.content}>
+          {Object.entries(categorizedItems)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([category, items]) => (
+              <View key={category} style={styles.categorySection}>
+                <Text style={styles.categorySectionTitle}>{category}</Text>
+                {items.map(item => (
+                  <View key={item.id} style={styles.editItemContainer}>
+                    <View style={styles.editItemContent}>
+                      <Text style={styles.editItemName}>{item.name}</Text>
+                      <Text style={styles.editItemDetails}>
+                        {item.quantity} {item.unit}
+                        {item.expirationDate && 
+                          ` • Expires: ${formatDate(item.expirationDate.toDate())}`}
+                      </Text>
+                    </View>
+                    <View style={styles.editItemActions}>
+                      <TouchableOpacity
+                        style={styles.editItemButton}
+                        onPress={() => handleEditItem(item)}
+                      >
+                        <Ionicons name="pencil" size={20} color={theme.colors.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.editItemButton}
+                        onPress={() => handleDeleteItem(item.id)}
+                      >
+                        <Ionicons name="trash" size={20} color={theme.colors.error} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ))}
+        </ScrollView>
+      );
+    }
+    
+    // Render swipe-only view
+    if (filteredItems.length === 0) {
+      return (
         <View style={styles.emptyContainer}>
           <Ionicons name="basket-outline" size={64} color={theme.colors.neutral} />
           <Text style={styles.emptyText}>
@@ -424,24 +674,160 @@ const PantryScreen: React.FC = () => {
             <Text style={styles.emptyButtonText}>Add Items</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        <FlatList
-          data={filteredItems}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContainer}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                loadPantryItems();
+      );
+    }
+    
+    return (
+      <FlatList
+        data={filteredItems}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              loadPantryItems();
+            }}
+            colors={[theme.colors.primary]}
+          />
+        }
+      />
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        {isFromProfile && !isEditMode && (
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.navigate('Profile')}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        )}
+        {isEditMode && (
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        )}
+        <Text style={[
+          styles.title, 
+          (isFromProfile || isEditMode) && { marginLeft: 8 }
+        ]}>
+          {isEditMode ? 'Manage Pantry' : 'My Pantry'}
+        </Text>
+        {!isEditMode && (
+          <View style={styles.headerButtons}>
+            <TouchableOpacity
+              style={styles.managePantryButton}
+              onPress={() => {
+                // Navigate to the full edit version of the pantry
+                navigation.navigate('PantryEdit');
               }}
-              colors={[theme.colors.primary]}
-            />
-          }
-        />
+            >
+              <MaterialCommunityIcons name="pencil" size={16} color="white" />
+              <Text style={styles.managePantryButtonText}>Manage</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={handleAddItem}
+            >
+              <Ionicons name="add" size={24} color="white" />
+            </TouchableOpacity>
+          </View>
+        )}
+        {isEditMode && (
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={handleAddItem}
+          >
+            <Ionicons name="add" size={24} color="white" />
+          </TouchableOpacity>
+        )}
+      </View>
+      
+      {/* Swipe Tip Banner with animation - only show in swipe mode */}
+      {showSwipeTip && !isEditMode && (
+        <Animated.View 
+          style={[
+            styles.swipeTipContainer,
+            { 
+              backgroundColor: '#FFEBEE', 
+              paddingVertical: 14,
+              borderLeftWidth: 4,
+              borderLeftColor: '#D32F2F',
+              opacity: swipeTipAnimation,
+              transform: [{ 
+                translateY: swipeTipAnimation.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-50, 0]
+                }) 
+              }]
+            }
+          ]}
+        >
+          <View style={styles.swipeTipIcon}>
+            <MaterialCommunityIcons name="gesture-swipe-left" size={30} color="#D32F2F" />
+          </View>
+          <View style={styles.swipeTipContent}>
+            <Text style={[styles.swipeTipTitle, { color: '#D32F2F', fontWeight: 'bold' }]}>
+              Swipe Only Mode
+            </Text>
+            <Text style={[styles.swipeTipText, { color: '#D32F2F' }]}>
+              Tapping on items is disabled. You can only swipe left to delete items.
+            </Text>
+          </View>
+          
+          {/* Close button */}
+          <TouchableOpacity 
+            style={styles.swipeTipCloseButton}
+            onPress={() => {
+              Animated.timing(swipeTipAnimation, {
+                toValue: 0,
+                duration: 300,
+                useNativeDriver: true
+              }).start(() => {
+                setShowSwipeTip(false);
+              });
+            }}
+          >
+            <Ionicons name="close" size={20} color="#D32F2F" />
+          </TouchableOpacity>
+        </Animated.View>
       )}
+      
+      {/* Instruction banner for edit mode */}
+      {isEditMode && (
+        <View style={[styles.instructionContainer, { backgroundColor: '#E3F2FD' }]}>
+          <MaterialCommunityIcons name="information-outline" size={24} color="#1976D2" />
+          <Text style={styles.instructionText}>
+            Tap the pencil icon to edit an item or the trash icon to delete it. Use the + button to add new items.
+          </Text>
+        </View>
+      )}
+      
+      {!isEditMode && (
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={20} color={theme.colors.text} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search pantry items..."
+            value={searchQuery}
+            onChangeText={handleSearch}
+            clearButtonMode="while-editing"
+          />
+        </View>
+      )}
+      
+      {!isEditMode && renderCategoryChips()}
+      
+      {renderContent()}
       
       {/* Add/Edit Item Modal */}
       <Modal
@@ -454,7 +840,7 @@ const PantryScreen: React.FC = () => {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                {isEditMode ? 'Edit Pantry Item' : 'Add Pantry Item'}
+                {isItemEditMode ? 'Edit Pantry Item' : 'Add Pantry Item'}
               </Text>
               <TouchableOpacity
                 onPress={() => setModalVisible(false)}
@@ -613,7 +999,7 @@ const PantryScreen: React.FC = () => {
                 onPress={handleSaveItem}
               >
                 <Text style={[styles.buttonText, styles.saveButtonText]}>
-                  {isEditMode ? 'Update' : 'Add'}
+                  {isItemEditMode ? 'Update' : 'Add'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -638,10 +1024,33 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
+  backButton: {
+    padding: 4,
+  },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: theme.colors.text,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  managePantryButton: {
+    backgroundColor: theme.colors.secondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginRight: 12,
+  },
+  managePantryButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
+    marginLeft: 4,
   },
   addButton: {
     backgroundColor: theme.colors.primary,
@@ -700,9 +1109,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.cardBackground,
     borderRadius: 8,
     padding: 16,
-    marginBottom: 12,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    zIndex: 1,
   },
   itemHeader: {
     flexDirection: 'row',
@@ -886,6 +1295,156 @@ const styles = StyleSheet.create({
   },
   saveButtonText: {
     color: 'white',
+  },
+  swipeableContainer: {
+    position: 'relative',
+    marginBottom: 10,
+    marginHorizontal: 16,
+    borderRadius: 8,
+    overflow: 'hidden', // Ensure content doesn't escape rounded corners
+  },
+  deleteBackground: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
+  },
+  deleteBackgroundButton: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteIconContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteText: {
+    color: 'white',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  swipeHint: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  itemContentContainer: {
+    flex: 1,
+  },
+  swipeTipContainer: {
+    flexDirection: 'row', 
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e1e1e1',
+    position: 'relative', // For absolute positioning of close button
+  },
+  swipeTipText: {
+    fontSize: 14,
+    color: '#555',
+    marginLeft: 8,
+    flex: 1,
+  },
+  swipeTipIcon: {
+    marginRight: 12,
+  },
+  swipeTipContent: {
+    flex: 1,
+  },
+  swipeTipTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  swipeTipCloseButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    padding: 4,
+    zIndex: 10, // Ensure it's above other content
+  },
+  categorySection: {
+    marginBottom: 16,
+    backgroundColor: theme.colors.cardBackground,
+    borderRadius: 8,
+    marginHorizontal: 16,
+    paddingBottom: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  categorySectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    backgroundColor: theme.colors.background,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+  },
+  editItemContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  editItemContent: {
+    flex: 1,
+  },
+  editItemName: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: theme.colors.text,
+    marginBottom: 4,
+  },
+  editItemDetails: {
+    fontSize: 14,
+    color: theme.colors.textSecondary,
+  },
+  editItemActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  editItemButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  instructionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  instructionText: {
+    fontSize: 14,
+    color: '#1976D2',
+    marginLeft: 12,
+    flex: 1,
+  },
+  content: {
+    padding: 16,
   },
 });
 

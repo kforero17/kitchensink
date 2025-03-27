@@ -15,6 +15,7 @@ export interface Recipe {
   imageUrl?: string;
   tags: string[];
   estimatedCost: number;
+  isWeeklyMealPlan?: boolean;
 }
 
 interface MealPlanContextType {

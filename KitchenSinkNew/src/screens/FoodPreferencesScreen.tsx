@@ -23,10 +23,14 @@ import {
 } from '../types/FoodPreferences';
 import { getFoodPreferences, saveFoodPreferences } from '../utils/preferences';
 import { BackButton } from '../components/BackButton';
+import { useRoute } from '@react-navigation/native';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'FoodPreferences'>;
 
 export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
+  const route = useRoute();
+  const isFromProfile = route.params?.fromProfile === true;
+  
   const [preferences, setPreferences] = useState<FoodPreferences>({
     favoriteIngredients: [],
     dislikedIngredients: [],
@@ -189,7 +193,11 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     try {
       const success = await saveFoodPreferences(preferences);
       if (success) {
-        navigation.navigate('CookingHabits');
+        if (isFromProfile) {
+          navigation.navigate('Profile');
+        } else {
+          navigation.navigate('CookingHabits', { fromProfile: isFromProfile });
+        }
       } else {
         throw new Error('Failed to save preferences');
       }
@@ -217,7 +225,7 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
         <View style={styles.header}>
-          <BackButton />
+          <BackButton onPress={isFromProfile ? () => navigation.navigate('Profile') : undefined} />
         </View>
 
         <Text style={styles.title}>Food Preferences</Text>
@@ -312,7 +320,7 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            <Text style={styles.buttonText}>Continue</Text>
+            <Text style={styles.buttonText}>{isFromProfile ? 'Save Changes' : 'Continue'}</Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>

@@ -59,12 +59,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const subscriber = auth().onAuthStateChanged(async (userState) => {
       setUser(userState);
       
-      // Add debug logging for auth state
-      console.log('Auth state changed:', userState ? `User ${userState.uid} logged in` : 'No user logged in');
-      
-      // When a user logs in, ensure they have a Firestore user document
       if (userState) {
+        // User is signed in
+        logger.debug('User auth state changed - signed in:', userState.uid);
+        
+        // We're no longer automatically resetting meal plan flags on sign in
+        // This preserves the user's selected weekly meal plan recipes
+        
         try {
+          // Check if user document exists in Firestore
           // Log user details for debugging
           console.log('Current user details:', {
             uid: userState.uid,
@@ -180,10 +183,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Save meal plan to Firestore with retry
             logger.debug('Migrating meal plan to Firestore...');
             try {
-              const mealPlanSuccess = await retryOperation(async () => {
-                return await saveMealPlanToFirestore(mealPlan);
-              });
-              logger.debug('Meal plan migration result:', mealPlanSuccess ? 'Success' : 'Failed');
+              // Only migrate recipes that are explicitly marked as part of the weekly meal plan
+              const selectedRecipes = mealPlan.filter(recipe => recipe.isWeeklyMealPlan === true);
+              
+              if (selectedRecipes.length > 0) {
+                logger.debug(`Found ${selectedRecipes.length} recipes marked as weekly meal plan to migrate`);
+                const mealPlanSuccess = await retryOperation(async () => {
+                  return await saveMealPlanToFirestore(selectedRecipes);
+                });
+                logger.debug('Meal plan migration result:', mealPlanSuccess ? 'Success' : 'Failed');
+              } else {
+                logger.debug('No recipes marked as weekly meal plan found, skipping migration');
+              }
             } catch (error) {
               logger.error('Failed to migrate meal plan to Firestore:', error);
             }

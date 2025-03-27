@@ -84,17 +84,28 @@ class GroceryListService {
         return await firestoreService.getGroceryList(listId);
       } else {
         // For anonymous users, we only have one list in AsyncStorage
-        const data = await AsyncStorage.getItem(CURRENT_GROCERY_LIST_KEY);
-        if (!data) return null;
-        
-        const list = JSON.parse(data);
-        return {
-          id: 'local-grocery-list',
-          name: list.name,
-          items: list.items,
-          createdAt: list.createdAt,
-          updatedAt: list.updatedAt
-        };
+        try {
+          // Safely check if AsyncStorage is available
+          if (typeof AsyncStorage === 'undefined' || AsyncStorage === null) {
+            logger.error("AsyncStorage is undefined or not available");
+            return null;
+          }
+          
+          const data = await AsyncStorage.getItem(CURRENT_GROCERY_LIST_KEY);
+          if (!data) return null;
+          
+          const list = JSON.parse(data);
+          return {
+            id: 'local-grocery-list',
+            name: list.name,
+            items: list.items,
+            createdAt: list.createdAt,
+            updatedAt: list.updatedAt
+          };
+        } catch (asyncError) {
+          logger.error('AsyncStorage error:', asyncError);
+          return null;
+        }
       }
     } catch (error) {
       logger.error('Error getting grocery list', error);
@@ -113,17 +124,28 @@ class GroceryListService {
         return await firestoreService.getAllGroceryLists();
       } else {
         // For anonymous users, we only have one list in AsyncStorage
-        const data = await AsyncStorage.getItem(CURRENT_GROCERY_LIST_KEY);
-        if (!data) return [];
-        
-        const list = JSON.parse(data);
-        return [{
-          id: 'local-grocery-list',
-          name: list.name,
-          items: list.items,
-          createdAt: list.createdAt,
-          updatedAt: list.updatedAt
-        }];
+        try {
+          // Safely check if AsyncStorage is available
+          if (typeof AsyncStorage === 'undefined' || AsyncStorage === null) {
+            logger.error("AsyncStorage is undefined or not available");
+            return [];
+          }
+          
+          const data = await AsyncStorage.getItem(CURRENT_GROCERY_LIST_KEY);
+          if (!data) return [];
+          
+          const list = JSON.parse(data);
+          return [{
+            id: 'local-grocery-list',
+            name: list.name,
+            items: list.items,
+            createdAt: list.createdAt,
+            updatedAt: list.updatedAt
+          }];
+        } catch (asyncError) {
+          logger.error('AsyncStorage error:', asyncError);
+          return [];
+        }
       }
     } catch (error) {
       logger.error('Error getting all grocery lists', error);
@@ -142,6 +164,12 @@ class GroceryListService {
     data: Partial<Pick<GroceryListDocument, 'name' | 'items'>>
   ): Promise<boolean> {
     try {
+      // Safely check if AsyncStorage is available
+      if (typeof AsyncStorage === 'undefined' || AsyncStorage === null) {
+        logger.error("AsyncStorage is undefined or not available");
+        return false;
+      }
+      
       // Get current grocery list from AsyncStorage
       const currentData = await AsyncStorage.getItem(CURRENT_GROCERY_LIST_KEY);
       if (!currentData) {
@@ -298,6 +326,12 @@ class GroceryListService {
     try {
       if (!this.shouldUseFirestore()) {
         // Can't migrate if not authenticated
+        return false;
+      }
+      
+      // Safely check if AsyncStorage is available
+      if (typeof AsyncStorage === 'undefined' || AsyncStorage === null) {
+        logger.error("AsyncStorage is undefined or not available");
         return false;
       }
       

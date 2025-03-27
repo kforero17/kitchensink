@@ -156,6 +156,7 @@ export interface RecipeDocument {
   summary?: string;
   sourceUrl?: string;
   isFavorite: boolean;
+  isWeeklyMealPlan: boolean; // Flag to identify recipes that are part of the weekly meal plan
   tags: string[];
   createdAt: FirebaseFirestoreTypes.Timestamp;
   updatedAt: FirebaseFirestoreTypes.Timestamp;

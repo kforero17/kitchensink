@@ -13,6 +13,7 @@ import AuthModal from '../components/AuthModal';
 import AuthPrompt from '../components/AuthPrompt';
 import { groceryListService } from '../services/groceryListService';
 import { firestoreService } from '../services/firebaseService';
+import { pantryService } from '../services/pantryService';
 
 type GroceryListScreenRouteProp = RouteProp<RootStackParamList, 'GroceryList'>;
 type GroceryListScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GroceryList'>;
@@ -345,122 +346,6 @@ const parseQuantity = (measurement: string): number => {
   return Number(quantityStr) || 1;
 };
 
-// Swipeable Ingredient component
-const SwipeableIngredient = ({ 
-  item, 
-  isRemoved, 
-  onRemove 
-}: { 
-  item: Ingredient, 
-  isRemoved: boolean, 
-  onRemove: () => void 
-}) => {
-  const pan = useRef(new Animated.ValueXY()).current;
-  const swipeThreshold = -80; // Distance required to trigger removal
-  
-  // Determine if the measurement text is a consolidated measurement
-  // (i.e., if it contains a numeric value that looks like a combined quantity)
-  const isConsolidatedMeasurement = /^\d+(\.\d+)?|^\d+ \d+\/\d+|^\d+\/\d+/.test(item.measurement);
-  
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only activate for horizontal swipes and not for removed items
-        return !isRemoved && Math.abs(gestureState.dx) > Math.abs(gestureState.dy * 3);
-      },
-      onPanResponderGrant: () => {
-        // Fix the typescript error by not accessing internal properties
-        pan.extractOffset();
-      },
-      onPanResponderMove: (_, gestureState) => {
-        // Only allow left swipes (negative dx)
-        if (gestureState.dx < 0) {
-          Animated.event(
-            [null, { dx: pan.x }],
-            { useNativeDriver: false }
-          )(_, gestureState);
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dx < swipeThreshold) {
-          // Swiped far enough to remove
-          Animated.timing(pan, {
-            toValue: { x: -1000, y: 0 },
-            duration: 250,
-            useNativeDriver: false
-          }).start(onRemove);
-        } else {
-          // Not swiped far enough, return to original position
-          Animated.spring(pan, {
-            toValue: { x: 0, y: 0 },
-            friction: 5,
-            useNativeDriver: false
-          }).start();
-        }
-      }
-    })
-  ).current;
-
-  // Show delete hint based on swipe distance
-  const deleteOpacity = pan.x.interpolate({
-    inputRange: [-100, -30],
-    outputRange: [1, 0],
-    extrapolate: 'clamp'
-  });
-
-  return (
-    <View style={styles.swipeableContainer}>
-      <Animated.View
-        style={[
-          styles.deleteBackground,
-          {
-            transform: [{ translateX: -100 }],
-            opacity: deleteOpacity
-          }
-        ]}
-      >
-        <Text style={styles.deleteText}>Mark as Available</Text>
-      </Animated.View>
-      
-      <Animated.View
-        style={[
-          styles.ingredientItem,
-          isRemoved && styles.removedIngredientItem,
-          { transform: [{ translateX: pan.x }] }
-        ]}
-        {...(!isRemoved ? panResponder.panHandlers : {})}
-      >
-        <View style={styles.ingredientDetails}>
-          <Text style={[
-            styles.ingredientName,
-            isRemoved && styles.removedIngredientText
-          ]}>
-            {item.name}
-            {isRemoved && ' (Have)'}
-          </Text>
-          
-          <View style={styles.measurementRow}>
-            <Text style={[
-              styles.originalMeasurement,
-              isConsolidatedMeasurement && styles.consolidatedMeasurement,
-              isRemoved && styles.removedIngredientText
-            ]}>
-              {item.measurement}
-            </Text>
-            
-            <Text style={[
-              styles.packageRecommendation,
-              isRemoved && styles.removedIngredientText
-            ]}>
-              {item.recommendedPackage}
-            </Text>
-          </View>
-        </View>
-      </Animated.View>
-    </View>
-  );
-};
-
 const GroceryListScreen: React.FC = () => {
   const navigation = useNavigation<GroceryListScreenNavigationProp>();
   const route = useRoute<GroceryListScreenRouteProp>();
@@ -477,6 +362,10 @@ const GroceryListScreen: React.FC = () => {
   const [savingInProgress, setSavingInProgress] = useState(false);
   const [listName, setListName] = useState('My Grocery List');
   
+  // New state for selected items and tracking if we're from profile
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const isFromProfile = route.params?.existingListId !== undefined;
+
   // Load existing grocery list if existingListId is provided
   useEffect(() => {
     const loadExistingList = async () => {
@@ -749,6 +638,157 @@ const GroceryListScreen: React.FC = () => {
     return removedIngredients.has(ingredientName.toLowerCase());
   };
 
+  // Add handler for selecting/deselecting items
+  const handleToggleSelectItem = (ingredientName: string) => {
+    setSelectedItems(prev => {
+      const newSelected = new Set(prev);
+      if (newSelected.has(ingredientName.toLowerCase())) {
+        newSelected.delete(ingredientName.toLowerCase());
+      } else {
+        newSelected.add(ingredientName.toLowerCase());
+      }
+      return newSelected;
+    });
+  };
+
+  // Check if an ingredient is selected
+  const isIngredientSelected = (ingredientName: string): boolean => {
+    return selectedItems.has(ingredientName.toLowerCase());
+  };
+
+  // Swipeable Ingredient component - moved inside the parent component
+  const SwipeableIngredient = ({ 
+    item, 
+    isRemoved, 
+    onRemove,
+    onToggleSelect
+  }: { 
+    item: Ingredient, 
+    isRemoved: boolean, 
+    onRemove: () => void,
+    onToggleSelect: () => void
+  }) => {
+    const pan = useRef(new Animated.ValueXY()).current;
+    const swipeThreshold = -80; // Distance required to trigger removal
+    
+    // Determine if the measurement text is a consolidated measurement
+    const isConsolidatedMeasurement = /^\d+(\.\d+)?|^\d+ \d+\/\d+|^\d+\/\d+/.test(item.measurement);
+    
+    const isSelected = isIngredientSelected(item.name);
+    
+    const panResponder = useRef(
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          // Only activate for horizontal swipes and not for removed items
+          return !isRemoved && Math.abs(gestureState.dx) > Math.abs(gestureState.dy * 3);
+        },
+        onPanResponderGrant: () => {
+          // Fix the typescript error by not accessing internal properties
+          pan.extractOffset();
+        },
+        onPanResponderMove: (_, gestureState) => {
+          // Only allow left swipes (negative dx)
+          if (gestureState.dx < 0) {
+            Animated.event(
+              [null, { dx: pan.x }],
+              { useNativeDriver: false }
+            )(_, gestureState);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dx < swipeThreshold) {
+            // Swiped far enough to remove
+            Animated.timing(pan, {
+              toValue: { x: -1000, y: 0 },
+              duration: 250,
+              useNativeDriver: false
+            }).start(onRemove);
+          } else {
+            // Not swiped far enough, return to original position
+            Animated.spring(pan, {
+              toValue: { x: 0, y: 0 },
+              friction: 5,
+              useNativeDriver: false
+            }).start();
+          }
+        }
+      })
+    ).current;
+
+    // Show delete hint based on swipe distance
+    const deleteOpacity = pan.x.interpolate({
+      inputRange: [-100, -30],
+      outputRange: [1, 0],
+      extrapolate: 'clamp'
+    });
+
+    return (
+      <View style={styles.swipeableContainer}>
+        <Animated.View
+          style={[
+            styles.deleteBackground,
+            {
+              transform: [{ translateX: -100 }],
+              opacity: deleteOpacity
+            }
+          ]}
+        >
+          <Text style={styles.deleteText}>Mark as Available</Text>
+        </Animated.View>
+        
+        <Animated.View
+          style={[
+            styles.ingredientItem,
+            isRemoved && styles.removedIngredientItem,
+            isSelected && styles.selectedIngredientItem,
+            { transform: [{ translateX: pan.x }] }
+          ]}
+          {...(!isRemoved ? panResponder.panHandlers : {})}
+        >
+          {isFromProfile && !isRemoved && (
+            <TouchableOpacity
+              style={styles.selectCheckbox}
+              onPress={onToggleSelect}
+            >
+              <MaterialCommunityIcons
+                name={isSelected ? "checkbox-marked" : "checkbox-blank-outline"}
+                size={24}
+                color={isSelected ? "#4CAF50" : "#999"}
+              />
+            </TouchableOpacity>
+          )}
+          
+          <View style={styles.ingredientDetails}>
+            <Text style={[
+              styles.ingredientName,
+              isRemoved && styles.removedIngredientText
+            ]}>
+              {item.name}
+              {isRemoved && ' (Have)'}
+            </Text>
+            
+            <View style={styles.measurementRow}>
+              <Text style={[
+                styles.originalMeasurement,
+                isConsolidatedMeasurement && styles.consolidatedMeasurement,
+                isRemoved && styles.removedIngredientText
+              ]}>
+                {item.measurement}
+              </Text>
+              
+              <Text style={[
+                styles.packageRecommendation,
+                isRemoved && styles.removedIngredientText
+              ]}>
+                {item.recommendedPackage}
+              </Text>
+            </View>
+          </View>
+        </Animated.View>
+      </View>
+    );
+  };
+
   // Render a single ingredient item
   const renderIngredientItem = ({ item }: { item: Ingredient }) => {
     const isRemoved = isIngredientRemoved(item.name);
@@ -758,6 +798,7 @@ const GroceryListScreen: React.FC = () => {
         item={item}
         isRemoved={isRemoved}
         onRemove={() => handleRemoveIngredient(item.name)}
+        onToggleSelect={() => handleToggleSelectItem(item.name)}
       />
     );
   };
@@ -890,16 +931,23 @@ const GroceryListScreen: React.FC = () => {
           isChecked: false
         }));
       
-      // Save grocery list
-      const listId = await groceryListService.createGroceryList(
-        'My First Grocery List', 
-        groceryItems
-      );
+      // Only save grocery list if there are items and we're not viewing an existing list
+      if (groceryItems.length > 0 && !existingListId) {
+        console.log(`Creating grocery list with ${groceryItems.length} items`);
+        // Save grocery list
+        const listId = await groceryListService.createGroceryList(
+          'My First Grocery List', 
+          groceryItems
+        );
+      }
       
       // If there are selected recipes, save them
       if (selectedRecipes && selectedRecipes.length > 0) {
-        // Save recipes to Firestore
+        console.log(`Saving ${selectedRecipes.length} selected recipes to profile during onboarding`);
+        
+        // Save recipes to Firestore, marking them as part of the weekly meal plan
         for (const recipe of selectedRecipes) {
+          console.log(`Saving recipe to profile: ${recipe.name} (isWeeklyMealPlan=true)`);
           await firestoreService.saveRecipe({
             name: recipe.name,
             servings: recipe.servings,
@@ -917,6 +965,7 @@ const GroceryListScreen: React.FC = () => {
             imageUrl: recipe.imageUrl,
             tags: recipe.tags || [],
             isFavorite: true,
+            isWeeklyMealPlan: true, // Mark as part of the weekly meal plan
             summary: recipe.description || '',
             sourceUrl: '',
             cuisines: [],
@@ -935,7 +984,7 @@ const GroceryListScreen: React.FC = () => {
       // Show success message and navigate to profile
       Alert.alert(
         'Profile Created Successfully!',
-        'Your account has been set up and your grocery list and recipes have been saved. You can access everything from your profile.',
+        'Your account has been set up and your data has been saved. You can access everything from your profile.',
         [{ 
           text: 'Go to Profile', 
           onPress: () => navigation.navigate('Profile')
@@ -961,7 +1010,7 @@ const GroceryListScreen: React.FC = () => {
         shareText += `${category}:\n`;
         
         categorizedIngredients[category].forEach(item => {
-          if (!removedIngredients.has(item.name)) {
+          if (!removedIngredients.has(item.name.toLowerCase())) {
             shareText += `- ${item.measurement} ${item.name}\n`;
           }
         });
@@ -980,13 +1029,95 @@ const GroceryListScreen: React.FC = () => {
     }
   };
   
+  // Handle adding selected items to pantry
+  const handleAddToPantry = async () => {
+    try {
+      // Check if there are any selected items
+      if (selectedItems.size === 0) {
+        Alert.alert('No Items Selected', 'Please select items to add to your pantry.');
+        return;
+      }
+
+      setSavingInProgress(true);
+      
+      // Get the selected grocery items
+      const selectedGroceryItems = Object.values(categorizedIngredients)
+        .flat()
+        .filter(item => selectedItems.has(item.name.toLowerCase()))
+        .map(item => ({
+          name: item.name,
+          measurement: item.measurement,
+          category: item.category || 'Other'
+        }));
+      
+      // Add the items to the pantry
+      const successCount = await pantryService.addGroceryItemsToPantry(selectedGroceryItems);
+      
+      setSavingInProgress(false);
+      
+      if (successCount > 0) {
+        Alert.alert(
+          'Success',
+          `${successCount} item${successCount === 1 ? '' : 's'} added to your pantry.`,
+          [{ text: 'OK' }]
+        );
+        
+        // Clear the selection
+        setSelectedItems(new Set());
+      } else {
+        Alert.alert('Error', 'Failed to add items to pantry. Please try again.');
+      }
+    } catch (error) {
+      setSavingInProgress(false);
+      console.error('Error adding items to pantry:', error);
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    }
+  };
+
+  // Handle exporting to Notes app (iOS)
+  const handleExportToNotes = async () => {
+    try {
+      // Create a text representation of the grocery list
+      let notesText = `${listName}\n\n`;
+      
+      Object.keys(categorizedIngredients).forEach(category => {
+        notesText += `${category}:\n`;
+        
+        categorizedIngredients[category].forEach(item => {
+          if (!removedIngredients.has(item.name.toLowerCase())) {
+            notesText += `□ ${item.measurement} ${item.name}\n`;
+          }
+        });
+        
+        notesText += "\n";
+      });
+      
+      // Use the Share API to share the text
+      await Share.share({
+        message: notesText,
+        title: listName
+      });
+    } catch (error) {
+      console.error('Error exporting to Notes:', error);
+      Alert.alert('Error', 'Failed to export your grocery list. Please try again.');
+    }
+  };
+  
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.backButton}
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              const params = route.params;
+              // If we navigated from profile and have an existing list, go back to profile
+              if (params?.existingListId) {
+                navigation.navigate('Profile');
+              } else {
+                navigation.goBack();
+              }
+            }}
           >
             <MaterialCommunityIcons name="arrow-left" size={24} color="#333" />
           </TouchableOpacity>
@@ -1002,7 +1133,15 @@ const GroceryListScreen: React.FC = () => {
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => {
+            const params = route.params;
+            // If we navigated from profile and have an existing list, go back to profile
+            if (params?.existingListId) {
+              navigation.navigate('Profile');
+            } else {
+              navigation.goBack();
+            }
+          }}
         >
           <MaterialCommunityIcons name="arrow-left" size={24} color="#333" />
         </TouchableOpacity>
@@ -1017,6 +1156,16 @@ const GroceryListScreen: React.FC = () => {
         </Text>
       </View>
       
+      {/* Show selection tip when coming from profile */}
+      {isFromProfile && (
+        <View style={[styles.swipeTipContainer, { backgroundColor: '#E8F5E9' }]}>
+          <MaterialCommunityIcons name="checkbox-marked" size={20} color="#4CAF50" />
+          <Text style={styles.swipeTipText}>
+            Tap on items to select them for adding to your pantry
+          </Text>
+        </View>
+      )}
+      
       {/* Package Info Banner */}
       <View style={styles.packageTipContainer}>
         <MaterialCommunityIcons name="information-outline" size={20} color="#555" />
@@ -1030,6 +1179,11 @@ const GroceryListScreen: React.FC = () => {
         {removedIngredients.size > 0 && (
           <Text style={styles.removedItemsInfo}>
             {removedIngredients.size} item(s) marked as already available
+          </Text>
+        )}
+        {selectedItems.size > 0 && (
+          <Text style={styles.selectedItemsInfo}>
+            {selectedItems.size} item(s) selected
           </Text>
         )}
       </View>
@@ -1050,28 +1204,59 @@ const GroceryListScreen: React.FC = () => {
       </ScrollView>
       
       <View style={styles.actionsContainer}>
-        <TouchableOpacity
-          style={[styles.saveButton, savingInProgress && styles.disabledButton]}
-          onPress={handleSaveList}
-          disabled={loading || savingInProgress}
-        >
-          {savingInProgress ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <MaterialCommunityIcons name="content-save" size={20} color="#fff" />
-              <Text style={styles.saveButtonText}>Save List</Text>
-            </>
-          )}
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={styles.shareButton}
-          onPress={handleShareList}
-        >
-          <MaterialCommunityIcons name="share-variant" size={20} color="#FFF" />
-          <Text style={styles.shareButtonText}>Share List</Text>
-        </TouchableOpacity>
+        {isFromProfile ? (
+          // Show add to pantry and export to notes buttons when viewing from profile
+          <>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.addToPantryButton]}
+              onPress={handleAddToPantry}
+              disabled={selectedItems.size === 0 || savingInProgress}
+            >
+              {savingInProgress ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <MaterialCommunityIcons name="fridge-outline" size={20} color="#fff" />
+                  <Text style={styles.actionButtonText}>Add to Pantry</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.actionButton, styles.exportButton]}
+              onPress={handleExportToNotes}
+            >
+              <MaterialCommunityIcons name="export" size={20} color="#FFF" />
+              <Text style={styles.actionButtonText}>Export to Notes</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          // Show save and share buttons when creating a new list
+          <>
+            <TouchableOpacity
+              style={[styles.saveButton, savingInProgress && styles.disabledButton]}
+              onPress={handleSaveList}
+              disabled={loading || savingInProgress}
+            >
+              {savingInProgress ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <MaterialCommunityIcons name="content-save" size={20} color="#fff" />
+                  <Text style={styles.saveButtonText}>Save List</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.shareButton}
+              onPress={handleShareList}
+            >
+              <MaterialCommunityIcons name="share-variant" size={20} color="#FFF" />
+              <Text style={styles.shareButtonText}>Share List</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
       
       {/* Auth Prompt Modal */}
@@ -1460,6 +1645,40 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     color: '#333',
+  },
+  selectedIngredientItem: {
+    backgroundColor: '#E8F5E9',
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+  },
+  selectCheckbox: {
+    marginRight: 8,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 8,
+    margin: 8,
+  },
+  addToPantryButton: {
+    backgroundColor: '#4CAF50',
+  },
+  exportButton: {
+    backgroundColor: '#007AFF',
+  },
+  actionButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  selectedItemsInfo: {
+    fontSize: 14,
+    color: '#4CAF50',
+    fontStyle: 'italic',
   },
 });
 

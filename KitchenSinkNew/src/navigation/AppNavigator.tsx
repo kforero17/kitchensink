@@ -15,16 +15,22 @@ import ProfileScreen from '../screens/ProfileScreen';
 import DebugScreen from '../screens/DebugScreen';
 import PantryScreen from '../screens/PantryScreen';
 import TestPickerScreen from '../screens/TestPickerScreen';
+import RecipeDetailScreen from '../screens/RecipeDetailScreen';
+import RecipeHistoryScreen from '../screens/RecipeHistoryScreen';
 
 export type RootStackParamList = {
   Home: undefined;
-  DietaryPreferences: undefined;
-  FoodPreferences: undefined;
-  CookingHabits: undefined;
-  BudgetPreferences: undefined;
+  DietaryPreferences: { fromProfile?: boolean } | undefined;
+  FoodPreferences: { fromProfile?: boolean } | undefined;
+  CookingHabits: { fromProfile?: boolean } | undefined;
+  BudgetPreferences: { fromProfile?: boolean } | undefined;
   LoadingMealPlan: undefined;
   MealPlan: {
     selectedRecipe?: any;
+    fromGenerator?: boolean;
+  };
+  RecipeDetail: {
+    recipe: any;
   };
   GroceryList: {
     selectedRecipes: any[];
@@ -32,8 +38,10 @@ export type RootStackParamList = {
   };
   Profile: undefined;
   Debug: undefined;
-  Pantry: undefined;
+  Pantry: { fromProfile?: boolean } | undefined;
+  PantryEdit: undefined;
   TestPicker: undefined;
+  RecipeHistory: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -76,15 +84,18 @@ const AppNavigator = () => {
         <Stack.Screen name="BudgetPreferences" component={BudgetPreferencesScreen} />
         <Stack.Screen name="LoadingMealPlan" component={LoadingMealPlanScreen} />
         <Stack.Screen name="MealPlan" component={MealPlanScreen} />
+        <Stack.Screen name="RecipeDetail" component={RecipeDetailScreen} />
         <Stack.Screen name="GroceryList" component={GroceryListScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="Pantry" component={PantryScreen} />
+        <Stack.Screen name="PantryEdit" component={PantryScreen} />
         <Stack.Screen 
           name="Debug" 
           component={DebugScreen} 
           options={{ headerShown: true, title: 'Network Debug' }}
         />
         <Stack.Screen name="TestPicker" component={TestPickerScreen} />
+        <Stack.Screen name="RecipeHistory" component={RecipeHistoryScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
