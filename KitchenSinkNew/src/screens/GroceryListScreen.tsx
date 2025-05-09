@@ -13,7 +13,7 @@ import AuthModal from '../components/AuthModal';
 import AuthPrompt from '../components/AuthPrompt';
 import { groceryListService } from '../services/groceryListService';
 import { firestoreService } from '../services/firebaseService';
-import { pantryService } from '../services/pantryService';
+import { addGroceryItemsToPantryFirestore } from '../services/pantryService';
 
 type GroceryListScreenRouteProp = RouteProp<RootStackParamList, 'GroceryList'>;
 type GroceryListScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GroceryList'>;
@@ -1032,7 +1032,13 @@ const GroceryListScreen: React.FC = () => {
   // Handle adding selected items to pantry
   const handleAddToPantry = async () => {
     try {
-      // Check if there are any selected items
+      // Ensure user is logged in
+      if (!user?.uid) {
+        // Should ideally not happen if button is disabled, but good practice
+        Alert.alert('Error', 'You must be logged in to add items to the pantry.');
+        return;
+      }
+
       if (selectedItems.size === 0) {
         Alert.alert('No Items Selected', 'Please select items to add to your pantry.');
         return;
@@ -1040,37 +1046,34 @@ const GroceryListScreen: React.FC = () => {
 
       setSavingInProgress(true);
       
-      // Get the selected grocery items
       const selectedGroceryItems = Object.values(categorizedIngredients)
         .flat()
         .filter(item => selectedItems.has(item.name.toLowerCase()))
         .map(item => ({
           name: item.name,
-          measurement: item.measurement,
-          category: item.category || 'Other'
+          measurement: item.measurement, // Pass measurement for parsing in the service
+          category: item.category || 'Other' // Pass category
         }));
       
-      // Add the items to the pantry
-      const successCount = await pantryService.addGroceryItemsToPantry(selectedGroceryItems);
+      // Use the new Firestore-specific function
+      const successCount = await addGroceryItemsToPantryFirestore(user.uid, selectedGroceryItems);
       
       setSavingInProgress(false);
       
       if (successCount > 0) {
         Alert.alert(
           'Success',
-          `${successCount} item${successCount === 1 ? '' : 's'} added to your pantry.`,
+          `${successCount} item${successCount === 1 ? '' : 's'} added/updated in your pantry.`,
           [{ text: 'OK' }]
         );
-        
-        // Clear the selection
-        setSelectedItems(new Set());
+        setSelectedItems(new Set()); // Clear selection
       } else {
-        Alert.alert('Error', 'Failed to add items to pantry. Please try again.');
+        Alert.alert('Error', 'Failed to add items to pantry. Please check logs or try again.');
       }
     } catch (error) {
       setSavingInProgress(false);
       console.error('Error adding items to pantry:', error);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+      Alert.alert('Error', 'Something went wrong while adding items to the pantry.');
     }
   };
 

@@ -20,6 +20,7 @@ import {
   IngredientSuggestion,
   IngredientCategory,
   INGREDIENT_SUGGESTIONS,
+  CUISINE_OPTIONS,
 } from '../types/FoodPreferences';
 import { getFoodPreferences, saveFoodPreferences } from '../utils/preferences';
 import { BackButton } from '../components/BackButton';
@@ -29,11 +30,13 @@ type Props = NativeStackScreenProps<RootStackParamList, 'FoodPreferences'>;
 
 export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
   const route = useRoute();
-  const isFromProfile = route.params?.fromProfile === true;
+  const isFromProfile = (route.params && 'fromProfile' in route.params) ? (route.params as any).fromProfile === true : false;
   
   const [preferences, setPreferences] = useState<FoodPreferences>({
     favoriteIngredients: [],
     dislikedIngredients: [],
+    preferredCuisines: [],
+    allergies: [],
   });
   const [isLoading, setIsLoading] = useState(true);
 
@@ -48,8 +51,23 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
   const loadSavedPreferences = async () => {
     try {
       const savedPreferences = await getFoodPreferences();
+      const defaultPreferences: FoodPreferences = {
+        favoriteIngredients: [],
+        dislikedIngredients: [],
+        preferredCuisines: [],
+        allergies: [],
+      };
       if (savedPreferences) {
-        setPreferences(savedPreferences);
+        setPreferences({
+          ...defaultPreferences,
+          ...savedPreferences,
+          favoriteIngredients: Array.isArray(savedPreferences.favoriteIngredients) ? savedPreferences.favoriteIngredients : [],
+          dislikedIngredients: Array.isArray(savedPreferences.dislikedIngredients) ? savedPreferences.dislikedIngredients : [],
+          preferredCuisines: Array.isArray(savedPreferences.preferredCuisines) ? savedPreferences.preferredCuisines : [],
+          allergies: Array.isArray(savedPreferences.allergies) ? savedPreferences.allergies : [],
+        });
+      } else {
+        setPreferences(defaultPreferences);
       }
     } catch (error) {
       Alert.alert(
@@ -57,6 +75,12 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
         'Failed to load saved preferences.',
         [{ text: 'OK' }]
       );
+      setPreferences({
+        favoriteIngredients: [],
+        dislikedIngredients: [],
+        preferredCuisines: [],
+        allergies: [],
+      });
     } finally {
       setIsLoading(false);
     }
@@ -101,6 +125,15 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     setPreferences(prev => ({
       ...prev,
       dislikedIngredients: prev.dislikedIngredients.filter(i => i !== ingredient),
+    }));
+  };
+
+  const toggleCuisine = (cuisineId: string) => {
+    setPreferences(prev => ({
+      ...prev,
+      preferredCuisines: prev.preferredCuisines.includes(cuisineId)
+        ? prev.preferredCuisines.filter(id => id !== cuisineId)
+        : [...prev.preferredCuisines, cuisineId],
     }));
   };
 
@@ -233,6 +266,36 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
           Tell us about your favorite ingredients and those you'd rather avoid
         </Text>
 
+        {/* Preferred Cuisines Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Preferred Cuisines</Text>
+          <Text style={styles.sectionDescription}>
+            Select the cuisines you enjoy most (optional)
+          </Text>
+          <View style={styles.cuisineGrid}>
+            {CUISINE_OPTIONS.map((cuisine: { id: string; name: string }) => (
+              <TouchableOpacity
+                key={cuisine.id}
+                style={[
+                  styles.cuisineChip,
+                  preferences.preferredCuisines.includes(cuisine.id) && styles.selectedCuisineChip,
+                ]}
+                onPress={() => toggleCuisine(cuisine.id)}
+              >
+                <Text
+                  style={[
+                    styles.cuisineText,
+                    preferences.preferredCuisines.includes(cuisine.id) && styles.selectedCuisineText,
+                  ]}
+                >
+                  {cuisine.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Common Ingredients Section */}
         <View style={styles.mainSection}>
           <Text style={styles.mainSectionTitle}>Common Ingredients</Text>
           <Text style={styles.mainSectionDescription}>
@@ -551,5 +614,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFE5E5',
     borderColor: '#FF3B30',
     borderWidth: 1,
+  },
+  cuisineGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -4,
+    marginBottom: 8,
+  },
+  cuisineChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    margin: 4,
+    minWidth: 100,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  selectedCuisineChip: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  cuisineText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  selectedCuisineText: {
+    color: '#fff',
   },
 } as const); 

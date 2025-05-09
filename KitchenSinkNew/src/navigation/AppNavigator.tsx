@@ -3,7 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 
-import { HomeScreen } from '../screens/HomeScreen';
+import HomeScreen from '../screens/HomeScreen';
 import { DietaryPreferencesScreen } from '../screens/DietaryPreferencesScreen';
 import { FoodPreferencesScreen } from '../screens/FoodPreferencesScreen';
 import { CookingHabitsScreen } from '../screens/CookingHabitsScreen';
@@ -11,12 +11,13 @@ import { BudgetPreferencesScreen } from '../screens/BudgetPreferencesScreen';
 import LoadingMealPlanScreen from '../screens/LoadingMealPlanScreen';
 import MealPlanScreen from '../screens/MealPlanScreen';
 import GroceryListScreen from '../screens/GroceryListScreen';
+import GroceryListHistoryScreen from '../screens/GroceryListHistoryScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import DebugScreen from '../screens/DebugScreen';
-import PantryScreen from '../screens/PantryScreen';
 import TestPickerScreen from '../screens/TestPickerScreen';
 import RecipeDetailScreen from '../screens/RecipeDetailScreen';
 import RecipeHistoryScreen from '../screens/RecipeHistoryScreen';
+import PantryScreen from '../screens/PantryScreen';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -36,12 +37,12 @@ export type RootStackParamList = {
     selectedRecipes: any[];
     existingListId?: string;
   };
+  GroceryListHistory: undefined;
   Profile: undefined;
   Debug: undefined;
-  Pantry: { fromProfile?: boolean } | undefined;
-  PantryEdit: undefined;
   TestPicker: undefined;
   RecipeHistory: undefined;
+  Pantry: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -61,6 +62,7 @@ const OnboardingStack = () => (
     <Stack.Screen name="LoadingMealPlan" component={LoadingMealPlanScreen} />
     <Stack.Screen name="MealPlan" component={MealPlanScreen} />
     <Stack.Screen name="GroceryList" component={GroceryListScreen} />
+    <Stack.Screen name="GroceryListHistory" component={GroceryListHistoryScreen} />
   </Stack.Navigator>
 );
 
@@ -86,9 +88,8 @@ const AppNavigator = () => {
         <Stack.Screen name="MealPlan" component={MealPlanScreen} />
         <Stack.Screen name="RecipeDetail" component={RecipeDetailScreen} />
         <Stack.Screen name="GroceryList" component={GroceryListScreen} />
+        <Stack.Screen name="GroceryListHistory" component={GroceryListHistoryScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen name="Pantry" component={PantryScreen} />
-        <Stack.Screen name="PantryEdit" component={PantryScreen} />
         <Stack.Screen 
           name="Debug" 
           component={DebugScreen} 
@@ -96,6 +97,7 @@ const AppNavigator = () => {
         />
         <Stack.Screen name="TestPicker" component={TestPickerScreen} />
         <Stack.Screen name="RecipeHistory" component={RecipeHistoryScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Pantry" component={PantryScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

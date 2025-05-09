@@ -24,56 +24,7 @@ import { firestoreService } from '../services/firebaseService';
 import { RecipeDocument } from '../types/FirestoreSchema';
 import AuthModal from '../components/AuthModal';
 import { safeStorage } from '../utils/asyncStorageUtils';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Create a monkeypatch to ensure AsyncStorage is always available
-// This prevents React Native internals from accessing an undefined AsyncStorage
-(function monkeyPatchAsyncStorage() {
-  // Create a simple in-memory implementation
-  const memoryStorage = new Map<string, string>();
-  
-  // Create stub methods if AsyncStorage is ever undefined
-  const asyncStorageStub = {
-    getItem: async (key: string) => memoryStorage.get(key) || null,
-    setItem: async (key: string, value: string) => { memoryStorage.set(key, value); },
-    removeItem: async (key: string) => { memoryStorage.delete(key); },
-    clear: async () => { memoryStorage.clear(); },
-    getAllKeys: async () => Array.from(memoryStorage.keys()),
-    multiGet: async (keys: string[]) => keys.map(key => [key, memoryStorage.get(key) || null]),
-    multiSet: async (keyValuePairs: string[][]) => {
-      keyValuePairs.forEach(([key, value]) => memoryStorage.set(key, value));
-    },
-    multiRemove: async (keys: string[]) => {
-      keys.forEach(key => memoryStorage.delete(key));
-    },
-  };
-  
-  // Patch the global AsyncStorage variable
-  if (!AsyncStorage) {
-    console.log('[AsyncStorage Patch] AsyncStorage was undefined, providing fallback');
-    
-    // @ts-ignore - force replace the undefined AsyncStorage
-    global.AsyncStorage = asyncStorageStub;
-  }
-  
-  // Also patch the module to ensure it's never undefined again
-  const originalGet = Object.getOwnPropertyDescriptor(global, 'AsyncStorage');
-  
-  // Replace the property descriptor to prevent AsyncStorage from becoming undefined
-  Object.defineProperty(global, 'AsyncStorage', {
-    configurable: true,
-    enumerable: true,
-    get: function() {
-      const currentValue = originalGet ? originalGet.get?.call(this) : AsyncStorage;
-      return currentValue || asyncStorageStub;
-    },
-    set: function(val) {
-      if (originalGet && originalGet.set) {
-        originalGet.set.call(this, val || asyncStorageStub);
-      }
-    }
-  });
-})();
+import { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 
 // Add a debug helper
 const DEBUG_PREFIX = '[RecipeHistory Debug]';
@@ -286,6 +237,18 @@ const RecipeHistoryScreen: React.FC = () => {
     }
   };
 
+  // Add helper function to format date
+  const formatDate = (date: Date | FirebaseFirestoreTypes.Timestamp): string => {
+    if (!date) return '';
+    
+    const dateObj = date instanceof Date ? date : date.toDate();
+    return dateObj.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -434,6 +397,11 @@ const RecipeHistoryScreen: React.FC = () => {
                               <View style={styles.recipeMetadata}>
                                 <Text style={styles.recipeInfo}>
                                   {item.readyInMinutes || '?'} min • {item.servings || '?'} {item.servings === 1 ? 'serving' : 'servings'}
+                                  {item.feedback?.isCooked && item.feedback?.feedbackDate && (
+                                    <Text style={styles.cookedDate}>
+                                      {' • Cooked on '}{formatDate(item.feedback.feedbackDate)}
+                                    </Text>
+                                  )}
                                 </Text>
                               </View>
                               
@@ -769,6 +737,10 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
     marginLeft: 2,
+  },
+  cookedDate: {
+    color: '#4CAF50',
+    fontWeight: '500',
   },
 });
 

@@ -10,7 +10,8 @@ import { additionalMockRecipes, dessertMockRecipes } from '../data/mockRecipes';
 import { allSeasonalRecipes } from '../data/seasonalRecipes';
 import { checkConnectivity } from '../utils/networkUtils';
 import logger from '../utils/logger';
-import { pantryService } from './pantryService';
+import { getPantryItems } from './pantryService';
+import { PantryItem } from '../types/PantryItem';
 
 // Maximum retry attempts for API requests
 const MAX_RETRY_ATTEMPTS = 2;
@@ -45,31 +46,35 @@ export class ApiRecipeService {
   /**
    * Get recipes based on user preferences - either from API or mock data
    */
-  async getRecipes(preferences: {
-    dietary: DietaryPreferences;
-    food: FoodPreferences;
-    cooking: CookingPreferences;
-    budget: BudgetPreferences;
-    usePantryItems?: boolean;
-  }): Promise<Recipe[]> {
+  async getRecipes(
+    preferences: {
+      dietary: DietaryPreferences;
+      food: FoodPreferences;
+      cooking: CookingPreferences;
+      budget: BudgetPreferences;
+      usePantryItems?: boolean;
+    },
+    uid: string | null
+  ): Promise<Recipe[]> {
     // Check if we're currently rate limited
     if (this.isRateLimited && this.rateLimitResetTime) {
       const now = new Date();
       if (now < this.rateLimitResetTime) {
         logger.debug('API is rate limited, using mock data instead');
-        return this.getMockRecipes(preferences.usePantryItems);
+        return this.getMockRecipes(uid, preferences.usePantryItems);
       } else {
         // Reset rate limiting if the time has passed
         this.resetRateLimiting();
       }
     }
     
-    // Get available pantry items if requested
+    // Get available pantry items if requested and user is logged in
     let availablePantryIngredients: string[] = [];
-    if (preferences.usePantryItems) {
+    let pantryItems: PantryItem[] = [];
+    if (preferences.usePantryItems && uid) {
       try {
-        const pantryItems = await pantryService.getAllPantryItems();
-        availablePantryIngredients = pantryItems.map(item => item.name.toLowerCase());
+        pantryItems = await getPantryItems(uid);
+        availablePantryIngredients = pantryItems.map((item: PantryItem) => item.name.toLowerCase());
         logger.debug(`Found ${availablePantryIngredients.length} pantry items for recipe generation`);
       } catch (error) {
         logger.error('Error getting pantry items for recipe generation:', error);
@@ -83,7 +88,7 @@ export class ApiRecipeService {
         const hasConnectivity = await checkConnectivity();
         if (!hasConnectivity) {
           logger.debug('No internet connectivity detected, falling back to mock data');
-          return this.getMockRecipes(preferences.usePantryItems);
+          return this.getMockRecipes(uid, preferences.usePantryItems);
         }
         
         // Clear cache if requested
@@ -139,34 +144,37 @@ export class ApiRecipeService {
         
         // Fall back to mock data on any error
         logger.debug('Using mock data due to API error');
-        return this.getMockRecipes(preferences.usePantryItems);
+        return this.getMockRecipes(uid, preferences.usePantryItems);
       }
     }
     
     // If API is disabled, use mock data
     logger.debug('API usage is disabled, using mock data');
-    return this.getMockRecipes(preferences.usePantryItems);
+    return this.getMockRecipes(uid, preferences.usePantryItems);
   }
   
   /**
    * Get mock recipe data as fallback
    */
-  getMockRecipes(usePantryItems?: boolean): Promise<Recipe[]> {
+  getMockRecipes(uid: string | null, usePantryItems?: boolean): Promise<Recipe[]> {
     return new Promise(async (resolve) => {
       // Get base recipe data
       const mockRecipeData = [...recipeDatabase];
       logger.debug(`Using ${mockRecipeData.length} mock recipes`);
       
-      // If not using pantry items, return as is
-      if (!usePantryItems) {
+      // If not using pantry items or no user, return as is
+      if (!usePantryItems || !uid) {
         resolve(mockRecipeData);
         return;
       }
       
+      // Initialize pantryItems and availablePantryIngredients here
+      let pantryItems: PantryItem[] = []; 
+      let availablePantryIngredients: string[] = [];
+
       try {
-        // Get pantry items
-        const pantryItems = await pantryService.getAllPantryItems();
-        const availablePantryIngredients = pantryItems.map(item => item.name.toLowerCase());
+        pantryItems = await getPantryItems(uid); 
+        availablePantryIngredients = pantryItems.map((item: PantryItem) => item.name.toLowerCase());
         
         if (availablePantryIngredients.length === 0) {
           resolve(mockRecipeData);

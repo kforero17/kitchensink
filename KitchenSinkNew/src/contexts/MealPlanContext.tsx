@@ -14,6 +14,7 @@ export interface Recipe {
   instructions: string[];
   imageUrl?: string;
   tags: string[];
+  cuisines: string[];
   estimatedCost: number;
   isWeeklyMealPlan?: boolean;
 }

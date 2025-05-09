@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { pantryService } from '../services/pantryService';
+import { isIngredientInPantryFirestore } from '../services/pantryService';
+import { useAuth } from '../contexts/AuthContext';
 import { theme } from '../styles/theme';
 
 interface Ingredient {
@@ -21,18 +22,23 @@ const PantryIngredientMatch: React.FC<PantryIngredientMatchProps> = ({
   ingredients,
   compact = false
 }) => {
+  const { user } = useAuth();
   const [availableIngredients, setAvailableIngredients] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const checkPantryIngredients = async () => {
-      setLoading(true);
+      if (!user?.uid || ingredients.length === 0) {
+        setAvailableIngredients([]);
+        setLoading(false);
+        return;
+      }
       
+      setLoading(true);
       const availableItems: string[] = [];
       
-      // Check each ingredient against the pantry
       for (const ingredient of ingredients) {
-        const isAvailable = await pantryService.isIngredientInPantry(ingredient.item);
+        const isAvailable = await isIngredientInPantryFirestore(user.uid, ingredient.item);
         if (isAvailable) {
           availableItems.push(ingredient.item);
         }
@@ -43,9 +49,11 @@ const PantryIngredientMatch: React.FC<PantryIngredientMatchProps> = ({
     };
     
     checkPantryIngredients();
-  }, [ingredients]);
+  }, [ingredients, user?.uid]);
   
-  const percentAvailable = Math.round((availableIngredients.length / ingredients.length) * 100);
+  const percentAvailable = ingredients.length > 0 
+    ? Math.round((availableIngredients.length / ingredients.length) * 100)
+    : 0;
   
   if (loading) {
     return compact ? (
@@ -73,9 +81,9 @@ const PantryIngredientMatch: React.FC<PantryIngredientMatchProps> = ({
   
   if (compact) {
     return (
-      <Text style={styles.availableCompact}>
-        <MaterialCommunityIcons name="food-variant" size={14} color={theme.colors.success} /> 
-        {availableIngredients.length} of {ingredients.length} ingredients in pantry ({percentAvailable}%)
+      <Text style={styles.compactText}>
+        <MaterialCommunityIcons name="basket-check-outline" size={14} color={theme.colors.success} />
+        {` ${percentAvailable}% in pantry`}
       </Text>
     );
   }
@@ -187,7 +195,7 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     fontStyle: 'italic',
   },
-  availableCompact: {
+  compactText: {
     fontSize: 12,
     color: theme.colors.success,
   },

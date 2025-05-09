@@ -1,6 +1,8 @@
 export interface FoodPreferences {
   favoriteIngredients: string[];
   dislikedIngredients: string[];
+  preferredCuisines: string[];
+  allergies: string[];
 }
 
 export interface IngredientSuggestion {
@@ -140,4 +142,22 @@ export const INGREDIENT_SUGGESTIONS: Record<IngredientCategory, IngredientSugges
     { id: 'hot_sauce', name: 'Hot Sauce', category: 'other' },
     { id: 'mustard', name: 'Mustard', category: 'other' },
   ],
-}; 
+};
+
+export const CUISINE_OPTIONS = [
+  { id: 'italian', name: 'Italian' },
+  { id: 'mexican', name: 'Mexican' },
+  { id: 'chinese', name: 'Chinese' },
+  { id: 'japanese', name: 'Japanese' },
+  { id: 'indian', name: 'Indian' },
+  { id: 'thai', name: 'Thai' },
+  { id: 'vietnamese', name: 'Vietnamese' },
+  { id: 'korean', name: 'Korean' },
+  { id: 'mediterranean', name: 'Mediterranean' },
+  { id: 'american', name: 'American' },
+  { id: 'french', name: 'French' },
+  { id: 'greek', name: 'Greek' },
+  { id: 'spanish', name: 'Spanish' },
+  { id: 'middle_eastern', name: 'Middle Eastern' },
+  { id: 'caribbean', name: 'Caribbean' },
+]; 

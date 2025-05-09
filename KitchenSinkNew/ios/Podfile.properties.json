@@ -1,6 +1,4 @@
 {
-  "ios.deploymentTarget": "13.4",
-  "ios.useFrameworks": "static",
   "expo.jsEngine": "hermes",
-  "newArchEnabled": "false"
+  "EX_DEV_CLIENT_NETWORK_INSPECTOR": "true"
 }

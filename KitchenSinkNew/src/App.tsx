@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Create an AsyncStorage patch that activates if AsyncStorage becomes undefined
 // This fixes "Cannot read property 'getItem' of undefined" errors with Hermes engine
+/*
 const patchAsyncStorage = () => {
   // Create a simple storage fallback
   const memoryStorage = new Map<string, string>();
@@ -38,6 +39,61 @@ const patchAsyncStorage = () => {
   // Skip the dangerous Object.defineProperty patch as it could cause other issues
   // This interval-based check should be sufficient
 };
+*/
 
-// Apply patch immediately 
-patchAsyncStorage(); 
+import React, { useEffect } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { enableScreens } from 'react-native-screens';
+import AppNavigator from './navigation/AppNavigator';
+import { AuthProvider } from './contexts/AuthContext';
+import { MealPlanProvider } from './contexts/MealPlanContext';
+import { initializeApp, resetApp } from './utils/init'; // Ensure this import exists
+
+// Enable screens for better performance
+enableScreens();
+
+// Call initialization logic early
+initializeApp()
+  .then(success => {
+    if (success) {
+      console.log('App initialized successfully');
+    } else {
+      console.warn('App initialization failed');
+    }
+  })
+  .catch(error => console.error('App initialization threw an error:', error));
+
+// Remove or comment out the patch call
+// patchAsyncStorage();
+
+const App: React.FC = () => {
+  useEffect(() => {
+    // Optional: Perform any app-wide setup on mount
+    
+    // Example: Reset app data on first run in DEV mode
+    // if (__DEV__) {
+    //   const resetOnFirstRun = async () => {
+    //     const hasRunBefore = await AsyncStorage.getItem('app_has_run_before');
+    //     if (!hasRunBefore) {
+    //       console.log('First run in DEV, resetting app data...');
+    //       await resetApp();
+    //       await AsyncStorage.setItem('app_has_run_before', 'true');
+    //     }
+    //   };
+    //   resetOnFirstRun();
+    // }
+  }, []);
+
+  return (
+    <SafeAreaProvider>
+      <MealPlanProvider>
+        <AuthProvider>
+          <AppNavigator />
+        </AuthProvider>
+      </MealPlanProvider>
+    </SafeAreaProvider>
+  );
+};
+
+export default App; 

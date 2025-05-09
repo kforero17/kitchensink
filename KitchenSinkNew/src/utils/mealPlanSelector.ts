@@ -8,7 +8,9 @@ import { getTimeRange, calculateTimeScore, DEFAULT_TIME_CONFIG } from '../config
 import { calculateRecipeComplexity } from '../config/recipeComplexityConfig';
 import { calculateVarietyPenalty, getRecipeHistory, RecipeHistoryItem } from './recipeHistory';
 import { calculateIngredientOverlapScore, optimizeMealPlanForIngredientOverlap, calculateUniqueIngredientCount } from './ingredientOverlap';
+import { RecipeFeedback } from '../services/recipeFeedbackService';
 import logger from './logger';
+import { recipeDatabase } from '../data/recipeDatabase';
 
 interface RecipeWithScore extends Recipe {
   score?: number;
@@ -17,11 +19,36 @@ interface RecipeWithScore extends Recipe {
 // Constants for scoring weights
 const SCORE_WEIGHTS = {
   DIETARY_MATCH: 35, // Highest priority - dietary restrictions must be met
-  FOOD_PREFERENCES: 20, // Second priority - ingredient preferences
+  FOOD_PREFERENCES: 15, // Second priority - ingredient preferences
   COOKING_HABITS: 15, // Third priority - cooking time and complexity
   BUDGET: 5, // Fourth priority - cost considerations
   VARIETY: 10, // Fifth priority - avoid repetition
-  INGREDIENT_OVERLAP: 15, // Sixth priority - minimize shopping list
+  INGREDIENT_OVERLAP: 10, // Sixth priority - minimize shopping list
+  USER_FEEDBACK: 15, // New weight for user feedback
+  RECIPE_SIMILARITY: 10, // New weight for recipe similarity
+  CUISINE_PREFERENCE: 15, // New weight for cuisine preferences
+} as const;
+
+// Constants for cuisine scoring
+const CUISINE_WEIGHTS = {
+  EXPLICIT_PREFERENCE_BOOST: 30, // Points for explicitly preferred cuisines
+  LIKED_CUISINE_BOOST: 20, // Points for cuisines from liked recipes
+  MIN_LIKES_FOR_BOOST: 2, // Minimum number of liked recipes needed to consider a cuisine preferred
+} as const;
+
+// Constants for feedback scoring
+const FEEDBACK_WEIGHTS = {
+  LIKED_RECIPE_BOOST: 20, // Points to add for liked recipes
+  DISLIKED_RECIPE_PENALTY: -30, // Points to deduct for disliked recipes
+  LOW_RATING_PENALTY: -20, // Points to deduct for recipes rated below 3
+  COOLDOWN_PERIOD_DAYS: 30, // Days to wait before showing skipped/disliked recipes again
+} as const;
+
+// Constants for similarity scoring
+const SIMILARITY_WEIGHTS = {
+  INGREDIENT_OVERLAP: 0.6, // Weight for ingredient similarity
+  TAG_OVERLAP: 0.4, // Weight for tag similarity
+  MIN_SIMILARITY_THRESHOLD: 0.3, // Minimum similarity to consider recipes related
 } as const;
 
 // Constants for fallback logic
@@ -37,6 +64,17 @@ const CONSTRAINT_FALLBACK = {
 
 // Penalty for repeated use of same main ingredient
 const REPEATED_INGREDIENT_PENALTY = 5; // Points to deduct per repeated main ingredient
+
+// Constants for scoring weights
+const SCORING_WEIGHTS = {
+  DIETARY: 1.5,
+  FOOD_PREFERENCES: 1.2,
+  COOKING_PREFERENCES: 1.0,
+  BUDGET: 1.0,
+  VARIETY: 0.8,
+  CUISINE: 0.7,
+  PANTRY: 1.3, // New weight for pantry overlap
+};
 
 export class RecipeValidationError extends Error {
   constructor(message: string) {
@@ -344,6 +382,248 @@ export function calculateMainIngredientRepetitionPenalty(
 }
 
 /**
+ * Calculates a score based on cuisine preferences
+ */
+export function calculateCuisineScore(
+  recipe: Recipe,
+  feedbackHistory: RecipeFeedback[],
+  explicitCuisinePreferences: string[] = []
+): number {
+  try {
+    // If recipe has no cuisine tags, return neutral score
+    if (!recipe.cuisines || recipe.cuisines.length === 0) {
+      return 50;
+    }
+
+    let score = 0;
+    const recipeCuisines = recipe.cuisines.map((c: string) => c.toLowerCase());
+
+    // Check explicit preferences first
+    const matchingExplicitPreferences = explicitCuisinePreferences
+      .map(p => p.toLowerCase())
+      .filter(p => recipeCuisines.some(c => c.includes(p) || p.includes(c)));
+
+    if (matchingExplicitPreferences.length > 0) {
+      score += CUISINE_WEIGHTS.EXPLICIT_PREFERENCE_BOOST;
+    }
+
+    // Analyze feedback history to determine preferred cuisines
+    const likedRecipes = feedbackHistory.filter(f => f.isLiked && f.rating && f.rating >= 4);
+    
+    // Count occurrences of each cuisine in liked recipes
+    const cuisineCounts = new Map<string, number>();
+    likedRecipes.forEach(feedback => {
+      const recipe = feedback.recipeId;
+      // Since we don't have direct access to the recipe object here,
+      // we'll need to get the cuisines from the recipe history or cache
+      // For now, we'll skip this part and rely on explicit preferences
+      // TODO: Implement recipe lookup to get cuisines for liked recipes
+    });
+
+    // Check if any of the recipe's cuisines are frequently liked
+    const hasLikedCuisine = recipeCuisines.some(cuisine => 
+      (cuisineCounts.get(cuisine) || 0) >= CUISINE_WEIGHTS.MIN_LIKES_FOR_BOOST
+    );
+
+    if (hasLikedCuisine) {
+      score += CUISINE_WEIGHTS.LIKED_CUISINE_BOOST;
+    }
+
+    // Normalize score to 0-100 range
+    return Math.min(100, Math.max(0, score));
+  } catch (error) {
+    logger.error('Error calculating cuisine score:', error);
+    return 50; // Return neutral score on error
+  }
+}
+
+/**
+ * Calculates a score based on how many ingredients from the recipe are in the pantry
+ */
+export function calculatePantryOverlapScore(
+  recipe: Recipe,
+  pantryIngredients: string[]
+): number {
+  try {
+    if (!pantryIngredients || pantryIngredients.length === 0) {
+      return 50; // Neutral score if no pantry ingredients
+    }
+
+    const recipeIngredients = recipe.ingredients.map(ing => ing.item.toLowerCase());
+    const normalizedPantryIngredients = pantryIngredients.map(ing => ing.toLowerCase());
+
+    // Find exact matches
+    const exactMatches = recipeIngredients.filter(ingredient =>
+      normalizedPantryIngredients.some(pantryItem =>
+        ingredient === pantryItem || ingredient.includes(pantryItem) || pantryItem.includes(ingredient)
+      )
+    );
+
+    // Find similar matches using ingredient similarity
+    const remainingIngredients = recipeIngredients.filter(ing => !exactMatches.includes(ing));
+    const similarMatches = remainingIngredients.filter(ingredient =>
+      normalizedPantryIngredients.some(pantryItem =>
+        calculateIngredientSimilarity(ingredient, pantryItem) >= 0.8
+      )
+    );
+
+    // Calculate base score from exact matches
+    const exactMatchScore = (exactMatches.length / recipeIngredients.length) * 100;
+    
+    // Add bonus for similar matches (weighted less than exact matches)
+    const similarMatchBonus = (similarMatches.length / recipeIngredients.length) * 50;
+
+    // Combine scores
+    const totalScore = Math.min(100, exactMatchScore + similarMatchBonus);
+
+    // Apply diminishing returns for very high overlap
+    // This prevents recipes with 100% pantry overlap from dominating
+    return Math.pow(totalScore / 100, 0.8) * 100;
+  } catch (error) {
+    logger.error('Error calculating pantry overlap score:', error);
+    return 50; // Return neutral score on error
+  }
+}
+
+/**
+ * Calculates a score based on how well a recipe meets dietary requirements
+ */
+export function calculateDietaryScore(
+  recipe: Recipe,
+  dietaryPreferences: DietaryPreferences
+): number {
+  try {
+    // Start with a base score
+    let score = 100;
+
+    // Check for dietary restrictions
+    if (dietaryPreferences.vegetarian && !recipe.tags.includes('vegetarian')) {
+      score -= 50;
+    }
+    if (dietaryPreferences.vegan && !recipe.tags.includes('vegan')) {
+      score -= 50;
+    }
+    if (dietaryPreferences.glutenFree && !recipe.tags.includes('gluten-free')) {
+      score -= 50;
+    }
+    if (dietaryPreferences.dairyFree && !recipe.tags.includes('dairy-free')) {
+      score -= 50;
+    }
+
+    // Check for allergies
+    const recipeIngredients = recipe.ingredients.map(ing => ing.item);
+    const matchingAllergens = findMatchingIngredients(recipeIngredients, dietaryPreferences.allergies);
+    
+    if (matchingAllergens.length > 0) {
+      score -= 100; // Recipe contains allergens, should be rejected
+    }
+
+    return Math.max(0, score);
+  } catch (error) {
+    logger.error('Error calculating dietary score:', error);
+    return 0;
+  }
+}
+
+/**
+ * Calculates an exploration bonus score to occasionally boost recipes outside user's history
+ * This helps maintain variety while still respecting user preferences
+ */
+export function calculateExplorationBonus(
+  recipe: Recipe,
+  history: RecipeHistoryItem[],
+  feedbackHistory: RecipeFeedback[]
+): number {
+  try {
+    // If no history, no bonus needed
+    if (history.length === 0) return 0;
+
+    // Get the last 10 recipes from history
+    const recentHistory = history.slice(-10);
+    const recentRecipeIds = new Set(recentHistory.map(h => h.recipeId));
+
+    // If recipe is in recent history, no bonus
+    if (recentRecipeIds.has(recipe.id)) return 0;
+
+    // Calculate similarity scores with recent recipes
+    const similarityScores = recentHistory.map(h => {
+      const recentRecipe = recipeDatabase.find((r: Recipe) => r.id === h.recipeId);
+      if (!recentRecipe) return 0;
+      return calculateRecipeSimilarity(recipe, recentRecipe);
+    });
+
+    // Get average similarity score
+    const avgSimilarity = similarityScores.reduce((a, b) => a + b, 0) / similarityScores.length;
+
+    // Calculate exploration bonus based on similarity
+    // Lower similarity = higher bonus, but cap at 20 points
+    const explorationBonus = Math.min(20, Math.max(0, 20 - (avgSimilarity * 0.2)));
+
+    // Apply random factor to make exploration more natural
+    // 30% chance of applying the full bonus
+    const randomFactor = Math.random() < 0.3 ? 1 : 0;
+
+    return explorationBonus * randomFactor;
+  } catch (error) {
+    logger.error('Error calculating exploration bonus:', error);
+    return 0;
+  }
+}
+
+/**
+ * Calculates a cuisine exploration bonus to encourage trying new cuisines
+ * This helps maintain variety while still respecting user preferences
+ */
+export function calculateCuisineExplorationBonus(
+  recipe: Recipe,
+  history: RecipeHistoryItem[],
+  feedbackHistory: RecipeFeedback[]
+): number {
+  try {
+    // If recipe has no cuisine tags, no bonus
+    if (!recipe.cuisines || recipe.cuisines.length === 0) {
+      return 0;
+    }
+
+    // If no history, no bonus needed
+    if (history.length === 0) return 0;
+
+    // Get the last 10 recipes from history
+    const recentHistory = history.slice(-10);
+    
+    // Get cuisines from recent history
+    const recentCuisines = new Set<string>();
+    recentHistory.forEach(h => {
+      const recentRecipe = recipeDatabase.find((r: Recipe) => r.id === h.recipeId);
+      if (recentRecipe?.cuisines) {
+        recentRecipe.cuisines.forEach(c => recentCuisines.add(c.toLowerCase()));
+      }
+    });
+
+    // If recipe's cuisines are all in recent history, no bonus
+    const recipeCuisines = recipe.cuisines.map(c => c.toLowerCase());
+    if (recipeCuisines.every(c => recentCuisines.has(c))) {
+      return 0;
+    }
+
+    // Count how many new cuisines this recipe introduces
+    const newCuisines = recipeCuisines.filter(c => !recentCuisines.has(c));
+    
+    // Calculate base bonus (15 points per new cuisine, capped at 30)
+    const baseBonus = Math.min(30, newCuisines.length * 15);
+
+    // Apply random factor to make exploration more natural
+    // 25% chance of applying the full bonus
+    const randomFactor = Math.random() < 0.25 ? 1 : 0;
+
+    return baseBonus * randomFactor;
+  } catch (error) {
+    logger.error('Error calculating cuisine exploration bonus:', error);
+    return 0;
+  }
+}
+
+/**
  * Calculates a composite score for a recipe based on all preferences
  */
 export function computeRecipeScore(
@@ -356,6 +636,8 @@ export function computeRecipeScore(
   },
   selectedRecipes: Recipe[] = [],
   history: RecipeHistoryItem[] = [],
+  feedbackHistory: RecipeFeedback[] = [],
+  pantryIngredients: string[] = [],
   relaxFactor: number = 0
 ): number {
   try {
@@ -367,50 +649,37 @@ export function computeRecipeScore(
     }
 
     // Calculate individual scores
-    const foodScore = calculateFoodPreferenceScore(recipe, preferences.food);
-    const cookingScore = calculateCookingHabitScore(recipe, preferences.cooking);
+    const dietaryScore = calculateDietaryScore(recipe, preferences.dietary);
+    const foodPreferenceScore = calculateFoodPreferenceScore(recipe, preferences.food);
+    const cookingPreferenceScore = calculateCookingHabitScore(recipe, preferences.cooking);
     const budgetScore = calculateBudgetScore(recipe, preferences.budget);
     const varietyScore = calculateVarietyScore(recipe, history);
-    
-    // Calculate ingredient overlap with already selected recipes
-    const overlapScore = calculateIngredientOverlapScore(recipe, selectedRecipes);
-    
-    // Calculate penalty for repeated main ingredient
-    const repetitionPenalty = calculateMainIngredientRepetitionPenalty(recipe, selectedRecipes);
+    const cuisineScore = calculateCuisineScore(recipe, feedbackHistory, preferences.food.preferredCuisines);
+    const pantryScore = calculatePantryOverlapScore(recipe, pantryIngredients);
+    const explorationBonus = calculateExplorationBonus(recipe, history, feedbackHistory);
+    const cuisineExplorationBonus = calculateCuisineExplorationBonus(recipe, history, feedbackHistory);
 
-    // Log individual scores for debugging
-    logger.debug(`Scores for recipe ${recipe.id}:`, {
-      foodScore,
-      cookingScore,
-      budgetScore,
-      varietyScore,
-      overlapScore,
-      repetitionPenalty
-    });
+    // Calculate weighted average
+    const weightedSum = 
+      dietaryScore * 0.2 +          // 20% weight for dietary requirements
+      foodPreferenceScore * 0.25 +   // 25% weight for food preferences
+      cookingPreferenceScore * 0.15 + // 15% weight for cooking preferences
+      budgetScore * 0.1 +           // 10% weight for budget
+      varietyScore * 0.1 +          // 10% weight for variety
+      cuisineScore * 0.1 +          // 10% weight for cuisine preferences
+      pantryScore * 0.1;            // 10% weight for pantry overlap
 
-    // Apply relaxation factor to appropriate constraints
-    // Higher relaxation factor means we care less about certain constraints
-    const relaxedVarietyScore = varietyScore * (1 - relaxFactor) + 100 * relaxFactor;
-    const relaxedCookingScore = cookingScore * (1 - relaxFactor) + 100 * relaxFactor;
-    const relaxedFoodScore = foodScore * (1 - relaxFactor) + 100 * relaxFactor;
+    // Add exploration bonuses (not weighted, just added to final score)
+    const finalScore = weightedSum + explorationBonus + cuisineExplorationBonus;
 
-    // Calculate weighted composite score
-    const compositeScore =
-      (relaxedFoodScore * SCORE_WEIGHTS.FOOD_PREFERENCES +
-       relaxedCookingScore * SCORE_WEIGHTS.COOKING_HABITS +
-       budgetScore * SCORE_WEIGHTS.BUDGET +
-       relaxedVarietyScore * SCORE_WEIGHTS.VARIETY +
-       overlapScore * SCORE_WEIGHTS.INGREDIENT_OVERLAP) /
-      (SCORE_WEIGHTS.FOOD_PREFERENCES + 
-       SCORE_WEIGHTS.COOKING_HABITS + 
-       SCORE_WEIGHTS.BUDGET +
-       SCORE_WEIGHTS.VARIETY +
-       SCORE_WEIGHTS.INGREDIENT_OVERLAP);
+    // Apply relaxation factor if provided
+    if (relaxFactor > 0) {
+      return finalScore * (1 - relaxFactor * 0.3); // Reduce score by up to 30% when relaxed
+    }
 
-    // Apply repetition penalty to final score
-    return Math.max(0, Math.round(compositeScore - repetitionPenalty));
+    return Math.max(0, Math.min(100, finalScore));
   } catch (error) {
-    logger.error('Error in recipe scoring:', error);
+    logger.error('Error computing recipe score:', error);
     return 0;
   }
 }
@@ -728,7 +997,7 @@ export async function generateMealPlan(
           // Sort available recipes by their score
           const universalCandidates = eligibleRecipes.map(recipe => ({
             ...recipe,
-            score: computeRecipeScore(recipe, preferences, [], history, 1)
+            score: computeRecipeScore(recipe, preferences, [], history, [], [], 1)
           })).sort((a, b) => (b.score || 0) - (a.score || 0));
           
           // Take the top-scoring recipes and assign them to meal types that need them
@@ -815,7 +1084,7 @@ export async function generateMealPlan(
     const fallbackRecipes = eligibleRecipes
       .map(recipe => ({
         ...recipe, 
-        score: computeRecipeScore(recipe, preferences, [], history, 1)
+        score: computeRecipeScore(recipe, preferences, [], history, [], [], 1)
       }))
       .sort((a, b) => (b.score || 0) - (a.score || 0))
       .slice(0, minFallbackCount);
@@ -978,16 +1247,18 @@ function prepareRecipeCandidates(
   logger.debug(`Found ${eligibleRecipes.length} eligible ${mealType} recipes`);
   
   // Score all eligible recipes
-  const scoredRecipes = eligibleRecipes.map(recipe => {
-    const score = computeRecipeScore(
+  const scoredRecipes = eligibleRecipes.map(recipe => ({
+    ...recipe,
+    score: computeRecipeScore(
       recipe,
       preferences,
       [],
       history,
+      [],
+      [], // Empty pantry ingredients array
       relaxFactor
-    );
-    return { ...recipe, score };
-  });
+    )
+  }));
   
   // Sort by score, descending
   return scoredRecipes.sort((a, b) => (b.score || 0) - (a.score || 0));
@@ -1029,7 +1300,15 @@ export async function findAlternativeRecipe(
     // Score each alternative recipe
     const scoredAlternatives = eligibleAlternatives.map(recipe => ({
       ...recipe,
-      score: computeRecipeScore(recipe, preferences, currentMealPlan, history, 0)
+      score: computeRecipeScore(
+        recipe,
+        preferences,
+        currentMealPlan,
+        history,
+        [],
+        [], // Empty pantry ingredients array
+        0
+      )
     }));
     
     // Sort by score (highest first)
@@ -1040,5 +1319,125 @@ export async function findAlternativeRecipe(
   } catch (error) {
     logger.error('Error finding alternative recipe:', error);
     return null;
+  }
+}
+
+/**
+ * Calculates a score based on user feedback history
+ */
+export function calculateFeedbackScore(
+  recipe: Recipe,
+  feedbackHistory: RecipeFeedback[]
+): number {
+  try {
+    // Find feedback for this recipe
+    const recipeFeedback = feedbackHistory.find(f => f.recipeId === recipe.id);
+    if (!recipeFeedback) return 0;
+
+    let score = 0;
+
+    // Apply boost for liked recipes
+    if (recipeFeedback.isLiked) {
+      score += FEEDBACK_WEIGHTS.LIKED_RECIPE_BOOST;
+    }
+
+    // Apply penalty for disliked recipes
+    if (recipeFeedback.isDisliked) {
+      score += FEEDBACK_WEIGHTS.DISLIKED_RECIPE_PENALTY;
+    }
+
+    // Apply penalty for low ratings
+    if (recipeFeedback.rating && recipeFeedback.rating < 3) {
+      score += FEEDBACK_WEIGHTS.LOW_RATING_PENALTY;
+    }
+
+    // Check if recipe is in cooldown period
+    if (recipeFeedback.feedbackDate) {
+      const daysSinceFeedback = Math.ceil(
+        (Date.now() - recipeFeedback.feedbackDate.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      
+      // If recipe was disliked/skipped and still in cooldown, apply additional penalty
+      if ((recipeFeedback.isDisliked || recipeFeedback.rating < 3) && 
+          daysSinceFeedback < FEEDBACK_WEIGHTS.COOLDOWN_PERIOD_DAYS) {
+        score += (FEEDBACK_WEIGHTS.COOLDOWN_PERIOD_DAYS - daysSinceFeedback) * -2;
+      }
+    }
+
+    return Math.max(-100, Math.min(100, score));
+  } catch (error) {
+    logger.error('Error calculating feedback score:', error);
+    return 0;
+  }
+}
+
+/**
+ * Calculates similarity score between two recipes
+ */
+export function calculateRecipeSimilarity(
+  recipe1: Recipe,
+  recipe2: Recipe
+): number {
+  try {
+    // Calculate ingredient similarity
+    const ingredients1 = recipe1.ingredients.map(i => i.item.toLowerCase());
+    const ingredients2 = recipe2.ingredients.map(i => i.item.toLowerCase());
+    
+    const ingredientOverlap = ingredients1.filter(ing1 =>
+      ingredients2.some(ing2 => calculateIngredientSimilarity(ing1, ing2) > 0.7)
+    ).length;
+    
+    const ingredientSimilarity = (ingredientOverlap / Math.max(ingredients1.length, ingredients2.length)) * 100;
+
+    // Calculate tag similarity
+    const tags1 = new Set(recipe1.tags.map(t => t.toLowerCase()));
+    const tags2 = new Set(recipe2.tags.map(t => t.toLowerCase()));
+    
+    const tagOverlap = [...tags1].filter(tag => tags2.has(tag)).length;
+    const tagSimilarity = (tagOverlap / Math.max(tags1.size, tags2.size)) * 100;
+
+    // Combine scores with weights
+    return (
+      ingredientSimilarity * SIMILARITY_WEIGHTS.INGREDIENT_OVERLAP +
+      tagSimilarity * SIMILARITY_WEIGHTS.TAG_OVERLAP
+    );
+  } catch (error) {
+    logger.error('Error calculating recipe similarity:', error);
+    return 0;
+  }
+}
+
+/**
+ * Calculates a novelty score based on recipe history
+ */
+export function calculateNoveltyScore(
+  recipe: Recipe,
+  history: RecipeHistoryItem[],
+  feedbackHistory: RecipeFeedback[]
+): number {
+  try {
+    // Check if recipe has been shown recently
+    const recentUsage = history.find(h => h.recipeId === recipe.id);
+    if (!recentUsage) return 100; // New recipe gets max score
+
+    // Calculate days since last shown
+    const daysSinceLastShown = Math.ceil(
+      (Date.now() - new Date(recentUsage.usedDate).getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    // Check if recipe has feedback
+    const feedback = feedbackHistory.find(f => f.recipeId === recipe.id);
+    if (feedback) {
+      // If recipe was disliked or rated low, reduce novelty score
+      if (feedback.isDisliked || (feedback.rating && feedback.rating < 3)) {
+        return Math.max(0, 50 - daysSinceLastShown);
+      }
+    }
+
+    // Otherwise, base novelty on days since last shown
+    return Math.max(0, 100 - daysSinceLastShown);
+  } catch (error) {
+    logger.error('Error calculating novelty score:', error);
+    return 50; // Default to middle score on error
   }
 } 

@@ -21,13 +21,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { useMealPlan } from '../contexts/MealPlanContext';
 import { getPreferenceValue, savePreferenceValue } from '../utils/preferences';
 import { firestoreService } from '../services/firebaseService';
-import { pantryService } from '../services/pantryService';
 import { groceryListService } from '../services/groceryListService';
-import { RecipeDocument, GroceryListDocument, PantryItemDocument, ItemStatus } from '../types/FirestoreSchema';
+import { RecipeDocument, GroceryListDocument } from '../types/FirestoreSchema';
 import AuthModal from '../components/AuthModal';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import { testFeedbackPermissions } from '../utils/firestoreDebug';
+import { recipeFeedbackService } from '../services/recipeFeedbackService';
 
 type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -71,15 +71,17 @@ const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<ProfileScreenNavigationProp>();
   const { user, signOut } = useAuth();
   const { mealPlan } = useMealPlan();
-  const [usePantryItems, setUsePantryItems] = useState(true);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const isFocused = useIsFocused();
   
+  // Add new state for tracking cooked recipes
+  const [allRecipesCooked, setAllRecipesCooked] = useState(false);
+  const [showNewMealPlanPrompt, setShowNewMealPlanPrompt] = useState(false);
+  
   // Content sections
   const [savedRecipes, setSavedRecipes] = useState<RecipeDocument[]>([]);
-  const [pantryItems, setPantryItems] = useState<PantryItemDocument[]>([]);
   const [groceryLists, setGroceryLists] = useState<GroceryListDocument[]>([]);
   
   // Track if we've already loaded data on the first focus
@@ -88,10 +90,10 @@ const ProfileScreen: React.FC = () => {
   // Expanded section states
   const [expandedSections, setExpandedSections] = useState({
     currentRecipes: true,
-    pantry: true,
     groceryList: true,
     history: false,
-    preferences: false
+    preferences: false,
+    pantry: true
   });
   
   // Toggle section expansion
@@ -102,59 +104,56 @@ const ProfileScreen: React.FC = () => {
     }));
   };
 
-  const loadPreferences = async () => {
-    const pantryPref = await getPreferenceValue<boolean>('usePantryItems', true);
-    setUsePantryItems(pantryPref);
+  // Add function to check if all recipes are cooked
+  const checkAllRecipesCooked = async (recipes: RecipeDocument[]) => {
+    if (!recipes.length) return false;
+    
+    try {
+      const feedbackHistory = await recipeFeedbackService.getUserFeedbackHistory(100);
+      const recipeIds = new Set(recipes.map(r => r.id));
+      const cookedRecipeIds = new Set(
+        feedbackHistory
+          .filter(f => f.isCooked)
+          .map(f => f.recipeId)
+      );
+      
+      // Check if all recipe IDs are in the cooked set
+      return Array.from(recipeIds).every(id => cookedRecipeIds.has(id));
+    } catch (error) {
+      console.error('Error checking cooked recipes:', error);
+      return false;
+    }
   };
-  
-  const loadUserData = async (forceRefresh: boolean = false) => {
+
+  // Load user data
+  const loadUserData = useCallback(async () => {
     if (!user) {
       setLoading(false);
       return;
     }
-    
-    if (loading && !forceRefresh) return; // Prevent multiple simultaneous loads
-    
-    setLoading(true);
+
     try {
-      console.log('Loading user profile data with focus on weekly meal plan recipes...');
+      setLoading(true);
       
-      // Load recipes, pantry items and grocery lists in parallel
-      // For recipes, we explicitly avoid cache by using a timestamp parameter
-      const timestamp = Date.now(); // Used to bust cache
-      const [recipesResult, pantryResult, groceryResult] = await Promise.all([
-        // Add timestamp to force fresh data
-        firestoreService.getAllRecipes({ 
-          isWeeklyMealPlan: true,
-          forceRefresh: timestamp 
-        }),
-        pantryService.getAllPantryItems(),
-        groceryListService.getAllGroceryLists()
-      ]);
+      // Load saved recipes
+      const recipes = await firestoreService.getAllRecipes({ isWeeklyMealPlan: true });
+      setSavedRecipes(recipes);
       
-      console.log(`Loaded ${recipesResult.length} weekly meal plan recipes for profile`);
+      // Load most recent grocery list
+      const recentList = await groceryListService.getMostRecentGroceryList();
+      setGroceryLists(recentList ? [recentList] : []);
       
-      // Log recipe names for debugging
-      if (recipesResult.length > 0) {
-        console.log('Weekly meal plan recipes:', recipesResult.map(r => r.name).join(', '));
-      }
+      // Check if all recipes are cooked
+      const allCooked = await checkAllRecipesCooked(recipes);
+      setAllRecipesCooked(allCooked);
       
-      setSavedRecipes(recipesResult);
-      setPantryItems(pantryResult);
-      setGroceryLists(groceryResult);
-      setInitialDataLoaded(true);
     } catch (error) {
       console.error('Error loading user data:', error);
+      Alert.alert('Error', 'Failed to load your data. Please try again.');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
-  };
-  
-  // Load preferences only once
-  useEffect(() => {
-    loadPreferences();
-  }, []);
+  }, [user]);
   
   // Load data when screen is first mounted
   useEffect(() => {
@@ -168,7 +167,7 @@ const ProfileScreen: React.FC = () => {
     useCallback(() => {
       if (user && isFocused) {
         // When focusing the screen, always force a refresh
-        loadUserData(true);
+        loadUserData();
       }
     }, [user, isFocused])
   );
@@ -176,19 +175,7 @@ const ProfileScreen: React.FC = () => {
   // Pull to refresh
   const handleRefresh = () => {
     setRefreshing(true);
-    loadUserData(true);
-  };
-
-  // Toggle pantry items preference
-  const handleTogglePantryItems = async (value: boolean) => {
-    try {
-      setUsePantryItems(value);
-      await savePreferenceValue('usePantryItems', value);
-    } catch (error) {
-      console.error('Error saving pantry preference:', error);
-      // Revert to previous state if save fails
-      setUsePantryItems(!value);
-    }
+    loadUserData();
   };
 
   const handleSignOut = async () => {
@@ -287,6 +274,17 @@ const ProfileScreen: React.FC = () => {
     }
   };
 
+  // Add function to handle generating new meal plan
+  const handleGenerateNewMealPlan = () => {
+    setShowNewMealPlanPrompt(false);
+    navigation.navigate('LoadingMealPlan');
+  };
+
+  // Add function to handle skipping new meal plan
+  const handleSkipNewMealPlan = () => {
+    setShowNewMealPlanPrompt(false);
+  };
+
   const renderRecipeItem = (recipe: RecipeDocument) => (
     <TouchableOpacity 
       key={recipe.id}
@@ -336,32 +334,6 @@ const ProfileScreen: React.FC = () => {
     </TouchableOpacity>
   );
 
-  const renderPantryItem = (item: PantryItemDocument) => (
-    <TouchableOpacity 
-      key={item.id}
-      style={styles.listItem}
-      onPress={() => navigation.navigate('Pantry', { fromProfile: true })}
-    >
-      <View style={styles.listItemContent}>
-        <View style={[styles.categoryIcon, { backgroundColor: getCategoryColor(item.category) }]}>
-          <MaterialCommunityIcons 
-            name={getCategoryIcon(item.category)} 
-            size={18} 
-            color="white" 
-          />
-        </View>
-        <View style={styles.itemDetails}>
-          <Text style={styles.itemTitle} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.itemSubtitle} numberOfLines={1}>
-            {item.quantity} {item.unit}
-            {item.expirationDate ? ` • Expires: ${formatDate(item.expirationDate)}` : ''}
-          </Text>
-        </View>
-        <MaterialCommunityIcons name="chevron-right" size={24} color="#ccc" />
-      </View>
-    </TouchableOpacity>
-  );
-
   const renderGroceryListItem = (list: GroceryListDocument) => (
     <TouchableOpacity 
       key={list.id}
@@ -387,46 +359,6 @@ const ProfileScreen: React.FC = () => {
       </View>
     </TouchableOpacity>
   );
-
-  // Helper function to get category icon
-  const getCategoryIcon = (category: string): string => {
-    const categoryMap: Record<string, string> = {
-      'Fruits': 'fruit-watermelon',
-      'Vegetables': 'food-apple',
-      'Meat': 'food-steak',
-      'Dairy': 'cheese',
-      'Grains': 'grain',
-      'Baking': 'cookie',
-      'Canned': 'food-variant',
-      'Frozen': 'snowflake',
-      'Snacks': 'food-croissant',
-      'Beverages': 'cup',
-      'Condiments': 'bottle-tonic',
-      'Spices': 'shaker',
-    };
-    
-    return categoryMap[category] || 'food';
-  };
-
-  // Helper function to get category color
-  const getCategoryColor = (category: string): string => {
-    const categoryMap: Record<string, string> = {
-      'Fruits': '#4CAF50',
-      'Vegetables': '#8BC34A',
-      'Meat': '#F44336',
-      'Dairy': '#03A9F4',
-      'Grains': '#FF9800',
-      'Baking': '#795548',
-      'Canned': '#607D8B',
-      'Frozen': '#00BCD4',
-      'Snacks': '#FF5722',
-      'Beverages': '#9C27B0',
-      'Condiments': '#FFEB3B',
-      'Spices': '#FFC107',
-    };
-    
-    return categoryMap[category] || '#9E9E9E';
-  };
 
   // Helper function to format date
   const formatDate = (timestamp: any): string => {
@@ -505,7 +437,18 @@ const ProfileScreen: React.FC = () => {
                 </View>
               ) : (
                 savedRecipes.length > 0 ? (
-                  savedRecipes.map(recipe => renderRecipeItem(recipe))
+                  <>
+                    {savedRecipes.map(recipe => renderRecipeItem(recipe))}
+                    {allRecipesCooked && (
+                      <TouchableOpacity
+                        style={styles.generateNewPlanButton}
+                        onPress={() => navigation.navigate('LoadingMealPlan')}
+                      >
+                        <MaterialCommunityIcons name="refresh" size={20} color="#FFFFFF" />
+                        <Text style={styles.generateNewPlanButtonText}>Generate New Meal Plan</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
                 ) : (
                   <View style={styles.emptyState}>
                     <MaterialCommunityIcons 
@@ -523,7 +466,7 @@ const ProfileScreen: React.FC = () => {
                   </View>
                 )
               )}
-              {savedRecipes.length > 0 && (
+              {savedRecipes.length > 0 && !allRecipesCooked && (
                 <TouchableOpacity
                   style={styles.viewAllButton}
                   onPress={() => Alert.alert('Coming Soon', 'Full recipe list coming soon!')}
@@ -540,36 +483,17 @@ const ProfileScreen: React.FC = () => {
           <>
             <ExpandableSection
               title="My Pantry"
-              isExpanded={expandedSections.pantry}
-              onToggle={() => toggleSection('pantry')}
+              isExpanded={expandedSections.pantry ?? true}
+              onToggle={() => setExpandedSections(prev => ({ ...prev, pantry: !prev.pantry }))}
             >
-              {pantryItems.length > 0 ? (
-                pantryItems.slice(0, 5).map(item => renderPantryItem(item))
-              ) : (
-                <View style={styles.emptyState}>
-                  <MaterialCommunityIcons 
-                    name="fridge-outline" 
-                    size={48} 
-                    color="#ccc" 
-                  />
-                  <Text style={styles.emptyStateText}>Your pantry is empty</Text>
-                  <TouchableOpacity 
-                    style={styles.emptyStateButton}
-                    onPress={() => navigation.navigate('Pantry', { fromProfile: true })}
-                  >
-                    <Text style={styles.emptyStateButtonText}>Add Items to Pantry</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-              {pantryItems.length > 0 && (
-                <TouchableOpacity
-                  style={styles.viewAllButton}
-                  onPress={() => navigation.navigate('Pantry', { fromProfile: true })}
-                >
-                  <Text style={styles.viewAllText}>Manage Pantry</Text>
-                  <MaterialCommunityIcons name="arrow-right" size={20} color="#333" />
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                style={styles.settingsMenuItem}
+                onPress={() => navigation.navigate('Pantry')}
+              >
+                <MaterialCommunityIcons name="fridge-outline" size={24} color="#666" />
+                <Text style={styles.settingsMenuItemText}>View Pantry</Text>
+                <MaterialCommunityIcons name="chevron-right" size={20} color="#ccc" />
+              </TouchableOpacity>
             </ExpandableSection>
 
             <ExpandableSection
@@ -578,7 +502,16 @@ const ProfileScreen: React.FC = () => {
               onToggle={() => toggleSection('groceryList')}
             >
               {groceryLists.length > 0 ? (
-                groceryLists.slice(0, 3).map(list => renderGroceryListItem(list))
+                <>
+                  {groceryLists.map(list => renderGroceryListItem(list))}
+                  <TouchableOpacity
+                    style={styles.viewAllButton}
+                    onPress={() => navigation.navigate('GroceryListHistory')}
+                  >
+                    <Text style={styles.viewAllText}>View All Lists</Text>
+                    <MaterialCommunityIcons name="arrow-right" size={20} color="#333" />
+                  </TouchableOpacity>
+                </>
               ) : (
                 <View style={styles.emptyState}>
                   <MaterialCommunityIcons 
@@ -594,15 +527,6 @@ const ProfileScreen: React.FC = () => {
                     <Text style={styles.emptyStateButtonText}>Create Grocery List</Text>
                   </TouchableOpacity>
                 </View>
-              )}
-              {groceryLists.length > 0 && (
-                <TouchableOpacity
-                  style={styles.viewAllButton}
-                  onPress={() => Alert.alert('Coming Soon', 'Grocery list history coming soon!')}
-                >
-                  <Text style={styles.viewAllText}>View All Lists</Text>
-                  <MaterialCommunityIcons name="arrow-right" size={20} color="#333" />
-                </TouchableOpacity>
               )}
             </ExpandableSection>
 
@@ -622,9 +546,9 @@ const ProfileScreen: React.FC = () => {
               
               <TouchableOpacity
                 style={styles.settingsMenuItem}
-                onPress={() => Alert.alert('Coming Soon', 'Grocery list history coming soon!')}
+                onPress={() => navigation.navigate('GroceryListHistory')}
               >
-                <MaterialCommunityIcons name="clipboard-list" size={24} color="#666" />
+                <MaterialCommunityIcons name="cart-outline" size={24} color="#666" />
                 <Text style={styles.settingsMenuItemText}>Grocery List History</Text>
                 <MaterialCommunityIcons name="chevron-right" size={20} color="#ccc" />
               </TouchableOpacity>
@@ -672,17 +596,6 @@ const ProfileScreen: React.FC = () => {
             <Text style={styles.settingsMenuItemText}>Budget Settings</Text>
             <MaterialCommunityIcons name="chevron-right" size={20} color="#ccc" />
           </TouchableOpacity>
-          
-          <View style={styles.settingsMenuItem}>
-            <MaterialCommunityIcons name="fridge-outline" size={24} color="#666" />
-            <Text style={styles.settingsMenuItemText}>Use Pantry in Recipe Generation</Text>
-            <Switch
-              value={usePantryItems}
-              onValueChange={handleTogglePantryItems}
-              trackColor={{ false: '#dfdfdf', true: '#c4e6ff' }}
-              thumbColor={usePantryItems ? '#333' : '#a0a0a0'}
-            />
-          </View>
         </ExpandableSection>
 
         {user && (
@@ -739,6 +652,33 @@ const ProfileScreen: React.FC = () => {
         onClose={() => setShowAuthModal(false)}
         onSuccess={handleAuthSuccess}
       />
+
+      {/* Add New Meal Plan Prompt Modal */}
+      {showNewMealPlanPrompt && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <MaterialCommunityIcons name="food-variant" size={48} color="#4CAF50" />
+            <Text style={styles.modalTitle}>Time for a New Meal Plan!</Text>
+            <Text style={styles.modalText}>
+              You've cooked all the recipes in your current meal plan. Would you like to generate a new one?
+            </Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.primaryButton]}
+                onPress={handleGenerateNewMealPlan}
+              >
+                <Text style={styles.primaryButtonText}>Generate New Plan</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.secondaryButton]}
+                onPress={handleSkipNewMealPlan}
+              >
+                <Text style={styles.secondaryButtonText}>Skip for Now</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -1020,6 +960,82 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
     marginBottom: 16,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 24,
+    width: '90%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  modalText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginHorizontal: 8,
+  },
+  primaryButton: {
+    backgroundColor: '#4CAF50',
+  },
+  secondaryButton: {
+    backgroundColor: '#f0f0f0',
+  },
+  primaryButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  secondaryButtonText: {
+    color: '#666',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  generateNewPlanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4CAF50',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+    marginHorizontal: 16,
+  },
+  generateNewPlanButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    marginLeft: 8,
+    fontSize: 16,
   },
 });
 
