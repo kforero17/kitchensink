@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView, ActivityIndicator, Alert, Animated, PanResponder, Dimensions, Share, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView, ActivityIndicator, Alert, Animated, PanResponder, Dimensions, Share, Modal, ViewStyle, TextStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Recipe } from '../types/Recipe';
 import { standardizeGroceryItem } from '../utils/groceryStandardization';
@@ -14,6 +15,15 @@ import AuthPrompt from '../components/AuthPrompt';
 import { groceryListService } from '../services/groceryListService';
 import { firestoreService } from '../services/firebaseService';
 import { addGroceryItemsToPantryFirestore } from '../services/pantryService';
+import {
+  GroceryItem,
+  GroceryListDocument,
+  PantryItemDocument,
+  RecipeIngredient,
+  RecipeStep,
+  RecipeDocument
+} from '../types/FirestoreSchema';
+import firestore from '@react-native-firebase/firestore';
 
 type GroceryListScreenRouteProp = RouteProp<RootStackParamList, 'GroceryList'>;
 type GroceryListScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GroceryList'>;
@@ -683,11 +693,9 @@ const GroceryListScreen: React.FC = () => {
           return !isRemoved && Math.abs(gestureState.dx) > Math.abs(gestureState.dy * 3);
         },
         onPanResponderGrant: () => {
-          // Fix the typescript error by not accessing internal properties
           pan.extractOffset();
         },
         onPanResponderMove: (_, gestureState) => {
-          // Only allow left swipes (negative dx)
           if (gestureState.dx < 0) {
             Animated.event(
               [null, { dx: pan.x }],
@@ -697,14 +705,12 @@ const GroceryListScreen: React.FC = () => {
         },
         onPanResponderRelease: (_, gestureState) => {
           if (gestureState.dx < swipeThreshold) {
-            // Swiped far enough to remove
             Animated.timing(pan, {
               toValue: { x: -1000, y: 0 },
               duration: 250,
               useNativeDriver: false
             }).start(onRemove);
           } else {
-            // Not swiped far enough, return to original position
             Animated.spring(pan, {
               toValue: { x: 0, y: 0 },
               friction: 5,
@@ -715,22 +721,26 @@ const GroceryListScreen: React.FC = () => {
       })
     ).current;
 
-    // Show delete hint based on swipe distance
     const deleteOpacity = pan.x.interpolate({
       inputRange: [-100, -30],
       outputRange: [1, 0],
       extrapolate: 'clamp'
     });
 
+    const cleanMeasurementText = (measurement: string): string => {
+      const dupeNumberPattern = /^(\d+)\s+(\d+(?:\/\d+)?)/;
+      if (dupeNumberPattern.test(measurement)) {
+        return measurement.replace(dupeNumberPattern, '$2');
+      }
+      return measurement;
+    };
+
     return (
       <View style={styles.swipeableContainer}>
         <Animated.View
           style={[
             styles.deleteBackground,
-            {
-              transform: [{ translateX: -100 }],
-              opacity: deleteOpacity
-            }
+            { transform: [{ translateX: -100 }], opacity: deleteOpacity }
           ]}
         >
           <Text style={styles.deleteText}>Mark as Available</Text>
@@ -738,52 +748,58 @@ const GroceryListScreen: React.FC = () => {
         
         <Animated.View
           style={[
-            styles.ingredientItem,
+            styles.ingredientItem, // This is the main animated view for swipe
             isRemoved && styles.removedIngredientItem,
             isSelected && styles.selectedIngredientItem,
             { transform: [{ translateX: pan.x }] }
           ]}
           {...(!isRemoved ? panResponder.panHandlers : {})}
         >
-          {isFromProfile && !isRemoved && (
-            <TouchableOpacity
-              style={styles.selectCheckbox}
-              onPress={onToggleSelect}
-            >
+          <TouchableOpacity 
+            style={styles.ingredientTouchable} // Inner touchable for content interactions
+            onPress={onToggleSelect} // This press should toggle selection if from profile
+            disabled={!isFromProfile && !isRemoved} // Disable if not from profile OR if already removed (swipe handles removal)
+          >
+            {isFromProfile && (
               <MaterialCommunityIcons
                 name={isSelected ? "checkbox-marked" : "checkbox-blank-outline"}
                 size={24}
-                color={isSelected ? "#4CAF50" : "#999"}
+                color={isSelected ? "#D9A15B" : "#7A736A"} // Use theme colors
+                style={{ marginRight: 8 }} // Add some spacing for the checkbox
               />
-            </TouchableOpacity>
-          )}
-          
-          <View style={styles.ingredientDetails}>
-            <Text style={[
-              styles.ingredientName,
-              isRemoved && styles.removedIngredientText
-            ]}>
-              {item.name}
-              {isRemoved && ' (Have)'}
-            </Text>
-            
-            <View style={styles.measurementRow}>
+            )}
+            <View style={styles.ingredientDetails}>
               <Text style={[
-                styles.originalMeasurement,
-                isConsolidatedMeasurement && styles.consolidatedMeasurement,
-                isRemoved && styles.removedIngredientText
+                styles.ingredientName,
+                isRemoved ? styles.removedIngredientText : undefined,
+                isSelected && isFromProfile ? styles.selectedText : undefined // Apply selectedText only if from profile
               ]}>
-                {item.measurement}
+                {item.name}
+                {isRemoved && ' (Have)'}
               </Text>
               
-              <Text style={[
-                styles.packageRecommendation,
-                isRemoved && styles.removedIngredientText
-              ]}>
-                {item.recommendedPackage}
-              </Text>
+              <View style={styles.measurementRow}>
+                <Text style={[
+                  styles.originalMeasurement,
+                  isConsolidatedMeasurement && styles.consolidatedMeasurement,
+                  isRemoved && styles.removedIngredientText,
+                  isSelected && isFromProfile ? styles.selectedText : undefined
+                ]}>
+                  {cleanMeasurementText(item.measurement)}
+                </Text>
+                
+                {item.recommendedPackage && (
+                  <Text style={[
+                    styles.packageRecommendation,
+                    isRemoved && styles.removedIngredientText,
+                    isSelected && isFromProfile ? styles.selectedText : undefined
+                  ]}>
+                    ({item.recommendedPackage})
+                  </Text>
+                )}
+              </View>
             </View>
-          </View>
+          </TouchableOpacity>
         </Animated.View>
       </View>
     );
@@ -841,69 +857,101 @@ const GroceryListScreen: React.FC = () => {
   
   const handleSaveList = async () => {
     try {
+      // Prevent duplicate saves
+      if (savingInProgress) {
+        console.log('GroceryListScreen: Save already in progress, ignoring duplicate save attempt');
+        return;
+      }
+      
       setSavingInProgress(true);
-      // Check if user is logged in - if not, show auth prompt
+      console.log('GroceryListScreen: Starting grocery list save process');
+      
       if (!user) {
+        console.log('GroceryListScreen: User not authenticated, showing auth prompt.');
+        // Removed call to groceryListService.startBackgroundGroceryListCreation
         setShowAuthPrompt(true);
         setSavingInProgress(false);
         return;
       }
 
-      // Generate the grocery list from categorized ingredients
-      const groceryItems = Object.values(categorizedIngredients)
+      console.log('GroceryListScreen: User is authenticated, proceeding with normal save');
+      
+      const groceryItemsToSave: GroceryItem[] = Object.values(categorizedIngredients)
         .flat()
-        .filter(item => !removedIngredients.has(item.name.toLowerCase()))
-        .map(item => ({
-          name: item.name,
-          measurement: item.measurement,
-          category: item.category || 'Other',
-          isChecked: false,
-          recipeId: item.recipeId,
-          recipeName: item.recipeName,
-          recommendedPackage: item.recommendedPackage
-        }));
+        .filter(item => item.name && !removedIngredients.has(item.name.toLowerCase()))
+        .map(item => {
+          const parsed = parseMeasurement(item.measurement);
+          const qty = parsed.quantity || 1;
+          const unitStr = parsed.unit || 'unit';
 
-      // If we're updating an existing list
-      if (existingListId) {
-        const success = await groceryListService.updateGroceryList(existingListId, {
-          name: listName,
-          items: groceryItems
+          // standardizeGroceryItem currently returns: 
+          // { ingredient: string; originalMeasurement: string; recommendedPackage: string; }
+          // It does NOT return purchaseQuantity or purchaseUnit according to linter.
+          const standardizedInfo = standardizeGroceryItem(item.name, item.measurement);
+
+          return {
+            name: item.name,
+            measurement: item.measurement, 
+            quantity: qty, // Use parsed quantity
+            unit: unitStr, // Use parsed unit
+            category: item.category || 'Other',
+            checked: false,
+            recipeId: item.recipeId,
+            recipeName: item.recipeName,
+            recommendedPackage: standardizedInfo.recommendedPackage, // This is available
+            // Set purchaseQuantity and purchaseUnit based on parsed values or make them optional if schema allows
+            // Assuming GroceryItem might have these as optional or they can default to the main quantity/unit
+            purchaseQuantity: qty, // Defaulting to parsed quantity
+            purchaseUnit: unitStr,   // Defaulting to parsed unit
+          };
         });
+
+      if (existingListId) {
+        console.log(`GroceryListScreen: Updating existing list with ID: ${existingListId}`);
+        const updateData: Partial<Omit<GroceryListDocument, 'id' | 'createdAt' | 'updatedAt'>> = {
+          name: listName,
+          items: groceryItemsToSave // Use the correctly typed array
+        };
+        const success = await groceryListService.updateGroceryList(existingListId, updateData);
         
         setSavingInProgress(false);
         
         if (success) {
+          console.log('GroceryListScreen: List updated successfully');
           Alert.alert(
             'Success',
             'Your grocery list has been updated!',
             [{ text: 'OK', onPress: () => navigation.navigate('Profile') }]
           );
         } else {
+          console.error('GroceryListScreen: Failed to update grocery list');
           Alert.alert('Error', 'Failed to update grocery list. Please try again.');
         }
       } else {
-        // Create a new list
+        console.log('GroceryListScreen: Creating new grocery list using groceryListService.createGroceryList');
         const listId = await groceryListService.createGroceryList(
           listName, 
-          groceryItems
+          groceryItemsToSave // Use the correctly typed array
         );
 
         setSavingInProgress(false);
         
         if (listId) {
+          console.log('GroceryListScreen: Grocery list created successfully with ID:', listId);
           Alert.alert(
             'Success',
             'Your grocery list has been saved! You can access all your saved lists in your profile.',
             [{ text: 'Go to Profile', onPress: () => navigation.navigate('Profile') }]
           );
         } else {
-          Alert.alert('Error', 'Failed to save grocery list. Please try again.');
+          console.error('GroceryListScreen: Failed to create grocery list, listId is null.');
+          Alert.alert('Error', 'Grocery list creation may have failed. Please check your profile.');
         }
       }
     } catch (error) {
+      console.error('GroceryListScreen: Error saving grocery list:', error);
       setSavingInProgress(false);
       Alert.alert('Error', 'Something went wrong. Please try again.');
-      console.error('Error saving grocery list:', error);
     }
   };
 
@@ -987,7 +1035,7 @@ const GroceryListScreen: React.FC = () => {
         'Your account has been set up and your data has been saved. You can access everything from your profile.',
         [{ 
           text: 'Go to Profile', 
-          onPress: () => navigation.navigate('Profile')
+          onPress: () => navigation.navigate('Profile') // No params
         }]
       );
     } catch (error) {
@@ -996,7 +1044,7 @@ const GroceryListScreen: React.FC = () => {
       Alert.alert(
         'Profile Created',
         'Your account has been created, but we encountered an issue saving your data. Please try again from your profile.',
-        [{ text: 'OK', onPress: () => navigation.navigate('Profile') }]
+        [{ text: 'OK', onPress: () => navigation.navigate('Profile') }] // No params
       );
     }
   };
@@ -1122,11 +1170,11 @@ const GroceryListScreen: React.FC = () => {
               }
             }}
           >
-            <MaterialCommunityIcons name="arrow-left" size={24} color="#333" />
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#4E4E4E" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Grocery List</Text>
         </View>
-        <ActivityIndicator size="large" color="#4CAF50" />
+        <ActivityIndicator size="large" color="#D9A15B" />
       </SafeAreaView>
     );
   }
@@ -1146,7 +1194,7 @@ const GroceryListScreen: React.FC = () => {
             }
           }}
         >
-          <MaterialCommunityIcons name="arrow-left" size={24} color="#333" />
+          <MaterialCommunityIcons name="arrow-left" size={24} color="#4E4E4E" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Grocery List</Text>
       </View>
@@ -1193,7 +1241,7 @@ const GroceryListScreen: React.FC = () => {
       
       <ScrollView style={styles.content}>
         {loading ? (
-          <ActivityIndicator size="large" color="#4CAF50" style={styles.loader} />
+          <ActivityIndicator size="large" color="#D9A15B" style={styles.loader} />
         ) : Object.keys(categorizedIngredients || {}).length > 0 ? (
           Object.entries(categorizedIngredients || {})
             .sort(([a], [b]) => a.localeCompare(b))
@@ -1211,35 +1259,54 @@ const GroceryListScreen: React.FC = () => {
           // Show add to pantry and export to notes buttons when viewing from profile
           <>
             <TouchableOpacity
-              style={[styles.actionButton, styles.addToPantryButton]}
+              style={styles.actionButton} // Uses flex:1 and margins
               onPress={handleAddToPantry}
               disabled={selectedItems.size === 0 || savingInProgress}
             >
-              {savingInProgress ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <MaterialCommunityIcons name="fridge-outline" size={20} color="#fff" />
-                  <Text style={styles.actionButtonText}>Add to Pantry</Text>
-                </>
-              )}
+              <LinearGradient
+                colors={['#D9A15B', '#B57A42']} // Primary theme gradient
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.buttonGradient} // Defines padding and content alignment
+              >
+                {savingInProgress && selectedItems.size > 0 ? ( // Show indicator only if this button caused saving
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="fridge-outline" size={20} color="#fff" />
+                    <Text style={styles.actionButtonText}>Add to Pantry</Text>
+                  </>
+                )}
+              </LinearGradient>
             </TouchableOpacity>
             
             <TouchableOpacity
-              style={[styles.actionButton, styles.exportButton]}
+              style={styles.actionButton} // Uses flex:1 and margins
               onPress={handleExportToNotes}
             >
-              <MaterialCommunityIcons name="export" size={20} color="#FFF" />
-              <Text style={styles.actionButtonText}>Export to Notes</Text>
+              <LinearGradient
+                colors={['#C4B5A4', '#A58D78']} // Secondary/neutral gradient
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.buttonGradient} // Defines padding and content alignment
+              >
+                <MaterialCommunityIcons name="export" size={20} color="#FFF" />
+                <Text style={styles.actionButtonText}>Export to Notes</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </>
         ) : (
-          // Show save and share buttons when creating a new list
-          <>
-            <TouchableOpacity
-              style={[styles.saveButton, savingInProgress && styles.disabledButton]}
-              onPress={handleSaveList}
-              disabled={loading || savingInProgress}
+          // Show save button when creating a new list
+          <TouchableOpacity
+            style={[styles.saveButton, savingInProgress && styles.disabledButton]}
+            onPress={handleSaveList}
+            disabled={loading || savingInProgress}
+          >
+            <LinearGradient
+              colors={['#D9A15B', '#B57A42']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.buttonGradient}
             >
               {savingInProgress ? (
                 <ActivityIndicator size="small" color="#fff" />
@@ -1249,16 +1316,8 @@ const GroceryListScreen: React.FC = () => {
                   <Text style={styles.saveButtonText}>Save List</Text>
                 </>
               )}
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.shareButton}
-              onPress={handleShareList}
-            >
-              <MaterialCommunityIcons name="share-variant" size={20} color="#FFF" />
-              <Text style={styles.shareButtonText}>Share List</Text>
-            </TouchableOpacity>
-          </>
+            </LinearGradient>
+          </TouchableOpacity>
         )}
       </View>
       
@@ -1319,7 +1378,7 @@ const GroceryListScreen: React.FC = () => {
       {savingInProgress && (
         <View style={styles.globalLoadingOverlay}>
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#007AFF" />
+            <ActivityIndicator size="large" color="#D9A15B" />
             <Text style={styles.loadingText}>Saving your data...</Text>
           </View>
         </View>
@@ -1331,51 +1390,52 @@ const GroceryListScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f8f8',
+    backgroundColor: '#FAF6F1',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e1e1e1',
-    backgroundColor: 'white',
+    borderBottomColor: '#E6DED3',
+    backgroundColor: '#FFFFFF',
   },
   backButton: {
     marginRight: 16,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#4E4E4E',
+    flex: 1, // Ensure title takes available space
   },
   swipeTipContainer: {
     flexDirection: 'row', 
     alignItems: 'center',
-    backgroundColor: '#FFF9C4',
+    backgroundColor: '#FDFBF7', // Lighter, warmer tip background
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e1e1e1',
+    borderBottomColor: '#E6DED3',
   },
   swipeTipText: {
     fontSize: 14,
-    color: '#555',
+    color: '#7A736A', // Softer text color
     marginLeft: 8,
     flex: 1,
   },
   packageTipContainer: {
     flexDirection: 'row', 
     alignItems: 'center',
-    backgroundColor: '#E3F2FD', 
+    backgroundColor: '#F5EFE6', 
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e1e1e1',
+    borderBottomColor: '#E6DED3',
   },
   packageTipText: {
     fontSize: 14,
-    color: '#1976D2',
+    color: '#7A736A',
     marginLeft: 8,
     flex: 1,
   },
@@ -1383,27 +1443,27 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   infoContainer: {
-    backgroundColor: 'white',
+    backgroundColor: '#FFFFFF',
     padding: 16,
     marginBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#e1e1e1',
+    borderBottomColor: '#E6DED3',
   },
   removedItemsInfo: {
     fontSize: 14,
-    color: '#666',
+    color: '#7A736A',
     fontStyle: 'italic',
   },
   categorySection: {
-    backgroundColor: 'white',
+    backgroundColor: '#FFFFFF',
     marginBottom: 8,
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     marginHorizontal: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowOpacity: 0.05, // Softer shadow
+    shadowRadius: 3,
     elevation: 2,
   },
   categoryHeader: {
@@ -1411,13 +1471,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#E6DED3',
     paddingBottom: 8,
   },
   categoryTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 20, // Slightly larger category title
+    fontWeight: '600',
+    color: '#4E4E4E',
   },
   swipeableContainer: {
     position: 'relative',
@@ -1429,108 +1489,108 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 100,
-    backgroundColor: '#FF9800',
+    backgroundColor: '#D9A15B', // Use accent color
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 4,
+    borderRadius: 8, // Match ingredient item radius
   },
   deleteText: {
-    color: 'white',
+    color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 13,
   },
-  ingredientItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    backgroundColor: 'white',
-    borderRadius: 4,
+  ingredientItem: { // Base style for the tappable area
+    backgroundColor: '#FFFFFF', 
+    borderRadius: 8,
+    marginBottom: 2, 
   },
-  removedIngredientItem: {
-    backgroundColor: '#f5f5f5',
+  ingredientTouchable: { // Inner container for content, receives press
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0EBE5', // Lighter separator
+  },
+  removedIngredientItem: { // Style for the swipeable Animated.View when removed
+    backgroundColor: '#F5F5F5', // Keep this distinct but muted
+  },
+  selectedIngredientItem: { // Style for the swipeable Animated.View when selected
+    backgroundColor: '#FFF9F2', // Light accent for selection
+    borderLeftWidth: 4,
+    borderLeftColor: '#D9A15B',
   },
   ingredientDetails: {
     flex: 1,
+    marginLeft: 8, // Add margin if checkbox is present
   },
   ingredientName: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#333',
-    marginBottom: 4,
+    color: '#4E4E4E',
+  },
+  removedIngredientText: { // Applied to text within a removed item
+    color: '#A09483',
+    textDecorationLine: 'line-through',
+  },
+  selectedText: { // Applied to text within a selected item
+    color: '#B57A42', // Darker accent for selected text
+    fontWeight: '600',
   },
   measurementRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 4,
   },
   originalMeasurement: {
     fontSize: 14,
-    color: '#666',
-    fontStyle: 'italic',
+    color: '#7A736A',
     marginRight: 8,
   },
   packageRecommendation: {
     fontSize: 14,
-    color: '#4CAF50',
+    color: '#C4B5A4', // Muted color for package info
     fontWeight: '500',
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  removedIngredientText: {
-    color: '#aaa',
-    textDecorationLine: 'line-through',
+    fontStyle: 'italic',
+    marginLeft: 2,
   },
   actionsContainer: {
-    padding: 16,
-    backgroundColor: 'white',
+    paddingVertical: 12, // Reduced vertical padding
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#e1e1e1',
+    borderTopColor: '#E6DED3',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center', // Center the single save button
     alignItems: 'center',
   },
-  saveButton: {
-    backgroundColor: '#4CAF50',
+  saveButton: { // Wrapper for the gradient
+    width: '80%', // Make button wider
+    borderRadius: 12,
+    overflow: 'hidden', // Important for gradient border radius
+  },
+  buttonGradient: { // Style for the LinearGradient component
+    paddingVertical: 14, // Increased padding for a larger button
+    paddingHorizontal: 24,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    borderRadius: 8,
-    margin: 16,
   },
   saveButtonText: {
-    color: 'white',
+    color: '#FFFFFF',
     fontWeight: '600',
     fontSize: 16,
     marginLeft: 8,
   },
-  shareButton: {
-    backgroundColor: '#1976D2',
-    paddingVertical: 12,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  shareButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
   emptyCategory: {
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
     textAlign: 'center',
     marginTop: 16,
+    paddingVertical: 10, // Add some padding
   },
   allRemovedText: {
     fontSize: 14,
-    color: '#888',
+    color: '#A09483',
     fontStyle: 'italic',
     textAlign: 'center',
     marginTop: 8,
@@ -1539,57 +1599,64 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 50,
+    padding: 20, // Add padding
   },
   emptyStateText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
+    fontSize: 20, // Larger text
+    fontWeight: '600',
+    color: '#4E4E4E',
+    marginBottom: 12, // Increased margin
   },
   emptyStateSubtext: {
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
+    textAlign: 'center', // Center align subtext
   },
   loader: {
-    marginTop: 20,
+    marginTop: 30, // More margin for loader
   },
-  consolidatedMeasurement: {
+  consolidatedMeasurement: { // Keep for consistency if used
     fontWeight: '600',
-    color: '#4CAF50',
+    color: '#4CAF50', // Green as in previous example, can be changed to #D9A15B if preferred
     fontStyle: 'normal',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)', // Darker overlay
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 24,
     width: '90%',
     maxWidth: 400,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 10,
   },
   modalIcon: {
     marginBottom: 16,
+    color: '#D9A15B', // Use accent color for modal icon
   },
   modalTitle: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#333',
+    color: '#4E4E4E',
     marginBottom: 12,
     textAlign: 'center',
   },
   modalDescription: {
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
     textAlign: 'center',
     marginBottom: 24,
-    lineHeight: 22,
+    lineHeight: 24, // Improved line height
   },
   modalButtons: {
     flexDirection: 'row',
@@ -1597,31 +1664,32 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   skipButton: {
-    padding: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#E6DED3',
     flex: 1,
     marginRight: 8,
     alignItems: 'center',
   },
   skipButtonText: {
-    color: '#666',
+    color: '#7A736A',
     fontWeight: '600',
     fontSize: 16,
   },
-  signUpButton: {
-    backgroundColor: '#007AFF',
-    padding: 12,
+  signUpButton: { // This refers to the TouchableOpacity wrapper for the gradient
     borderRadius: 8,
     flex: 1,
     marginLeft: 8,
-    alignItems: 'center',
+    overflow: 'hidden', // Ensure gradient is clipped
   },
-  signUpButtonText: {
-    color: 'white',
+  // signUpButtonText is part of the gradient, so styled within saveButtonText/buttonGradient logic
+  signUpButtonText: { // Text directly inside the gradient button
+    color: '#FFFFFF',
     fontWeight: '600',
     fontSize: 16,
+    textAlign: 'center', 
   },
   disabledButton: {
     opacity: 0.7,
@@ -1632,56 +1700,96 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
   },
-  loadingContainer: {
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 10,
+  loadingContainer: { // For the small loading indicator box
+    backgroundColor: '#FFFFFF',
+    padding: 24, // More padding
+    borderRadius: 12,
     alignItems: 'center',
-    minWidth: 200,
+    minWidth: 180, // Slightly smaller width
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
   },
   loadingText: {
-    marginTop: 10,
+    marginTop: 12,
     fontSize: 16,
-    color: '#333',
-  },
-  selectedIngredientItem: {
-    backgroundColor: '#E8F5E9',
-    borderLeftWidth: 4,
-    borderLeftColor: '#4CAF50',
-  },
-  selectCheckbox: {
-    marginRight: 8,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 8,
-    margin: 8,
-  },
-  addToPantryButton: {
-    backgroundColor: '#4CAF50',
-  },
-  exportButton: {
-    backgroundColor: '#007AFF',
-  },
-  actionButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 16,
-    marginLeft: 8,
+    color: '#4E4E4E',
   },
   selectedItemsInfo: {
     fontSize: 14,
-    color: '#4CAF50',
+    color: '#B57A42', // Darker accent for selected info
     fontStyle: 'italic',
+    marginTop: 4, // Add some space if both infos are shown
+  },
+  selectAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF9F2', // Light accent background
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginLeft: 'auto', // Push to the right
+    borderWidth: 1,
+    borderColor: '#E6DED3',
+  },
+  selectAllText: {
+    marginLeft: 6,
+    color: '#B57A42', // Darker accent for text
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  actionButton: { // For Add to Pantry / Export to Notes
+    flex: 1,
+    borderRadius: 12,
+    marginHorizontal: 4, // Reduced margin for tighter packing
+    overflow: 'hidden',
+  },
+  // addToPantryButton and exportButton will now primarily be LinearGradient styled by buttonGradient
+  addToPantryButton: { // Minimal style if not using gradient directly
+    // backgroundColor: '#D9A15B', // Primary accent
+  },
+  exportButton: { // Minimal style if not using gradient directly
+    // backgroundColor: '#C4B5A4', // Secondary accent or neutral
+  },
+  actionButtonText: { // Text inside action buttons (if gradient used)
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 15, // Slightly smaller for two buttons
+    marginLeft: 8,
+    textAlign: 'center',
+  },
+  // Styles for ingredient rows when not using SwipeableIngredient directly
+  ingredientRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    backgroundColor: '#FFF',
+  },
+  ingredientText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+  },
+  checkButton: {
+    marginLeft: 8,
+  },
+  checkedItem: {
+    backgroundColor: '#F5F5F5',
+  },
+  checkedText: {
+    color: '#999',
+    textDecorationLine: 'line-through',
   },
 });
 

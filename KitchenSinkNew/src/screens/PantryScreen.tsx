@@ -512,6 +512,17 @@ const PantryScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
       ) : (
+        (() => {
+          logger.debug('[PantryScreen] FINAL PRE-FLATLIST_RENDER_STATE:', {
+            loading,
+            error,
+            items: items ? `Count: ${items.length}` : 'null/undefined',
+            filteredItems: filteredItems ? `Count: ${filteredItems.length}` : 'null/undefined',
+            isOnline,
+            fallbackMode
+          });
+          return null; // This IIFE is just for logging
+        })(),
         <Animated.View 
           style={[
             styles.content,
@@ -538,7 +549,7 @@ const PantryScreen: React.FC = () => {
               <ActivityIndicator size="large" color={theme.colors.primary} />
               <Text style={styles.loadingText}>Loading pantry items...</Text>
             </View>
-          ) : !items || items.length === 0 ? (
+          ) : items.length === 0 ? (
             <View style={styles.emptyContainer}>
               <MaterialCommunityIcons name="fridge-outline" size={48} color="#ccc" />
               <Text style={styles.emptyText}>
@@ -555,38 +566,20 @@ const PantryScreen: React.FC = () => {
             </View>
           ) : (
             <React.Fragment>
-              {(() => {
-                logger.debug('[PantryScreen] RENDERING FlatList for filteredItems. Count:', filteredItems?.length);
-                return null;
-              })()}
-              {(() => {
-                try {
-                  logger.debug('[PantryScreen] TRYING to render FlatList for filteredItems.');
-                  return (
-                    <FlatList
-                      data={filteredItems}
-                      renderItem={({ item }) => (
-                        <PantryItemCard item={item} onDelete={handleDeleteItem} />
-                      )}
-                      keyExtractor={item => item.id}
-                      contentContainerStyle={styles.listContent}
-                      ListEmptyComponent={
-                        <View style={styles.emptyContainer}>
-                          <Text style={styles.emptyText}>
-                            {searchQuery
-                              ? 'No items match your search'
-                              : 'Your pantry is empty. Add some items!'}
-                          </Text>
-                        </View>
-                      }
-                    />
-                  );
-                } catch (e: any) {
-                  logger.error('[PantryScreen] CAUGHT ERROR RENDERING FlatList:', e.message, e.stack);
-                  setRenderError(e); // Set the renderError state to display a fallback
-                  return <Text>Error caught rendering list. Check logs.</Text>; // Fallback UI
-                }
-              })()}
+              <FlatList
+                data={filteredItems}
+                renderItem={({ item }) => (
+                  <PantryItemRow
+                    key={item?.id || `item-${Math.random()}`}
+                    item={item}
+                    onDelete={handleDeleteItem}
+                  />
+                )}
+                keyExtractor={item => item?.id || `item-${Math.random()}`}
+                contentContainerStyle={styles.listContent}
+                onRefresh={handleRefresh}
+                refreshing={isRefreshing}
+              />
             </React.Fragment>
           )}
         </Animated.View>

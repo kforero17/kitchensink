@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   FlatList,
+  ImageBackground,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
@@ -55,7 +56,7 @@ const ExpandableSection: React.FC<SectionProps> = ({
         <MaterialCommunityIcons 
           name={isExpanded ? 'chevron-up' : 'chevron-down'} 
           size={24} 
-          color="#666"
+          color="#7A736A"
         />
       </TouchableOpacity>
       {isExpanded && (
@@ -306,7 +307,7 @@ const ProfileScreen: React.FC = () => {
             />
           ) : (
             <View style={[styles.itemImage, styles.itemImagePlaceholder]}>
-              <MaterialCommunityIcons name="food" size={24} color="#999" />
+              <MaterialCommunityIcons name="food" size={24} color="#B57A42" />
             </View>
           )}
         </View>
@@ -329,7 +330,7 @@ const ProfileScreen: React.FC = () => {
             </View>
           )}
         </View>
-        <MaterialCommunityIcons name="chevron-right" size={24} color="#ccc" />
+        <MaterialCommunityIcons name="chevron-right" size={24} color="#B57A42" />
       </View>
     </TouchableOpacity>
   );
@@ -346,7 +347,7 @@ const ProfileScreen: React.FC = () => {
       }}
     >
       <View style={styles.listItemContent}>
-        <View style={[styles.categoryIcon, { backgroundColor: '#5856D6' }]}>
+        <View style={[styles.categoryIcon, { backgroundColor: '#D9A15B' }]}>
           <MaterialCommunityIcons name="cart" size={18} color="white" />
         </View>
         <View style={styles.itemDetails}>
@@ -355,7 +356,7 @@ const ProfileScreen: React.FC = () => {
             {list.items.length} items • {formatDate(list.createdAt)}
           </Text>
         </View>
-        <MaterialCommunityIcons name="chevron-right" size={24} color="#ccc" />
+        <MaterialCommunityIcons name="chevron-right" size={24} color="#B57A42" />
       </View>
     </TouchableOpacity>
   );
@@ -370,55 +371,61 @@ const ProfileScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
+      <View style={styles.headerWrapper}>
+        <ImageBackground
+          source={require('../../assets/kitchen-background.png')}
+          style={styles.headerBackground}
+          imageStyle={styles.headerBackgroundImage}
+          blurRadius={2}
         >
-          <MaterialCommunityIcons name="arrow-left" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile</Text>
+          <View style={styles.headerOverlay} />
+          <View style={styles.headerContent}>
+            <View style={styles.headerRow}>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => navigation.goBack()}
+              >
+                <MaterialCommunityIcons name="arrow-left" size={24} color="#333" />
+              </TouchableOpacity>
+              <Text style={styles.headerTitle}>
+                {user?.displayName ? `Welcome back, ${user.displayName.split(' ')[0]}!` : 'Profile'}
+              </Text>
+            </View>
+            <View style={styles.profileSection}>
+              {user ? (
+                <>
+                  <View style={styles.avatarContainer}>
+                    <View style={styles.avatarFrame}>
+                      {user?.photoURL ? (
+                        <Image
+                          source={{ uri: user.photoURL }}
+                          style={styles.avatar}
+                        />
+                      ) : (
+                        <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                          <MaterialCommunityIcons name="account" size={40} color="#666" />
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.profileInfo}>
+                    <Text style={styles.email}>{user?.email}</Text>
+                    {user?.displayName && (
+                      <Text style={styles.name}>{user.displayName}</Text>
+                    )}
+                  </View>
+                </>
+              ) : null}
+            </View>
+          </View>
+        </ImageBackground>
       </View>
-
-      <ScrollView 
+      <ScrollView
         style={styles.content}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
-        <View style={styles.profileSection}>
-          {user ? (
-            <>
-              <View style={styles.avatarContainer}>
-                {user?.photoURL ? (
-                  <Image
-                    source={{ uri: user.photoURL }}
-                    style={styles.avatar}
-                  />
-                ) : (
-                  <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                    <MaterialCommunityIcons name="account" size={40} color="#666" />
-                  </View>
-                )}
-              </View>
-              <Text style={styles.email}>{user?.email}</Text>
-              {user?.displayName && (
-                <Text style={styles.name}>{user.displayName}</Text>
-              )}
-            </>
-          ) : (
-            <View style={styles.signInContainer}>
-              <Text style={styles.signInText}>Sign in to save your preferences</Text>
-              <TouchableOpacity 
-                style={styles.signInButton}
-                onPress={() => setShowAuthModal(true)}
-              >
-                <Text style={styles.signInButtonText}>Sign In</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
         {/* Weekly Meal Plan */}
         <ExpandableSection 
           title="Weekly Meal Plan" 
@@ -432,7 +439,7 @@ const ProfileScreen: React.FC = () => {
               </Text>
               {loading ? (
                 <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#333" />
+                  <ActivityIndicator size="large" color="#D9A15B" />
                   <Text style={styles.loadingText}>Loading your data...</Text>
                 </View>
               ) : (
@@ -454,7 +461,7 @@ const ProfileScreen: React.FC = () => {
                     <MaterialCommunityIcons 
                       name="food-variant" 
                       size={64}
-                      color="#ccc"
+                      color="#B57A42"
                     />
                     <Text style={styles.emptyStateText}>No weekly meal plan yet</Text>
                     <TouchableOpacity
@@ -472,7 +479,7 @@ const ProfileScreen: React.FC = () => {
                   onPress={() => Alert.alert('Coming Soon', 'Full recipe list coming soon!')}
                 >
                   <Text style={styles.viewAllText}>View All Recipes</Text>
-                  <MaterialCommunityIcons name="arrow-right" size={20} color="#333" />
+                  <MaterialCommunityIcons name="arrow-right" size={20} color="#4E4E4E" />
                 </TouchableOpacity>
               )}
             </>
@@ -490,9 +497,9 @@ const ProfileScreen: React.FC = () => {
                 style={styles.settingsMenuItem}
                 onPress={() => navigation.navigate('Pantry')}
               >
-                <MaterialCommunityIcons name="fridge-outline" size={24} color="#666" />
+                <MaterialCommunityIcons name="fridge-outline" size={24} color="#7A736A" />
                 <Text style={styles.settingsMenuItemText}>View Pantry</Text>
-                <MaterialCommunityIcons name="chevron-right" size={20} color="#ccc" />
+                <MaterialCommunityIcons name="chevron-right" size={20} color="#B57A42" />
               </TouchableOpacity>
             </ExpandableSection>
 
@@ -509,7 +516,7 @@ const ProfileScreen: React.FC = () => {
                     onPress={() => navigation.navigate('GroceryListHistory')}
                   >
                     <Text style={styles.viewAllText}>View All Lists</Text>
-                    <MaterialCommunityIcons name="arrow-right" size={20} color="#333" />
+                    <MaterialCommunityIcons name="arrow-right" size={20} color="#4E4E4E" />
                   </TouchableOpacity>
                 </>
               ) : (
@@ -517,7 +524,7 @@ const ProfileScreen: React.FC = () => {
                   <MaterialCommunityIcons 
                     name="cart-outline" 
                     size={48} 
-                    color="#ccc" 
+                    color="#B57A42" 
                   />
                   <Text style={styles.emptyStateText}>No grocery lists yet</Text>
                   <TouchableOpacity 
@@ -539,18 +546,18 @@ const ProfileScreen: React.FC = () => {
                 style={styles.settingsMenuItem}
                 onPress={() => navigation.navigate('RecipeHistory')}
               >
-                <MaterialCommunityIcons name="history" size={24} color="#666" />
+                <MaterialCommunityIcons name="history" size={24} color="#7A736A" />
                 <Text style={styles.settingsMenuItemText}>Recipe History</Text>
-                <MaterialCommunityIcons name="chevron-right" size={20} color="#ccc" />
+                <MaterialCommunityIcons name="chevron-right" size={20} color="#B57A42" />
               </TouchableOpacity>
               
               <TouchableOpacity
                 style={styles.settingsMenuItem}
                 onPress={() => navigation.navigate('GroceryListHistory')}
               >
-                <MaterialCommunityIcons name="cart-outline" size={24} color="#666" />
+                <MaterialCommunityIcons name="cart-outline" size={24} color="#7A736A" />
                 <Text style={styles.settingsMenuItemText}>Grocery List History</Text>
-                <MaterialCommunityIcons name="chevron-right" size={20} color="#ccc" />
+                <MaterialCommunityIcons name="chevron-right" size={20} color="#B57A42" />
               </TouchableOpacity>
             </ExpandableSection>
           </>
@@ -565,36 +572,36 @@ const ProfileScreen: React.FC = () => {
             style={styles.settingsMenuItem}
             onPress={() => navigation.navigate('DietaryPreferences', { fromProfile: true })}
           >
-            <MaterialCommunityIcons name="food-apple-outline" size={24} color="#666" />
+            <MaterialCommunityIcons name="food-apple-outline" size={24} color="#7A736A" />
             <Text style={styles.settingsMenuItemText}>Dietary Preferences</Text>
-            <MaterialCommunityIcons name="chevron-right" size={20} color="#ccc" />
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#B57A42" />
           </TouchableOpacity>
           
           <TouchableOpacity
             style={styles.settingsMenuItem}
             onPress={() => navigation.navigate('FoodPreferences', { fromProfile: true })}
           >
-            <MaterialCommunityIcons name="silverware-fork-knife" size={24} color="#666" />
+            <MaterialCommunityIcons name="silverware-fork-knife" size={24} color="#7A736A" />
             <Text style={styles.settingsMenuItemText}>Food Preferences</Text>
-            <MaterialCommunityIcons name="chevron-right" size={20} color="#ccc" />
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#B57A42" />
           </TouchableOpacity>
           
           <TouchableOpacity
             style={styles.settingsMenuItem}
             onPress={() => navigation.navigate('CookingHabits', { fromProfile: true })}
           >
-            <MaterialCommunityIcons name="chef-hat" size={24} color="#666" />
+            <MaterialCommunityIcons name="chef-hat" size={24} color="#7A736A" />
             <Text style={styles.settingsMenuItemText}>Cooking Habits</Text>
-            <MaterialCommunityIcons name="chevron-right" size={20} color="#ccc" />
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#B57A42" />
           </TouchableOpacity>
           
           <TouchableOpacity
             style={styles.settingsMenuItem}
             onPress={() => navigation.navigate('BudgetPreferences', { fromProfile: true })}
           >
-            <MaterialCommunityIcons name="currency-usd" size={24} color="#666" />
+            <MaterialCommunityIcons name="currency-usd" size={24} color="#7A736A" />
             <Text style={styles.settingsMenuItemText}>Budget Settings</Text>
-            <MaterialCommunityIcons name="chevron-right" size={20} color="#ccc" />
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#B57A42" />
           </TouchableOpacity>
         </ExpandableSection>
 
@@ -604,7 +611,7 @@ const ProfileScreen: React.FC = () => {
               style={styles.signOutButton}
               onPress={handleSignOut}
             >
-              <MaterialCommunityIcons name="logout" size={24} color="#666" />
+              <MaterialCommunityIcons name="logout" size={24} color="#7A736A" />
               <Text style={styles.signOutText}>Sign Out</Text>
             </TouchableOpacity>
 
@@ -612,7 +619,7 @@ const ProfileScreen: React.FC = () => {
               style={styles.deleteAccountButton}
               onPress={handleDeleteAccount}
             >
-              <MaterialCommunityIcons name="delete" size={24} color="#dc3545" />
+              <MaterialCommunityIcons name="delete" size={24} color="#B57A42" />
               <Text style={styles.deleteAccountText}>Delete Account</Text>
             </TouchableOpacity>
           </View>
@@ -630,7 +637,7 @@ const ProfileScreen: React.FC = () => {
 
             {/* Add new button for testing feedback permissions */}
             <TouchableOpacity 
-              style={[styles.debugButton, { backgroundColor: '#3498db', marginTop: 8 }]} 
+              style={[styles.debugButton, { backgroundColor: '#D9A15B', marginTop: 8 }]} 
               onPress={handleTestFeedbackPermissions}
             >
               <Text style={styles.debugButtonText}>Test Feedback Permissions</Text>
@@ -638,7 +645,7 @@ const ProfileScreen: React.FC = () => {
 
             {/* Clean weekly meal plan data - dev only */}
             <TouchableOpacity 
-              style={[styles.debugButton, { backgroundColor: '#e74c3c', marginTop: 8 }]} 
+              style={[styles.debugButton, { backgroundColor: '#B57A42', marginTop: 8 }]} 
               onPress={handleCleanMealPlanData}
             >
               <Text style={styles.debugButtonText}>Reset Weekly Meal Plan Data</Text>
@@ -657,7 +664,7 @@ const ProfileScreen: React.FC = () => {
       {showNewMealPlanPrompt && (
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <MaterialCommunityIcons name="food-variant" size={48} color="#4CAF50" />
+            <MaterialCommunityIcons name="food-variant" size={48} color="#D9A15B" />
             <Text style={styles.modalTitle}>Time for a New Meal Plan!</Text>
             <Text style={styles.modalText}>
               You've cooked all the recipes in your current meal plan. Would you like to generate a new one?
@@ -686,23 +693,98 @@ const ProfileScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#FAF6F1',
+  },
+  headerWrapper: {
+    width: '100%',
+    height: 248,
+    overflow: 'hidden',
+    marginBottom: -12,
+  },
+  headerBackground: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  headerBackgroundImage: {
+    resizeMode: 'cover',
+    opacity: 0.7,
+  },
+  headerOverlay: {
+    width: '100%',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: 'rgba(250, 246, 241, 0.7)', // subtle overlay for contrast
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e1e4e8',
+    width: '100%',
+    justifyContent: 'flex-start',
+    marginBottom: 12,
   },
   backButton: {
-    marginRight: 16,
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    marginRight: 12,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#4E4E4E',
+    textAlign: 'left',
+    flex: 1,
+  },
+  profileSection: {
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 0,
+    marginBottom: 0,
+    backgroundColor: 'transparent',
+    borderBottomWidth: 0,
+    padding: 0,
+  },
+  avatarContainer: {
+    marginBottom: 8,
+  },
+  avatarFrame: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#EFE7DD',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  avatar: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+  },
+  avatarPlaceholder: {
+    backgroundColor: '#E6DED3',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+  },
+  profileInfo: {
+    alignItems: 'center',
+  },
+  email: {
+    fontSize: 16,
+    color: '#7A736A',
+    marginBottom: 2,
+  },
+  name: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#4E4E4E',
   },
   content: {
     flex: 1,
@@ -714,94 +796,43 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 16,
-    color: '#666',
-  },
-  profileSection: {
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e1e4e8',
-  },
-  avatarContainer: {
-    marginBottom: 16,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-  },
-  avatarPlaceholder: {
-    backgroundColor: '#e1e4e8',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  email: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 4,
-  },
-  name: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-  },
-  signInContainer: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  signInText: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  signInButton: {
-    backgroundColor: '#333',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  signInButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 16,
+    color: '#7A736A',
   },
   expandableSection: {
-    backgroundColor: 'white',
+    backgroundColor: '#F5EFE6',
     marginTop: 16,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: '#e1e4e8',
+    borderColor: '#E6DED3',
   },
   expandableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
-    backgroundColor: 'white',
+    backgroundColor: '#F5EFE6',
   },
   expandableTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#333',
+    color: '#4E4E4E',
   },
   expandableContent: {
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    borderTopColor: '#E6DED3',
   },
   section: {
-    backgroundColor: 'white',
+    backgroundColor: '#F5EFE6',
     marginTop: 16,
     paddingVertical: 8,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: '#e1e4e8',
+    borderColor: '#E6DED3',
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#666',
+    color: '#7A736A',
     marginLeft: 16,
     marginVertical: 8,
   },
@@ -810,17 +841,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#E6DED3',
   },
   settingsMenuItemText: {
     flex: 1,
     marginLeft: 16,
     fontSize: 16,
-    color: '#333',
+    color: '#4E4E4E',
   },
   listItem: {
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#E6DED3',
   },
   listItemContent: {
     flexDirection: 'row',
@@ -836,7 +867,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   itemImagePlaceholder: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#E6DED3',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -844,7 +875,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#333',
+    backgroundColor: '#D9A15B',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -855,12 +886,12 @@ const styles = StyleSheet.create({
   itemTitle: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#333',
+    color: '#4E4E4E',
     marginBottom: 4,
   },
   itemSubtitle: {
     fontSize: 14,
-    color: '#666',
+    color: '#7A736A',
   },
   emptyState: {
     alignItems: 'center',
@@ -868,11 +899,11 @@ const styles = StyleSheet.create({
   },
   emptyStateText: {
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
     marginVertical: 12,
   },
   emptyStateButton: {
-    backgroundColor: '#333',
+    backgroundColor: '#D9A15B',
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
@@ -888,10 +919,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 12,
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    borderTopColor: '#E6DED3',
   },
   viewAllText: {
-    color: '#333',
+    color: '#4E4E4E',
     fontWeight: '600',
     marginRight: 4,
   },
@@ -900,12 +931,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#E6DED3',
   },
   signOutText: {
     marginLeft: 16,
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
   },
   deleteAccountButton: {
     flexDirection: 'row',
@@ -915,11 +946,11 @@ const styles = StyleSheet.create({
   deleteAccountText: {
     marginLeft: 16,
     fontSize: 16,
-    color: '#dc3545',
+    color: '#B57A42',
   },
   debugButton: {
     marginTop: 20,
-    backgroundColor: '#ff6b6b',
+    backgroundColor: '#D9A15B',
     paddingVertical: 10,
     paddingHorizontal: 15,
     borderRadius: 5,
@@ -934,7 +965,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   mealTypeTag: {
-    backgroundColor: '#333',
+    backgroundColor: '#D9A15B',
     paddingHorizontal: 4,
     paddingVertical: 2,
     borderRadius: 4,
@@ -946,19 +977,20 @@ const styles = StyleSheet.create({
   },
   sectionDescription: {
     fontSize: 14,
-    color: '#666',
+    color: '#7A736A',
     marginBottom: 8,
+    paddingHorizontal: 16,
   },
   debugSection: {
     padding: 20,
-    backgroundColor: 'white',
+    backgroundColor: '#F5EFE6',
     borderTopWidth: 1,
-    borderTopColor: '#e1e4e8',
+    borderTopColor: '#E6DED3',
   },
   debugSectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#4E4E4E',
     marginBottom: 16,
   },
   modalOverlay: {
@@ -973,7 +1005,7 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: '#F5EFE6',
     borderRadius: 12,
     padding: 24,
     width: '90%',
@@ -983,13 +1015,13 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#4E4E4E',
     marginTop: 16,
     marginBottom: 8,
   },
   modalText: {
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
     textAlign: 'center',
     marginBottom: 24,
   },
@@ -1006,10 +1038,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
   primaryButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#D9A15B',
   },
   secondaryButton: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#E6DED3',
   },
   primaryButtonText: {
     color: 'white',
@@ -1017,7 +1049,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   secondaryButtonText: {
-    color: '#666',
+    color: '#4E4E4E',
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -1025,7 +1057,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#D9A15B',
     padding: 12,
     borderRadius: 8,
     marginTop: 16,
@@ -1036,6 +1068,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 8,
     fontSize: 16,
+  },
+  headerContent: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingBottom: 0,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    justifyContent: 'flex-start',
+    marginBottom: 12,
   },
 });
 

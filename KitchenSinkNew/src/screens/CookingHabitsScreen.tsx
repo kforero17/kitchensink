@@ -5,6 +5,8 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,7 +14,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { BackButton } from '../components/BackButton';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, RouteProp } from '@react-navigation/native';
 import {
   CookingPreferences,
   PreferenceOption,
@@ -28,10 +30,12 @@ import {
 import { saveCookingPreferences, getCookingPreferences } from '../utils/preferences';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CookingHabits'>;
+type CookingHabitsRouteProp = RouteProp<RootStackParamList, 'CookingHabits'>;
 
 export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
-  const route = useRoute();
+  const route = useRoute<CookingHabitsRouteProp>();
   const isFromProfile = route.params?.fromProfile === true;
+  const [isLoading, setIsLoading] = useState(true);
   
   const [preferences, setPreferences] = useState<CookingPreferences>({
     cookingFrequency: 'few_times_week',
@@ -45,19 +49,25 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
 
   // Load existing preferences
   useEffect(() => {
-    const loadPreferences = async () => {
-      try {
-        const savedPrefs = await getCookingPreferences();
-        if (savedPrefs) {
-          setPreferences(savedPrefs);
-        }
-      } catch (error) {
-        console.error('Error loading cooking preferences:', error);
-      }
-    };
-    
     loadPreferences();
   }, []);
+
+  const loadPreferences = async () => {
+    try {
+      const savedPrefs = await getCookingPreferences();
+      if (savedPrefs) {
+        setPreferences(savedPrefs);
+      }
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        'Failed to load saved preferences.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleOptionSelect = <T extends string>(
     key: keyof CookingPreferences,
@@ -95,7 +105,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
         <Icon
           name={option.icon || 'checkmark'}
           size={24}
-          color={selectedValue === option.value ? '#007AFF' : '#666'}
+          color={selectedValue === option.value ? '#D9A15B' : '#7A736A'}
         />
         <View style={styles.optionTextContainer}>
           <Text style={styles.optionLabel}>{option.label}</Text>
@@ -118,7 +128,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
         <Icon
           name={option.icon || 'checkmark'}
           size={24}
-          color={preferences.mealTypes.includes(option.value) ? '#007AFF' : '#666'}
+          color={preferences.mealTypes.includes(option.value) ? '#D9A15B' : '#7A736A'}
         />
         <View style={styles.optionTextContainer}>
           <Text style={styles.optionLabel}>{option.label}</Text>
@@ -130,22 +140,41 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
 
   const handleContinue = async () => {
     try {
-      await saveCookingPreferences(preferences);
-      if (isFromProfile) {
-        navigation.navigate('Profile');
+      const success = await saveCookingPreferences(preferences);
+      if (success) {
+        if (isFromProfile) {
+          navigation.goBack();
+        } else {
+          navigation.navigate('BudgetPreferences', { fromProfile: isFromProfile });
+        }
       } else {
-        navigation.navigate('BudgetPreferences', { fromProfile: isFromProfile });
+        throw new Error('Failed to save preferences');
       }
     } catch (error) {
-      console.error('Error saving cooking preferences:', error);
+      Alert.alert(
+        'Error',
+        'Failed to save preferences. Please try again.',
+        [{ text: 'OK' }]
+      );
     }
   };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#D9A15B" />
+          <Text style={styles.loadingText}>Loading preferences...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
         <View style={styles.header}>
-          <BackButton onPress={isFromProfile ? () => navigation.navigate('Profile') : undefined} />
+          <BackButton onPress={isFromProfile ? () => navigation.goBack() : undefined} />
         </View>
         <Text style={styles.title}>Cooking Habits</Text>
         <Text style={styles.subtitle}>
@@ -198,7 +227,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
                 }))
               }
             >
-              <Icon name="remove" size={24} color="#007AFF" />
+              <Icon name="remove" size={24} color="#D9A15B" />
             </TouchableOpacity>
             <Text style={styles.numberValue}>
               {preferences.householdSize} {preferences.householdSize === 1 ? 'person' : 'people'}
@@ -212,7 +241,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
                 }))
               }
             >
-              <Icon name="add" size={24} color="#007AFF" />
+              <Icon name="add" size={24} color="#D9A15B" />
             </TouchableOpacity>
           </View>
         </View>
@@ -230,7 +259,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
                 }))
               }
             >
-              <Icon name="remove" size={24} color="#007AFF" />
+              <Icon name="remove" size={24} color="#D9A15B" />
             </TouchableOpacity>
             <Text style={styles.numberValue}>
               {preferences.servingSizePreference} servings
@@ -244,7 +273,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
                 }))
               }
             >
-              <Icon name="add" size={24} color="#007AFF" />
+              <Icon name="add" size={24} color="#D9A15B" />
             </TouchableOpacity>
           </View>
         </View>
@@ -262,7 +291,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
                 }))
               }
             >
-              <Icon name="remove" size={24} color="#007AFF" />
+              <Icon name="remove" size={24} color="#D9A15B" />
             </TouchableOpacity>
             <Text style={styles.numberValue}>
               {preferences.weeklyMealPrepCount} meals
@@ -276,7 +305,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
                 }))
               }
             >
-              <Icon name="add" size={24} color="#007AFF" />
+              <Icon name="add" size={24} color="#D9A15B" />
             </TouchableOpacity>
           </View>
         </View>
@@ -288,7 +317,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
           onPress={handleContinue}
         >
           <LinearGradient
-            colors={['#007AFF', '#0055FF']}
+            colors={['#D9A15B', '#B57A42']}
             style={styles.buttonGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -304,7 +333,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FAF6F1',
   },
   content: {
     flex: 1,
@@ -319,35 +348,42 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 8,
+    color: '#4E4E4E',
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
     marginBottom: 24,
   },
   section: {
     marginBottom: 24,
+    backgroundColor: '#F5EFE6',
+    borderRadius: 12,
+    padding: 16,
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '600',
     marginBottom: 16,
+    color: '#4E4E4E',
   },
   sectionSubtitle: {
     fontSize: 14,
-    color: '#666',
+    color: '#7A736A',
     marginBottom: 12,
   },
   optionCard: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#EFE7DD',
     borderRadius: 12,
     marginBottom: 8,
   },
   selectedOption: {
-    backgroundColor: '#e3f2fd',
+    backgroundColor: '#F5EFE6',
+    borderWidth: 1,
+    borderColor: '#D9A15B',
   },
   optionTextContainer: {
     marginLeft: 12,
@@ -356,16 +392,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 4,
+    color: '#4E4E4E',
   },
   optionDescription: {
     fontSize: 14,
-    color: '#666',
+    color: '#7A736A',
   },
   numberInput: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#EFE7DD',
     borderRadius: 12,
     padding: 8,
   },
@@ -376,11 +413,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginHorizontal: 16,
+    color: '#4E4E4E',
   },
   footer: {
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: '#E6DED3',
   },
   continueButton: {
     borderRadius: 12,
@@ -399,5 +437,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FAF6F1',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#7A736A',
   },
 }); 

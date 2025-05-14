@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { PantryItem } from '../types/PantryItem';
 import { theme } from '../styles/theme';
+import logger from '../utils/logger';
 
 type Props = {
   item: PantryItem;
@@ -10,6 +11,17 @@ type Props = {
 };
 
 export const PantryItemCard: React.FC<Props> = ({ item, onDelete }) => {
+  logger.debug('[PantryItemCard] Props received:', { item, onDelete: typeof onDelete });
+
+  if (!item) {
+    logger.error('[PantryItemCard] Received null or undefined item prop');
+    return (
+      <View style={styles.container}>
+        <Text style={styles.name}>Error: Item data is missing.</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.content}>

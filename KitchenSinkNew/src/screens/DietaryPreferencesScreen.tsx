@@ -17,12 +17,14 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { getDietaryPreferences, saveDietaryPreferences } from '../utils/preferences';
 import { DietaryPreferences } from '../types/DietaryPreferences';
 import { BackButton } from '../components/BackButton';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, RouteProp } from '@react-navigation/native';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DietaryPreferences'>;
 
+type DietaryPreferencesRouteProp = RouteProp<RootStackParamList, 'DietaryPreferences'>;
+
 export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
-  const route = useRoute();
+  const route = useRoute<DietaryPreferencesRouteProp>();
   const isFromProfile = route.params?.fromProfile === true;
   const [preferences, setPreferences] = useState<DietaryPreferences>({
     vegan: false,
@@ -108,7 +110,7 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size="large" color="#D9A15B" />
           <Text style={styles.loadingText}>Loading preferences...</Text>
         </View>
       </SafeAreaView>
@@ -136,6 +138,8 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
             <Switch
               value={preferences.vegan}
               onValueChange={() => togglePreference('vegan')}
+              trackColor={{ false: '#E6DED3', true: '#D9A15B' }}
+              thumbColor={preferences.vegan ? '#B57A42' : '#f4f3f4'}
             />
           </View>
 
@@ -144,6 +148,8 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
             <Switch
               value={preferences.vegetarian}
               onValueChange={() => togglePreference('vegetarian')}
+              trackColor={{ false: '#E6DED3', true: '#D9A15B' }}
+              thumbColor={preferences.vegetarian ? '#B57A42' : '#f4f3f4'}
             />
           </View>
 
@@ -152,6 +158,8 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
             <Switch
               value={preferences.glutenFree}
               onValueChange={() => togglePreference('glutenFree')}
+              trackColor={{ false: '#E6DED3', true: '#D9A15B' }}
+              thumbColor={preferences.glutenFree ? '#B57A42' : '#f4f3f4'}
             />
           </View>
 
@@ -160,6 +168,8 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
             <Switch
               value={preferences.dairyFree}
               onValueChange={() => togglePreference('dairyFree')}
+              trackColor={{ false: '#E6DED3', true: '#D9A15B' }}
+              thumbColor={preferences.dairyFree ? '#B57A42' : '#f4f3f4'}
             />
           </View>
         </View>
@@ -198,7 +208,7 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
           onPress={handleContinue}
         >
           <LinearGradient
-            colors={['#007AFF', '#0055FF']}
+            colors={['#D9A15B', '#B57A42']}
             style={styles.buttonGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -216,7 +226,7 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FAF6F1',
   },
   content: {
     flex: 1,
@@ -226,19 +236,24 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 8,
+    color: '#4E4E4E',
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
     marginBottom: 24,
   },
   section: {
     marginBottom: 24,
+    backgroundColor: '#F5EFE6',
+    borderRadius: 12,
+    padding: 16,
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '600',
     marginBottom: 16,
+    color: '#4E4E4E',
   },
   option: {
     flexDirection: 'row',
@@ -246,10 +261,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#E6DED3',
   },
   optionLabel: {
     fontSize: 16,
+    color: '#4E4E4E',
   },
   allergyInput: {
     flexDirection: 'row',
@@ -259,13 +275,14 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 40,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#E6DED3',
     borderRadius: 8,
     paddingHorizontal: 12,
     marginRight: 8,
+    backgroundColor: '#FFFFFF',
   },
   addButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#D9A15B',
     paddingHorizontal: 16,
     justifyContent: 'center',
     borderRadius: 8,
@@ -281,7 +298,7 @@ const styles = StyleSheet.create({
   allergyTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#EFE7DD',
     padding: 8,
     borderRadius: 16,
     marginRight: 8,
@@ -290,7 +307,7 @@ const styles = StyleSheet.create({
   footer: {
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: '#E6DED3',
   },
   continueButton: {
     borderRadius: 12,
@@ -312,18 +329,19 @@ const styles = StyleSheet.create({
   },
   removeIcon: {
     fontSize: 20,
-    color: '#666',
+    color: '#7A736A',
     marginLeft: 8,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FAF6F1',
   },
   loadingText: {
     marginTop: 12,
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
   },
   header: {
     flexDirection: 'row',

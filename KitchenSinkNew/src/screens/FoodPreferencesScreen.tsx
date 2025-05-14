@@ -20,23 +20,35 @@ import {
   IngredientSuggestion,
   IngredientCategory,
   INGREDIENT_SUGGESTIONS,
-  CUISINE_OPTIONS,
 } from '../types/FoodPreferences';
 import { getFoodPreferences, saveFoodPreferences } from '../utils/preferences';
 import { BackButton } from '../components/BackButton';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, RouteProp } from '@react-navigation/native';
+
+type FoodPreferencesRouteProp = RouteProp<RootStackParamList, 'FoodPreferences'>;
 
 type Props = NativeStackScreenProps<RootStackParamList, 'FoodPreferences'>;
 
+// Define common cuisines
+const COMMON_CUISINES = [
+  'American', 'Italian', 'Mexican', 'Chinese', 'Japanese', 'Indian', 'Thai',
+  'French', 'Spanish', 'Greek', 'Mediterranean', 'Vietnamese', 'Korean'
+];
+
+// Extend FoodPreferences type to include favoriteCuisines
+interface ExtendedFoodPreferences extends Omit<FoodPreferences, 'preferredCuisines'> {
+  favoriteCuisines: string[];
+}
+
 export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
-  const route = useRoute();
-  const isFromProfile = (route.params && 'fromProfile' in route.params) ? (route.params as any).fromProfile === true : false;
+  const route = useRoute<FoodPreferencesRouteProp>();
+  const isFromProfile = route.params?.fromProfile === true;
   
-  const [preferences, setPreferences] = useState<FoodPreferences>({
+  const [preferences, setPreferences] = useState<ExtendedFoodPreferences>({
     favoriteIngredients: [],
     dislikedIngredients: [],
-    preferredCuisines: [],
     allergies: [],
+    favoriteCuisines: [], // Initialize favoriteCuisines
   });
   const [isLoading, setIsLoading] = useState(true);
 
@@ -51,23 +63,13 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
   const loadSavedPreferences = async () => {
     try {
       const savedPreferences = await getFoodPreferences();
-      const defaultPreferences: FoodPreferences = {
-        favoriteIngredients: [],
-        dislikedIngredients: [],
-        preferredCuisines: [],
-        allergies: [],
-      };
       if (savedPreferences) {
-        setPreferences({
-          ...defaultPreferences,
+        // Convert saved preferences to extended format
+        const extendedPreferences: ExtendedFoodPreferences = {
           ...savedPreferences,
-          favoriteIngredients: Array.isArray(savedPreferences.favoriteIngredients) ? savedPreferences.favoriteIngredients : [],
-          dislikedIngredients: Array.isArray(savedPreferences.dislikedIngredients) ? savedPreferences.dislikedIngredients : [],
-          preferredCuisines: Array.isArray(savedPreferences.preferredCuisines) ? savedPreferences.preferredCuisines : [],
-          allergies: Array.isArray(savedPreferences.allergies) ? savedPreferences.allergies : [],
-        });
-      } else {
-        setPreferences(defaultPreferences);
+          favoriteCuisines: (savedPreferences as any).favoriteCuisines || [],
+        };
+        setPreferences(extendedPreferences);
       }
     } catch (error) {
       Alert.alert(
@@ -75,12 +77,6 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
         'Failed to load saved preferences.',
         [{ text: 'OK' }]
       );
-      setPreferences({
-        favoriteIngredients: [],
-        dislikedIngredients: [],
-        preferredCuisines: [],
-        allergies: [],
-      });
     } finally {
       setIsLoading(false);
     }
@@ -128,13 +124,22 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     }));
   };
 
-  const toggleCuisine = (cuisineId: string) => {
-    setPreferences(prev => ({
-      ...prev,
-      preferredCuisines: prev.preferredCuisines.includes(cuisineId)
-        ? prev.preferredCuisines.filter(id => id !== cuisineId)
-        : [...prev.preferredCuisines, cuisineId],
-    }));
+  // Function to toggle favorite cuisines
+  const toggleFavoriteCuisine = (cuisine: string) => {
+    setPreferences(prev => {
+      const currentCuisines = prev.favoriteCuisines || [];
+      if (currentCuisines.includes(cuisine)) {
+        return {
+          ...prev,
+          favoriteCuisines: currentCuisines.filter((c: string) => c !== cuisine),
+        };
+      } else {
+        return {
+          ...prev,
+          favoriteCuisines: [...currentCuisines, cuisine],
+        };
+      }
+    });
   };
 
   const categories: IngredientCategory[] = [
@@ -211,10 +216,10 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
               {suggestion.name}
             </Text>
             {preferences.favoriteIngredients.includes(suggestion.name) && (
-              <Icon name="heart" size={16} color="#007AFF" style={styles.suggestionIcon} />
+              <Icon name="heart" size={16} color="#D9A15B" style={styles.suggestionIcon} />
             )}
             {preferences.dislikedIngredients.includes(suggestion.name) && (
-              <Icon name="close-circle" size={16} color="#FF3B30" style={styles.suggestionIcon} />
+              <Icon name="close-circle" size={16} color="#B57A42" style={styles.suggestionIcon} />
             )}
           </TouchableOpacity>
         ))}
@@ -222,14 +227,53 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     </View>
   );
 
+  const renderCuisineSelection = () => (
+    <View style={styles.cuisineSection}>
+      <Text style={styles.cuisineTitle}>Favorite Cuisines</Text>
+      <Text style={styles.cuisineDescription}>
+        Select the cuisines you enjoy the most.
+      </Text>
+      <View style={styles.cuisineGrid}>
+        {COMMON_CUISINES.map(cuisine => {
+          const isSelected = preferences.favoriteCuisines?.includes(cuisine);
+          return (
+            <TouchableOpacity
+              key={cuisine}
+              style={[
+                styles.cuisineChip,
+                isSelected && styles.selectedCuisineChip,
+              ]}
+              onPress={() => toggleFavoriteCuisine(cuisine)}
+            >
+              <Text
+                style={[
+                  styles.cuisineChipText,
+                  isSelected && styles.selectedCuisineChipText,
+                ]}
+              >
+                {cuisine}
+              </Text>
+              {isSelected && <Icon name="checkmark-circle" size={16} color="#fff" style={styles.cuisineIcon} />}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+
   const handleContinue = async () => {
     try {
-      const success = await saveFoodPreferences(preferences);
+      // Convert extended preferences back to FoodPreferences format
+      const foodPreferences: FoodPreferences = {
+        ...preferences,
+        preferredCuisines: preferences.favoriteCuisines,
+      };
+      const success = await saveFoodPreferences(foodPreferences);
       if (success) {
         if (isFromProfile) {
-          navigation.navigate('Profile');
+          navigation.goBack();
         } else {
-          navigation.navigate('CookingHabits', { fromProfile: isFromProfile });
+          navigation.navigate('CookingHabits', { fromProfile: false });
         }
       } else {
         throw new Error('Failed to save preferences');
@@ -247,7 +291,7 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size="large" color="#D9A15B" />
           <Text style={styles.loadingText}>Loading preferences...</Text>
         </View>
       </SafeAreaView>
@@ -258,44 +302,18 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
         <View style={styles.header}>
-          <BackButton onPress={isFromProfile ? () => navigation.navigate('Profile') : undefined} />
+          <BackButton onPress={isFromProfile ? () => navigation.goBack() : undefined} />
         </View>
 
         <Text style={styles.title}>Food Preferences</Text>
         <Text style={styles.subtitle}>
-          Tell us about your favorite ingredients and those you'd rather avoid
+          Select your favorite cuisines, ingredients, and those you'd rather avoid.
         </Text>
 
-        {/* Preferred Cuisines Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Preferred Cuisines</Text>
-          <Text style={styles.sectionDescription}>
-            Select the cuisines you enjoy most (optional)
-          </Text>
-          <View style={styles.cuisineGrid}>
-            {CUISINE_OPTIONS.map((cuisine: { id: string; name: string }) => (
-              <TouchableOpacity
-                key={cuisine.id}
-                style={[
-                  styles.cuisineChip,
-                  preferences.preferredCuisines.includes(cuisine.id) && styles.selectedCuisineChip,
-                ]}
-                onPress={() => toggleCuisine(cuisine.id)}
-              >
-                <Text
-                  style={[
-                    styles.cuisineText,
-                    preferences.preferredCuisines.includes(cuisine.id) && styles.selectedCuisineText,
-                  ]}
-                >
-                  {cuisine.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        {/* Cuisine Selection */}
+        {renderCuisineSelection()}
 
-        {/* Common Ingredients Section */}
+        {/* Ingredient Selection */}
         <View style={styles.mainSection}>
           <Text style={styles.mainSectionTitle}>Common Ingredients</Text>
           <Text style={styles.mainSectionDescription}>
@@ -316,7 +334,7 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
                   onPress={() => removeFavorite(ingredient)}
                 >
                   <Text style={styles.selectedTagText}>{ingredient}</Text>
-                  <Icon name="close" size={16} color="#007AFF" />
+                  <Icon name="close" size={16} color="#D9A15B" />
                 </TouchableOpacity>
               ))}
             </View>
@@ -326,6 +344,7 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
                 value={favoriteInput}
                 onChangeText={setFavoriteInput}
                 placeholder="Add a favorite ingredient..."
+                placeholderTextColor="#7A736A"
                 onSubmitEditing={() => addFavorite(favoriteInput)}
                 returnKeyType="done"
               />
@@ -348,7 +367,7 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
                   onPress={() => removeDisliked(ingredient)}
                 >
                   <Text style={styles.selectedTagText}>{ingredient}</Text>
-                  <Icon name="close" size={16} color="#FF3B30" />
+                  <Icon name="close" size={16} color="#B57A42" />
                 </TouchableOpacity>
               ))}
             </View>
@@ -358,6 +377,7 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
                 value={dislikedInput}
                 onChangeText={setDislikedInput}
                 placeholder="Add an ingredient to avoid..."
+                placeholderTextColor="#7A736A"
                 onSubmitEditing={() => addDisliked(dislikedInput)}
                 returnKeyType="done"
               />
@@ -378,7 +398,7 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
           onPress={handleContinue}
         >
           <LinearGradient
-            colors={['#007AFF', '#0055FF']}
+            colors={['#D9A15B', '#B57A42']}
             style={styles.buttonGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -394,7 +414,7 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FAF6F1',
   },
   content: {
     flex: 1,
@@ -409,77 +429,74 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 8,
+    color: '#4E4E4E',
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
     marginBottom: 24,
   },
-  section: {
-    marginBottom: 32,
+  cuisineSection: {
+    marginBottom: 24,
+    backgroundColor: '#F5EFE6',
+    borderRadius: 12,
+    padding: 16,
   },
-  sectionTitle: {
+  cuisineTitle: {
     fontSize: 20,
     fontWeight: '600',
     marginBottom: 8,
+    color: '#4E4E4E',
   },
-  sectionDescription: {
+  cuisineDescription: {
     fontSize: 14,
-    color: '#666',
+    color: '#7A736A',
     marginBottom: 16,
   },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  input: {
-    flex: 1,
-    height: 40,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    marginRight: 8,
-    fontSize: 14,
-  },
-  addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  favoriteAddButton: {
-    backgroundColor: '#007AFF',
-  },
-  dislikedAddButton: {
-    backgroundColor: '#FF3B30',
-  },
-  tagsContainer: {
+  cuisineGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    marginHorizontal: -4,
   },
-  tag: {
+  cuisineChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    marginRight: 8,
-    marginBottom: 8,
+    backgroundColor: '#EFE7DD',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    margin: 4,
   },
-  favoriteTag: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#007AFF',
-    borderWidth: 1,
+  selectedCuisineChip: {
+    backgroundColor: '#D9A15B',
   },
-  dislikedTag: {
-    backgroundColor: '#FFE5E5',
-    borderColor: '#FF3B30',
-    borderWidth: 1,
-  },
-  tagText: {
+  cuisineChipText: {
+    fontSize: 14,
+    color: '#4E4E4E',
     marginRight: 4,
+  },
+  selectedCuisineChipText: {
+    color: '#fff',
+  },
+  cuisineIcon: {
+    marginLeft: 4,
+  },
+  mainSection: {
+    marginBottom: 24,
+    backgroundColor: '#F5EFE6',
+    borderRadius: 12,
+    padding: 16,
+  },
+  mainSectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#4E4E4E',
+  },
+  mainSectionDescription: {
+    fontSize: 14,
+    color: '#7A736A',
+    marginBottom: 16,
   },
   categoryTabs: {
     flexDirection: 'row',
@@ -490,13 +507,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginRight: 8,
     borderRadius: 16,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#EFE7DD',
   },
   activeCategoryTab: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#D9A15B',
   },
   categoryTabText: {
-    color: '#666',
+    color: '#7A736A',
   },
   activeCategoryTabText: {
     color: '#fff',
@@ -513,7 +530,7 @@ const styles = StyleSheet.create({
   suggestionChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#EFE7DD',
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -522,19 +539,92 @@ const styles = StyleSheet.create({
   },
   suggestionText: {
     fontSize: 14,
-    color: '#333',
+    color: '#4E4E4E',
     marginRight: 4,
   },
   suggestionIcon: {
     marginLeft: 4,
   },
   selectedSuggestionText: {
-    color: '#333',
+    color: '#4E4E4E',
+  },
+  selectedSection: {
+    marginTop: 24,
+  },
+  selectedCategory: {
+    marginBottom: 24,
+    backgroundColor: '#F5EFE6',
+    borderRadius: 12,
+    padding: 16,
+  },
+  selectedTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4E4E4E',
+    marginBottom: 8,
+  },
+  selectedTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -4,
+  },
+  selectedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    margin: 4,
+  },
+  selectedTagText: {
+    fontSize: 14,
+    marginRight: 4,
+    color: '#4E4E4E',
+  },
+  favoriteTag: {
+    backgroundColor: '#EFE7DD',
+    borderColor: '#D9A15B',
+    borderWidth: 1,
+  },
+  dislikedTag: {
+    backgroundColor: '#EFE7DD',
+    borderColor: '#B57A42',
+    borderWidth: 1,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  input: {
+    flex: 1,
+    height: 40,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E6DED3',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    fontSize: 14,
+    color: '#4E4E4E',
+  },
+  addButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  favoriteAddButton: {
+    backgroundColor: '#D9A15B',
+  },
+  dislikedAddButton: {
+    backgroundColor: '#B57A42',
   },
   footer: {
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: '#E6DED3',
   },
   continueButton: {
     borderRadius: 12,
@@ -558,90 +648,21 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FAF6F1',
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#666',
-  },
-  selectedSection: {
-    marginTop: 24,
-  },
-  selectedCategory: {
-    marginBottom: 16,
-  },
-  selectedTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  selectedTags: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginHorizontal: -4,
-  },
-  selectedTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    margin: 4,
-  },
-  selectedTagText: {
-    fontSize: 14,
-    marginRight: 4,
-  },
-  mainSection: {
-    marginTop: 24,
-  },
-  mainSectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  mainSectionDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 16,
+    color: '#7A736A',
   },
   favoriteSuggestion: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#007AFF',
+    backgroundColor: '#EFE7DD',
+    borderColor: '#D9A15B',
     borderWidth: 1,
   },
   dislikedSuggestion: {
-    backgroundColor: '#FFE5E5',
-    borderColor: '#FF3B30',
+    backgroundColor: '#EFE7DD',
+    borderColor: '#B57A42',
     borderWidth: 1,
-  },
-  cuisineGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginHorizontal: -4,
-    marginBottom: 8,
-  },
-  cuisineChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    margin: 4,
-    minWidth: 100,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  selectedCuisineChip: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  cuisineText: {
-    fontSize: 14,
-    color: '#333',
-  },
-  selectedCuisineText: {
-    color: '#fff',
   },
 } as const); 

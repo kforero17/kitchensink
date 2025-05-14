@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Image, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -7,6 +7,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import PantryIngredientMatch from '../components/PantryIngredientMatch';
 import { recipeFeedbackService, RecipeFeedback } from '../services/recipeFeedbackService';
+import { LinearGradient } from 'expo-linear-gradient';
 
 type RecipeDetailRouteProp = RouteProp<RootStackParamList, 'RecipeDetail'>;
 type RecipeDetailNavigationProp = NativeStackNavigationProp<RootStackParamList, 'RecipeDetail'>;
@@ -215,12 +216,26 @@ const RecipeDetailScreen: React.FC = () => {
               />
             ) : (
               <View style={[styles.recipeImage, styles.imagePlaceholder]}>
-                <MaterialCommunityIcons name="food" size={48} color="#999" />
+                <MaterialCommunityIcons 
+                  name={(recipe as any)._isPlaceholder ? "alert-circle-outline" : "food"} 
+                  size={48} 
+                  color={(recipe as any)._isPlaceholder ? "#856404" : "#C4B5A4"} 
+                />
               </View>
             )}
             
             <View style={styles.recipeTitleContainer}>
               <Text style={styles.recipeTitle}>{recipe.name || 'Unnamed Recipe'}</Text>
+              
+              {/* Add warning for placeholder recipes */}
+              {(recipe as any)._isPlaceholder && (
+                <View style={styles.warningBanner}>
+                  <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#856404" />
+                  <Text style={styles.warningText}>
+                    Recipe details could not be fully loaded. ID: {recipe.id}
+                  </Text>
+                </View>
+              )}
               
               {/* Recipe Tags */}
               {recipe.tags && recipe.tags.length > 0 && (
@@ -399,7 +414,14 @@ const RecipeDetailScreen: React.FC = () => {
             style={styles.errorButton}
             onPress={() => navigation.goBack()}
           >
-            <Text style={styles.errorButtonText}>Go Back</Text>
+            <LinearGradient
+              colors={['#D9A15B', '#B57A42']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={{ paddingVertical: 12, paddingHorizontal: 24 }}
+            >
+              <Text style={styles.errorButtonText}>Go Back</Text>
+            </LinearGradient>
           </TouchableOpacity>
         </View>
       )}
@@ -486,48 +508,68 @@ const RecipeDetailScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#FAF7F2',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: 'white',
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#e1e4e8',
+    borderBottomColor: '#E6DED3',
   },
   backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#4E4E4E',
     flex: 1,
   },
   content: {
     flex: 1,
   },
   recipeHeader: {
-    backgroundColor: 'white',
+    backgroundColor: '#FFFFFF',
     paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E6DED3',
   },
   recipeImage: {
     width: '100%',
-    height: 200,
+    height: 240,
     backgroundColor: '#f0f0f0',
   },
   imagePlaceholder: {
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#E6DED3',
   },
   recipeTitleContainer: {
     padding: 16,
   },
   recipeTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#4E4E4E',
     marginBottom: 8,
   },
   tagsContainer: {
@@ -536,89 +578,110 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   tag: {
-    backgroundColor: '#e9ecef',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    backgroundColor: '#E6DED3',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: 16,
     marginRight: 8,
     marginBottom: 8,
   },
   tagText: {
-    color: '#495057',
-    fontSize: 12,
+    color: '#4E4E4E',
+    fontSize: 14,
     fontWeight: '500',
   },
   metadataContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    marginTop: 8,
   },
   metadataItem: {
     flexDirection: 'row',
     alignItems: 'center',
     marginRight: 16,
-    marginBottom: 4,
+    marginBottom: 8,
+    backgroundColor: '#FAF7F2',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 12,
   },
   metadataText: {
-    color: '#666',
+    color: '#4E4E4E',
     fontSize: 14,
-    marginLeft: 4,
+    marginLeft: 6,
+    fontWeight: '500',
   },
   section: {
-    backgroundColor: 'white',
-    padding: 16,
+    backgroundColor: '#FFFFFF',
     marginTop: 8,
+    padding: 16,
+    borderRadius: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 12,
+    color: '#4E4E4E',
+    marginBottom: 16,
   },
   description: {
     fontSize: 16,
-    color: '#495057',
+    color: '#4E4E4E',
     lineHeight: 24,
   },
   ingredientItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
+    backgroundColor: '#FAF7F2',
+    padding: 12,
+    borderRadius: 8,
   },
   ingredientText: {
     fontSize: 16,
-    color: '#495057',
+    color: '#4E4E4E',
     flex: 1,
   },
   instructionItem: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   instructionNumber: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#333',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#C4B5A4',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
     marginTop: 2,
   },
   instructionNumberText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 14,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 16,
   },
   instructionText: {
     fontSize: 16,
-    color: '#495057',
+    color: '#4E4E4E',
     lineHeight: 24,
     flex: 1,
   },
   feedbackContainer: {
-    backgroundColor: 'white',
+    backgroundColor: '#FFFFFF',
     paddingVertical: 16,
     borderTopWidth: 1,
-    borderTopColor: '#e1e4e8',
+    borderTopColor: '#E6DED3',
   },
   feedbackBar: {
     flexDirection: 'row',
@@ -627,31 +690,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#E6DED3',
   },
   feedbackButton: {
     alignItems: 'center',
-    padding: 8,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#FAF7F2',
+    minWidth: 80,
   },
   feedbackText: {
-    fontSize: 12,
+    fontSize: 14,
     marginTop: 4,
     fontWeight: '500',
+    color: '#4E4E4E',
   },
   ratingSection: {
     paddingTop: 16,
     alignItems: 'center',
   },
   ratingLabel: {
-    color: '#333',
-    fontSize: 14,
-    marginBottom: 8,
+    color: '#4E4E4E',
+    fontSize: 16,
+    marginBottom: 12,
     fontWeight: '500',
   },
   starsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FAF7F2',
+    padding: 12,
+    borderRadius: 12,
   },
   starIcon: {
     marginHorizontal: 4,
@@ -660,22 +730,38 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#FAF7F2',
   },
   errorText: {
     color: '#dc3545',
     fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
+    fontWeight: '600',
+    marginVertical: 16,
+    textAlign: 'center',
   },
   errorButton: {
-    backgroundColor: '#4CAF50',
-    borderRadius: 8,
-    padding: 16,
+    backgroundColor: '#C4B5A4',
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   errorButtonText: {
-    color: 'white',
+    color: '#FFFFFF',
     fontWeight: '600',
     fontSize: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  warningBanner: {
+    backgroundColor: '#FFF3E0',
+    padding: 8,
+    borderRadius: 4,
+    marginBottom: 12,
+  },
+  warningText: {
+    color: '#856404',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
 

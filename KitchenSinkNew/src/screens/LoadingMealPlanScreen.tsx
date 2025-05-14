@@ -216,7 +216,7 @@ const LoadingMealPlanScreen: React.FC = () => {
     <View style={styles.container}>
       <View style={styles.content}>
         <Animated.View style={{ transform: [{ rotate: spin }] }}>
-          <MaterialCommunityIcons name="food-fork-drink" size={60} color="#007AFF" />
+          <MaterialCommunityIcons name="food-fork-drink" size={60} color="#D9A15B" />
         </Animated.View>
         <Text style={styles.title}>Generating Meal Plan</Text>
         <Text style={styles.subtitle}>
@@ -232,7 +232,7 @@ const LoadingMealPlanScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FAF6F1',
   },
   content: {
     flex: 1,
@@ -241,21 +241,22 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   title: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     marginTop: 20,
     marginBottom: 8,
     textAlign: 'center',
+    color: '#4E4E4E',
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
+    color: '#7A736A',
     textAlign: 'center',
     marginBottom: 20,
   },
   errorText: {
     fontSize: 16,
-    color: 'red',
+    color: '#B57A42',
     textAlign: 'center',
     marginTop: 20,
   },
