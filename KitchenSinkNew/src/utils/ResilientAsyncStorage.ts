@@ -88,15 +88,22 @@ class ResilientAsyncStorage {
   private memoryCache: { [key: string]: string | null } = {};
 
   constructor() {
+    logger.debug('[ResilientAsyncStorage CONSTRUCTOR] Starting...');
     // Check for AsyncStorage availability immediately
-    this.checkAvailability().then(available => {
-      if (!available) {
-        logger.warn('AsyncStorage is not available, using memory fallback');
-        this.usingFallback = true;
-      } else {
-        logger.debug('AsyncStorage is available');
-      }
-    });
+    this.checkAvailability()
+      .then(available => {
+        if (!available) {
+          logger.warn('[ResilientAsyncStorage CONSTRUCTOR] checkAvailability reported AsyncStorage NOT available. Using memory fallback.');
+          this.usingFallback = true;
+        } else {
+          logger.debug('[ResilientAsyncStorage CONSTRUCTOR] checkAvailability reported AsyncStorage IS available.');
+          this.usingFallback = false; // Explicitly set if available
+        }
+      })
+      .catch(error => {
+        logger.error('[ResilientAsyncStorage CONSTRUCTOR] CRITICAL ERROR during checkAvailability promise:', error);
+        this.usingFallback = true; // Fallback if checkAvailability itself errors
+      });
   }
 
   async checkAvailability(): Promise<boolean> {
@@ -392,7 +399,15 @@ class ResilientAsyncStorage {
 }
 
 // Export a singleton instance
-export const resilientStorage = new ResilientAsyncStorage();
+let resilientStorage: ResilientAsyncStorage | undefined;
+try {
+  resilientStorage = new ResilientAsyncStorage();
+  logger.debug('[ResilientAsyncStorage] Instance created successfully:', resilientStorage);
+} catch (e) {
+  logger.error('[ResilientAsyncStorage] CRITICAL ERROR during instantiation:', e);
+  resilientStorage = undefined; // Ensure it's explicitly undefined if instantiation fails
+}
+export { resilientStorage }; // Changed to named export to work with try...catch
 
 // For checking AsyncStorage from other components
 export const safeStorage = {

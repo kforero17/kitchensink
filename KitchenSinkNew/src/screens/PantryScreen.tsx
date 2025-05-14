@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  FlatList,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
@@ -18,38 +17,20 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useAuth } from '../contexts/AuthContext';
 import { PantryItem } from '../types/PantryItem';
-import { PantryItemCard } from '../components/PantryItemCard';
-import { AddPantryItemModal } from '../components/AddPantryItemModal';
-import { getPantryItems, addPantryItem, deletePantryItem } from '../services/pantryService';
+// import { PantryItemCard } from '../components/PantryItemCard'; // This line should be commented out
+import { getPantryItems, addPantryItem, deletePantryItem, updatePantryItem } from '../services/pantryService'; // Uncomment getPantryItems, addPantryItem, and deletePantryItem
 import { theme } from '../styles/theme';
 import logger from '../utils/logger';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import * as Network from 'expo-network';
-// import { resilientStorage } from '../utils/ResilientAsyncStorage';
+import * as Network from 'expo-network'; // Uncomment Network
+import { resilientStorage } from '../utils/ResilientAsyncStorage';
+import { AddPantryItemModal } from '../components/AddPantryItemModal'; // Uncomment this
+import { LinearGradient } from 'expo-linear-gradient'; // Import LinearGradient
 
-// logger.debug('[PantryScreen] Imported resilientStorage:', resilientStorage);
+// Immediate log to check resilientStorage at module load time
+logger.debug('[PantryScreen MODULE LOAD] resilientStorage status:', resilientStorage);
 
-// Simple in-memory storage to replace resilientStorage
-const inMemoryStorage = {
-  _store: new Map<string, string>(),
-  
-  getItem: async (key: string): Promise<string | null> => {
-    logger.debug(`[InMemoryStorage] Getting key: ${key}`);
-    return inMemoryStorage._store.get(key) || null;
-  },
-  
-  setItem: async (key: string, value: string): Promise<void> => {
-    logger.debug(`[InMemoryStorage] Setting key: ${key}`);
-    inMemoryStorage._store.set(key, value);
-  },
-  
-  removeItem: async (key: string): Promise<void> => {
-    logger.debug(`[InMemoryStorage] Removing key: ${key}`);
-    inMemoryStorage._store.delete(key);
-  }
-};
-
-// Mock pantry items for when storage fails
+// Uncomment MOCK_PANTRY_ITEMS
 const MOCK_PANTRY_ITEMS: PantryItem[] = [
   { id: 'mock-1', name: 'Milk', quantity: 1, unit: 'gallon', category: 'Dairy' },
   { id: 'mock-2', name: 'Eggs', quantity: 12, unit: 'count', category: 'Dairy' },
@@ -57,197 +38,85 @@ const MOCK_PANTRY_ITEMS: PantryItem[] = [
   { id: 'mock-4', name: 'Butter', quantity: 1, unit: 'pound', category: 'Dairy' },
 ];
 
-// Categories for pantry items
+/* // Keep CATEGORIES commented for now
 const CATEGORIES = [
-  'All',
-  'Produce',
-  'Dairy',
-  'Meat',
-  'Seafood',
-  'Bakery',
-  'Frozen',
-  'Canned Goods',
-  'Dry Goods',
-  'Spices',
-  'Beverages',
-  'Snacks',
-  'Other',
+  // ...
 ];
+*/
 
-// This component renders a single item from the pantry list
+// Uncomment PantryItemRow
+/*
 const PantryItemRow = React.memo(({ item, onDelete }: { item: PantryItem, onDelete: (id: string) => void }) => {
   return (
     <PantryItemCard item={item} onDelete={onDelete} />
   );
 });
+*/
 
-// This separates the list rendering from any AsyncStorage dependencies
-const PantryItemsList = ({ 
-  items, 
-  isLoading,
-  onDelete,
-  onEmptyPress
-}: { 
-  items: PantryItem[] | null;
-  isLoading: boolean;
-  onDelete: (id: string) => void;
-  onEmptyPress: () => void;
-}) => {
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Loading pantry items...</Text>
-      </View>
-    );
-  }
-
-  if (!items || items.length === 0) {
-    return (
-      <View style={styles.emptyContainer}>
-        <MaterialCommunityIcons name="fridge-outline" size={48} color="#ccc" />
-        <Text style={styles.emptyText}>
-          {!items ? 'Unable to load pantry items' : 'Your pantry is empty'}
-        </Text>
-        <TouchableOpacity
-          style={styles.emptyButton}
-          onPress={onEmptyPress}
-        >
-          <Text style={styles.emptyButtonText}>
-            {!items ? 'Retry' : 'Add Items'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // This ensures that we don't render if items is not valid
-  const validItems = Array.isArray(items) ? items : [];
-  
-  try {
-    return (
-      <FlatList
-        data={validItems}
-        renderItem={({ item }) => (
-          <PantryItemRow
-            key={item?.id || `item-${Math.random()}`}
-            item={item}
-            onDelete={onDelete}
-          />
-        )}
-        keyExtractor={item => item?.id || `item-${Math.random()}`}
-        contentContainerStyle={styles.listContent}
-      />
-    );
-  } catch (error) {
-    logger.error('[PantryScreen] Error rendering items list:', error);
-    return (
-      <View style={styles.errorContainer}>
-        <MaterialCommunityIcons name="alert-circle-outline" size={48} color="#dc3545" />
-        <Text style={styles.errorText}>Error displaying pantry items</Text>
-        <TouchableOpacity
-          style={styles.retryButton}
-          onPress={onEmptyPress}
-        >
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+/* // Keep PantryItemsList (the more complex wrapper) commented for now
+const PantryItemsList = ({ ... }) => {
+  // ...
 };
+*/
 
 const PantryScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Pantry'>>();
   const { user } = useAuth();
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(true); // Uncomment isOnline state
   
-  // State management
   const [items, setItems] = useState<PantryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingItem, setEditingItem] = useState<PantryItem | null>(null);
   const [fallbackMode, setFallbackMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
-  const [renderError, setRenderError] = useState<Error | null>(null);
+  // const [renderError, setRenderError] = useState<Error | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [storageServiceReady, setStorageServiceReady] = useState(false);
   
-  // Animation values
   const fadeAnim = new Animated.Value(0);
   const slideAnim = new Animated.Value(50);
 
-  // Check network status periodically
-  useEffect(() => {
-    const checkNetworkStatus = async () => {
-      try {
-        const networkState = await Network.getNetworkStateAsync();
-        setIsOnline(networkState.isConnected ?? false);
-      } catch (error) {
-        logger.error('[PantryScreen] Error checking network status:', error);
-        setIsOnline(true); // Assume online if we can't check
-      }
-    };
-
-    checkNetworkStatus();
-    const interval = setInterval(checkNetworkStatus, 10000); // Check every 10 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
-  // Load items when user is available
-  useEffect(() => {
-    if (user?.uid) {
-      logger.debug('[PantryScreen] User detected, uid:', user.uid.substring(0, 10) + '...');
-      loadItems();
-    }
-  }, [user?.uid]);
-
-  // Animate in when items are loaded
-  useEffect(() => {
-    if (items && !loading) {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [items, loading]);
-
+  // loadItems and its dependent useEffects are now being uncommented
   const loadItems = useCallback(async () => {
-    if (!user?.uid) return;
+    if (!storageServiceReady) { 
+      logger.warn('[PantryScreen loadItems] Attempted to load items, but storage service is not ready. Aborting.');
+      return;
+    }
+    if (!user?.uid) {
+      logger.warn('[PantryScreen loadItems] User not available. Aborting.');
+      return;
+    }
     
     try {
       setLoading(true);
       setError(null);
-      setRenderError(null);
+      // setRenderError(null); // Keep renderError logic out for now
       logger.debug('[PantryScreen] Loading pantry items...');
       
-      // Check network status
       const networkState = await Network.getNetworkStateAsync();
       setIsOnline(networkState.isConnected ?? false);
 
       if (!networkState.isConnected) {
-        // Try to load from local storage
-        const cachedItems = await inMemoryStorage.getItem('pantryItems');
-        if (cachedItems) {
-          setItems(JSON.parse(cachedItems));
-          setLoading(false);
-          return;
+        if (resilientStorage && typeof resilientStorage.getItem === 'function') {
+          const cachedItems = await resilientStorage.getItem('pantryItems');
+          if (cachedItems) {
+            setItems(JSON.parse(cachedItems));
+            setLoading(false);
+            return;
+          }
+        } else {
+          logger.warn('[PantryScreen] resilientStorage.getItem is not available for loading cached items offline.');
         }
       }
 
       let result: PantryItem[] = [];
       
       try {
-        // Try loading from service with timeout
         const loadingPromise = getPantryItems(user.uid);
         const timeoutPromise = new Promise<PantryItem[]>((_, reject) => {
           setTimeout(() => reject(new Error('Pantry items loading timeout')), 5000);
@@ -270,19 +139,24 @@ const PantryScreen: React.FC = () => {
       setItems(result);
       setRetryCount(0);
       
-      // Cache items locally
-      await inMemoryStorage.setItem('pantryItems', JSON.stringify(result));
+      if (resilientStorage && typeof resilientStorage.setItem === 'function') {
+        await resilientStorage.setItem('pantryItems', JSON.stringify(result));
+      } else {
+        logger.warn('[PantryScreen] resilientStorage.setItem is not available for caching items.');
+      }
     } catch (e) {
       logger.error('[PantryScreen] Error loading pantry items:', e);
       setError('Failed to load pantry items. Please try again.');
       
-      // Try to load from local storage as fallback
-      const cachedItems = await inMemoryStorage.getItem('pantryItems');
-      if (cachedItems) {
-        setItems(JSON.parse(cachedItems));
+      if (resilientStorage && typeof resilientStorage.getItem === 'function') {
+        const cachedItems = await resilientStorage.getItem('pantryItems');
+        if (cachedItems) {
+          setItems(JSON.parse(cachedItems));
+        }
+      } else {
+        logger.warn('[PantryScreen] resilientStorage.getItem is not available for fallback loading.');
       }
       
-      // Implement exponential backoff for retries
       if (retryCount < 3) {
         const delay = Math.pow(2, retryCount) * 1000;
         setTimeout(() => {
@@ -294,44 +168,58 @@ const PantryScreen: React.FC = () => {
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, [user?.uid, retryCount, isOnline]);
+  }, [user?.uid, retryCount, isOnline, storageServiceReady]);
 
-  const handleAddItem = async (name: string, quantity: number, unit: string, category: string) => {
-    if (!user?.uid) return;
-
-    try {
-      logger.debug(`[PantryScreen] Adding item: ${name}, ${quantity} ${unit}`);
-      
-      let itemId: string | null = null;
-      
-      if (fallbackMode) {
-        itemId = `mock-${Date.now()}`;
-      } else {
-        itemId = await addPantryItem(user.uid, { name, quantity, unit, category });
-      }
-      
-      if (itemId) {
-        const updatedItems = [...items, { id: itemId!, name, quantity, unit, category }];
-        setItems(updatedItems);
-        
-        // Update local cache
-        await inMemoryStorage.setItem('pantryItems', JSON.stringify(updatedItems));
-        logger.debug(`[PantryScreen] Successfully added item with ID: ${itemId}`);
-      } else {
-        Alert.alert('Error', 'Failed to add item');
-      }
-    } catch (error) {
-      logger.error('[PantryScreen] Error adding pantry item:', error);
-      Alert.alert('Error', 'Failed to add item');
+  useEffect(() => {
+    logger.debug('[PantryScreen MOUNT] resilientStorage status in useEffect:', resilientStorage);
+    if (resilientStorage) {
+      setStorageServiceReady(true);
     }
-  };
+  }, []);
 
+  // Load items when user is available AND storage service is ready
+  useEffect(() => {
+    if (user?.uid && storageServiceReady) {
+      logger.debug('[PantryScreen] User and storage service ready, calling loadItems. UID:', user.uid.substring(0, 10) + '...');
+      loadItems();
+    } else if (user?.uid && !storageServiceReady) {
+      logger.warn('[PantryScreen] User is ready, but storage service is NOT. Holding off on loadItems.');
+    }
+  }, [user?.uid, storageServiceReady, loadItems]);
+
+  // Uncomment Animation Effect
+  useEffect(() => {
+    if (items && items.length > 0 && !loading) { // Ensure items has length before animating
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [items, loading, fadeAnim, slideAnim]); // Added fadeAnim, slideAnim to deps
+
+  // Uncomment handleDeleteItem function
   const handleDeleteItem = async (itemId: string) => {
-    if (!user?.uid) return;
+    if (!user?.uid) {
+        Alert.alert("Error", "You must be logged in to delete items.");
+        return;
+    }
+    if (!storageServiceReady) {
+        logger.warn('[PantryScreen handleDeleteItem] Storage service not ready.');
+        Alert.alert('Error', 'Storage service is not ready, please try again shortly.');
+        return;
+    }
 
     Alert.alert(
       'Delete Item',
-      'Are you sure you want to delete this item?',
+      'Are you sure you want to delete this item from your pantry?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -339,12 +227,12 @@ const PantryScreen: React.FC = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              logger.debug(`[PantryScreen] Deleting item: ${itemId}`);
-              
+              logger.debug(`[PantryScreen] Attempting to delete item: ${itemId}`);
               let success = false;
-              
               if (fallbackMode) {
-                success = true;
+                // In fallback mode, just update UI and cache if possible
+                success = true; 
+                logger.info('[PantryScreen] Fallback mode: Simulating delete.');
               } else {
                 success = await deletePantryItem(user.uid, itemId);
               }
@@ -352,21 +240,20 @@ const PantryScreen: React.FC = () => {
               if (success) {
                 const updatedItems = items.filter(item => item.id !== itemId);
                 setItems(updatedItems);
-                
-                // Update local cache
-                await inMemoryStorage.setItem('pantryItems', JSON.stringify(updatedItems));
-                logger.debug('[PantryScreen] Successfully deleted item');
+                if (resilientStorage && typeof resilientStorage.setItem === 'function') {
+                  await resilientStorage.setItem('pantryItems', JSON.stringify(updatedItems));
+                }
+                logger.debug(`[PantryScreen] Successfully deleted item: ${itemId} and updated cache.`);
               } else {
-                Alert.alert('Error', 'Failed to delete item');
+                Alert.alert('Error', 'Failed to delete item. It might have already been removed or a server error occurred.');
+                logger.warn(`[PantryScreen] deletePantryItem service call returned false for item: ${itemId}`);
               }
             } catch (error) {
               logger.error('[PantryScreen] Error deleting pantry item:', error);
-              Alert.alert('Error', 'Failed to delete item');
-              
-              setItems(prev => {
-                if (!prev) return [];
-                return prev.filter(item => item.id !== itemId);
-              });
+              Alert.alert('Error', 'An error occurred while deleting the item.');
+              // Optimistically remove from UI if server delete fails but error is caught
+              // This might be too aggressive depending on desired UX
+              // setItems(prev => prev.filter(item => item.id !== itemId)); 
             }
           },
         },
@@ -374,101 +261,109 @@ const PantryScreen: React.FC = () => {
     );
   };
 
-  const handleRetry = () => {
-    setRetryCount(0);
-    setFallbackMode(false);
-    setError(null);
-    setRenderError(null);
-    loadItems();
+  // Uncomment handleAddItem function
+  const handleAddItem = async (name: string, quantity: number, unit: string, category: string) => {
+    if (!user?.uid) {
+      Alert.alert('Error', 'You must be logged in to add items.');
+      return;
+    }
+    if (!storageServiceReady) {
+        logger.warn('[PantryScreen handleAddItem] Storage service not ready.');
+        Alert.alert('Error', 'Storage service is not ready, please try again shortly.');
+        return;
+    }
+
+    try {
+      logger.debug(`[PantryScreen] Adding item: ${name}, ${quantity} ${unit}, ${category}`);
+      
+      let itemId: string | null = null;
+      
+      if (fallbackMode) { // Assuming fallbackMode state exists and is managed
+        itemId = `mock-${Date.now()}`;
+        const newItem: PantryItem = { id: itemId, name, quantity, unit, category };
+        const updatedItems = [...items, newItem];
+        setItems(updatedItems);
+        if (resilientStorage && typeof resilientStorage.setItem === 'function') {
+          await resilientStorage.setItem('pantryItems', JSON.stringify(updatedItems));
+        }
+        logger.debug(`[PantryScreen] Successfully added mock item with ID: ${itemId}`);
+
+      } else {
+        itemId = await addPantryItem(user.uid, { name, quantity, unit, category });
+        if (itemId) {
+          const newItem: PantryItem = { id: itemId, name, quantity, unit, category };
+          const updatedItems = [...items, newItem];
+          setItems(updatedItems);
+          if (resilientStorage && typeof resilientStorage.setItem === 'function') {
+            await resilientStorage.setItem('pantryItems', JSON.stringify(updatedItems));
+          }
+          logger.debug(`[PantryScreen] Successfully added item with ID: ${itemId} to Firestore and cache`);
+        } else {
+          Alert.alert('Error', 'Failed to add item to the pantry.');
+        }
+      }
+    } catch (error) {
+      logger.error('[PantryScreen] Error adding pantry item:', error);
+      Alert.alert('Error', 'An error occurred while adding the item.');
+    }
+    setModalVisible(false);
   };
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    loadItems();
+  const handleOpenEditModal = (item: PantryItem) => {
+    setEditingItem(item);
+    setEditModalVisible(true);
   };
 
-  // Filter items based on search query and selected category
-  const filteredItems = useMemo(() => {
-    logger.debug('[PantryScreen] Recalculating filteredItems. Current items count:', items?.length);
-    if (!items) return [];
+  // Placeholder for actual update logic
+  const handleUpdatePantryItem = async (id: string, name: string, quantity: number, unit: string, category: string) => {
+    if (!user?.uid) {
+      Alert.alert("Error", "You must be logged in to update items.");
+      return;
+    }
+    if (!storageServiceReady) {
+      logger.warn('[PantryScreen handleUpdatePantryItem] Storage service not ready.');
+      Alert.alert('Error', 'Storage service is not ready, please try again shortly.');
+      return;
+    }
     
-    return items.filter(item => {
-      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
-      return matchesSearch && matchesCategory;
-    });
-  }, [items, searchQuery, selectedCategory]);
+    logger.debug('[PantryScreen] Attempting to update item in Firestore:', { id, name, quantity, unit, category });
 
-  // Render category filter buttons
-  const renderCategoryButton = (category: string) => (
-    <TouchableOpacity
-      key={category}
-      style={[
-        styles.categoryButton,
-        selectedCategory === category && styles.categoryButtonSelected
-      ]}
-      onPress={() => setSelectedCategory(category)}
-    >
-      <Text style={[
-        styles.categoryButtonText,
-        selectedCategory === category && styles.categoryButtonTextSelected
-      ]}>
-        {category}
-      </Text>
-    </TouchableOpacity>
-  );
+    const itemDataToUpdate: Partial<Omit<PantryItem, 'id'>> = { name, quantity, unit, category };
 
-  // Render search bar
-  const renderSearchBar = () => (
-    <View style={styles.searchContainer}>
-      <MaterialCommunityIcons name="magnify" size={24} color="#666" />
-      <TextInput
-        style={styles.searchInput}
-        placeholder="Search pantry items..."
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-        placeholderTextColor="#666"
-      />
-      {searchQuery ? (
-        <TouchableOpacity onPress={() => setSearchQuery('')}>
-          <MaterialCommunityIcons name="close-circle" size={20} color="#666" />
-        </TouchableOpacity>
-      ) : null}
-    </View>
-  );
+    let success = false;
+    if (fallbackMode) {
+      logger.info('[PantryScreen] Fallback mode: Simulating update for item:', id);
+      success = true; // Simulate success for UI update in fallback
+    } else {
+      success = await updatePantryItem(user.uid, id, itemDataToUpdate);
+    }
 
-  if (renderError) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>My Pantry</Text>
-        </View>
-        <View style={styles.errorContainer}>
-          <MaterialCommunityIcons name="alert-circle-outline" size={48} color="#dc3545" />
-          <Text style={styles.errorText}>Storage error detected</Text>
-          <Text style={styles.errorSubtext}>{renderError.message || 'We\'re having trouble accessing your pantry items'}</Text>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={handleRetry}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+    if (success) {
+      const updatedItems = items.map(item => 
+        item.id === id ? { ...item, ...itemDataToUpdate } : item
+      );
+      setItems(updatedItems);
+      if (resilientStorage && typeof resilientStorage.setItem === 'function') {
+        await resilientStorage.setItem('pantryItems', JSON.stringify(updatedItems));
+      }
+      logger.info(`[PantryScreen] Successfully updated item: ${id}. UI and cache updated.`);
+      Alert.alert("Success", "Item successfully updated.");
+    } else {
+      Alert.alert("Error", "Failed to update item in Firestore. Please try again.");
+      logger.error(`[PantryScreen] Firestore update failed for item: ${id}`);
+    }
 
-  logger.debug('[PantryScreen] PRE-RENDER: About to render main content. Filtered items count:', filteredItems?.length);
-  logger.debug('[PantryScreen] PRE-RENDER: Current error state:', error);
-  logger.debug('[PantryScreen] PRE-RENDER: Current loading state:', loading);
-  logger.debug('[PantryScreen] PRE-RENDER: Fallback mode:', fallbackMode);
+    setEditingItem(null);
+    setEditModalVisible(false);
+  };
 
+  // Simplified render, but with structure and some state display
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.navigate('Profile')}
+          onPress={() => navigation.goBack()}
         >
           <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
@@ -476,120 +371,96 @@ const PantryScreen: React.FC = () => {
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => setModalVisible(true)}
-          disabled={loading}
         >
-          <Ionicons name="add" size={24} color="white" />
+          <LinearGradient
+            colors={theme.colors.primaryGradient || ['#D9A15B', '#B57A42']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.headerButtonGradient}
+          >
+            <Ionicons name="add" size={24} color="white" />
+          </LinearGradient>
         </TouchableOpacity>
       </View>
       
-      {fallbackMode && (
-        <View style={styles.warningBanner}>
-          <MaterialCommunityIcons name="alert-circle-outline" size={20} color="#856404" />
-          <Text style={styles.warningText}>
-            Storage issues detected. Using backup system.
-          </Text>
-        </View>
-      )}
-
-      {!isOnline && (
-        <View style={styles.warningBanner}>
-          <MaterialCommunityIcons name="wifi-off" size={20} color="#856404" />
-          <Text style={styles.warningText}>
-            You're offline. Changes will sync when you're back online.
-          </Text>
-        </View>
-      )}
-      
-      {error ? (
-        <View style={styles.errorContainer}>
-          <MaterialCommunityIcons name="alert-circle-outline" size={48} color="#dc3545" />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={handleRetry}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        (() => {
-          logger.debug('[PantryScreen] FINAL PRE-FLATLIST_RENDER_STATE:', {
-            loading,
-            error,
-            items: items ? `Count: ${items.length}` : 'null/undefined',
-            filteredItems: filteredItems ? `Count: ${filteredItems.length}` : 'null/undefined',
-            isOnline,
-            fallbackMode
-          });
-          return null; // This IIFE is just for logging
-        })(),
-        <Animated.View 
-          style={[
-            styles.content,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }]
-            }
-          ]}
-        >
-          {renderSearchBar()}
-          <View style={styles.categoriesContainer}>
-            <FlatList
-              data={CATEGORIES}
-              renderItem={({ item }) => renderCategoryButton(item)}
-              keyExtractor={item => item}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoriesList}
-            />
+      <Animated.View
+        style={[
+          styles.content, 
+          {
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }]
+          }
+        ]}
+      >
+        {loading === true && (
+          <View style={styles.loadingContainer}> 
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={styles.loadingText}>Loading pantry items...</Text>
           </View>
-          
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={theme.colors.primary} />
-              <Text style={styles.loadingText}>Loading pantry items...</Text>
-            </View>
-          ) : items.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <MaterialCommunityIcons name="fridge-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyText}>
-                {!items ? 'Unable to load pantry items' : 'Your pantry is empty'}
-              </Text>
-              <TouchableOpacity
-                style={styles.emptyButton}
-                onPress={() => setModalVisible(true)}
-              >
-                <Text style={styles.emptyButtonText}>
-                  {!items ? 'Retry' : 'Add Items'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <React.Fragment>
-              <FlatList
-                data={filteredItems}
-                renderItem={({ item }) => (
-                  <PantryItemRow
-                    key={item?.id || `item-${Math.random()}`}
-                    item={item}
-                    onDelete={handleDeleteItem}
-                  />
-                )}
-                keyExtractor={item => item?.id || `item-${Math.random()}`}
-                contentContainerStyle={styles.listContent}
-                onRefresh={handleRefresh}
-                refreshing={isRefreshing}
-              />
-            </React.Fragment>
-          )}
-        </Animated.View>
-      )}
-      
+        )}
+
+        {loading === false && error !== null && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        {loading === false && error === null && items.length === 0 && (
+          <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>Your pantry is empty.</Text>
+          </View>
+        )}
+        
+        {loading === false && error === null && items.length > 0 && (
+          <ScrollView style={styles.listContent}>
+            {items.map(item => (
+              <View key={item.id} style={styles.simpleItemContainer}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.simpleItemName}>{item.name}</Text>
+                  <Text style={styles.simpleItemQuantity}>{item.quantity} {item.unit}</Text>
+                </View>
+                <TouchableOpacity onPress={() => handleOpenEditModal(item)} style={styles.simpleEditButton}> 
+                  <Ionicons name="pencil-outline" size={22} color={theme.colors.primary} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleDeleteItem(item.id)} style={styles.simpleDeleteButton}> 
+                  <Ionicons name="trash-outline" size={24} color={theme.colors.error} />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        )}
+      </Animated.View>
+
+      <View style={{ padding:10, borderTopWidth: 1, borderColor: '#ccc'}}>
+        <Text>Debug Info:</Text>
+        <Text>Storage Service Ready: {storageServiceReady ? 'Yes' : 'No'}</Text>
+        <Text>User: {user ? user.uid.substring(0,5) : 'Not logged in'}</Text>
+        <Text>Items count: {items.length}</Text>
+        <Text>Loading state: {loading ? 'True' : 'False'}</Text>
+        <Text>Error state: {error || 'null'}</Text>
+      </View>
+
+      {/* Modal for Adding - controlled by modalVisible */}
       <AddPantryItemModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         onAdd={handleAddItem}
+        modalTitle="Add New Pantry Item"
       />
+
+      {/* Modal for Editing - controlled by editModalVisible and editingItem */}
+      {editingItem && (
+        <AddPantryItemModal
+          visible={editModalVisible}
+          onClose={() => {
+            setEditModalVisible(false);
+            setEditingItem(null);
+          }}
+          onSaveEdit={handleUpdatePantryItem} // This should call the updated handler
+          itemToEdit={editingItem}
+          modalTitle="Edit Pantry Item"
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -603,7 +474,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     backgroundColor: theme.colors.cardBackground,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
@@ -618,59 +490,15 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
   addButton: {
-    backgroundColor: theme.colors.primary,
-    paddingHorizontal: 16,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  headerButtonGradient: {
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
-  },
-  addButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-  },
-  searchContainer: {
-    padding: 16,
-  },
-  searchInput: {
-    backgroundColor: theme.colors.cardBackground,
-    padding: 12,
-    borderRadius: 8,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  categoriesContainer: {
-    marginBottom: 16,
-  },
-  categoriesList: {
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  categoryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: theme.colors.cardBackground,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    marginRight: 8,
-  },
-  categoryButtonSelected: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
-  categoryButtonText: {
-    fontSize: 14,
-    color: theme.colors.text,
-  },
-  categoryButtonTextSelected: {
-    color: 'white',
-  },
-  listContent: {
-    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loadingContainer: {
     flex: 1,
@@ -683,11 +511,13 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
   },
   errorContainer: {
+    flex:1,
+    justifyContent: 'center',
+    alignItems: 'center',
     padding: 16,
     backgroundColor: theme.colors.cardBackground,
     margin: 16,
     borderRadius: 8,
-    alignItems: 'center',
     borderWidth: 1,
     borderColor: theme.colors.error,
   },
@@ -696,38 +526,11 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     textAlign: 'center',
   },
-  errorSubtext: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  retryButton: {
-    backgroundColor: theme.colors.error,
-    padding: 8,
-    borderRadius: 4,
-    marginTop: 8,
-  },
-  retryButtonText: {
-    color: 'white',
-  },
-  warningBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff3cd',
-    padding: 10,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ffeeba',
-  },
-  warningText: {
-    color: '#856404',
-    marginLeft: 8,
-    fontSize: 14,
-  },
   emptyContainer: {
-    padding: 32,
+    flex:1,
+    justifyContent: 'center',
     alignItems: 'center',
+    padding: 32,
   },
   emptyText: {
     fontSize: 16,
@@ -735,17 +538,46 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
-  emptyButton: {
-    backgroundColor: theme.colors.primary,
+  content: { 
+    flex: 1,
+  },
+  listContent: { 
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 8,
-    marginTop: 16,
   },
-  emptyButtonText: {
-    color: 'white',
-    fontSize: 16,
+  simpleItemContainer: {
+    backgroundColor: theme.colors.cardBackground,
+    padding: 16,
+    marginVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  simpleItemName: {
+    fontSize: 17,
     fontWeight: '600',
+    color: theme.colors.text,
+  },
+  simpleItemQuantity: {
+    fontSize: 15,
+    color: theme.colors.textSecondary,
+    marginTop: 4,
+  },
+  simpleEditButton: { 
+    padding: 8,
+    marginRight: 4,
+  },
+  simpleDeleteButton: { 
+    padding: 8,
+    marginLeft: 4,
   },
 });
 

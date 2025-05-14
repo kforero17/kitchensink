@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { theme } from '../styles/theme';
+import { PantryItem } from '../types/PantryItem';
 
 const CATEGORIES = [
   'Produce',
@@ -29,59 +30,87 @@ const CATEGORIES = [
 type Props = {
   visible: boolean;
   onClose: () => void;
-  onAdd: (name: string, quantity: number, unit: string, category: string) => void;
+  onAdd?: (name: string, quantity: number, unit: string, category: string) => void;
+  itemToEdit?: PantryItem | null;
+  onSaveEdit?: (id: string, name: string, quantity: number, unit: string, category: string) => void;
+  modalTitle?: string;
 };
 
 export const AddPantryItemModal: React.FC<Props> = ({
   visible,
   onClose,
   onAdd,
+  itemToEdit,
+  onSaveEdit,
+  modalTitle = 'Add Pantry Item',
 }) => {
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('');
   const [category, setCategory] = useState('');
 
-  const handleAdd = () => {
+  const isEditMode = !!itemToEdit;
+
+  useEffect(() => {
+    if (visible && itemToEdit) {
+      setName(itemToEdit.name);
+      setQuantity(String(itemToEdit.quantity));
+      setUnit(itemToEdit.unit);
+      setCategory(itemToEdit.category);
+    } else if (!visible) {
+      setName('');
+      setQuantity('');
+      setUnit('');
+      setCategory('');
+    }
+  }, [visible, itemToEdit]);
+
+  const handleSubmit = () => {
     if (!name.trim()) {
       Alert.alert('Error', 'Please enter an item name');
       return;
     }
-
     const quantityNum = parseFloat(quantity);
     if (isNaN(quantityNum) || quantityNum <= 0) {
       Alert.alert('Error', 'Please enter a valid quantity');
       return;
     }
-
     if (!unit.trim()) {
       Alert.alert('Error', 'Please enter a unit');
       return;
     }
-
     if (!category) {
       Alert.alert('Error', 'Please select a category');
       return;
     }
 
-    onAdd(name.trim(), quantityNum, unit.trim(), category);
+    if (isEditMode && onSaveEdit && itemToEdit) {
+      onSaveEdit(itemToEdit.id, name.trim(), quantityNum, unit.trim(), category);
+    } else if (!isEditMode && onAdd) {
+      onAdd(name.trim(), quantityNum, unit.trim(), category);
+    }
+    
+    onClose();
+  };
+
+  const handleModalClose = () => {
     setName('');
     setQuantity('');
     setUnit('');
     setCategory('');
     onClose();
-  };
+  }
 
   return (
     <Modal
       visible={visible}
       animationType="slide"
       transparent={true}
-      onRequestClose={onClose}
+      onRequestClose={handleModalClose}
     >
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
-          <Text style={styles.title}>Add Pantry Item</Text>
+          <Text style={styles.title}>{isEditMode ? 'Edit Pantry Item' : modalTitle}</Text>
 
           <Text style={styles.label}>Name</Text>
           <TextInput
@@ -89,7 +118,7 @@ export const AddPantryItemModal: React.FC<Props> = ({
             value={name}
             onChangeText={setName}
             placeholder="e.g., Milk"
-            autoFocus
+            autoFocus={!isEditMode}
           />
 
           <Text style={styles.label}>Quantity</Text>
@@ -137,15 +166,17 @@ export const AddPantryItemModal: React.FC<Props> = ({
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               style={[styles.button, styles.cancelButton]}
-              onPress={onClose}
+              onPress={handleModalClose}
             >
               <Text style={styles.buttonText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.button, styles.addButton]}
-              onPress={handleAdd}
+              onPress={handleSubmit}
             >
-              <Text style={[styles.buttonText, styles.addButtonText]}>Add</Text>
+              <Text style={[styles.buttonText, styles.addButtonText]}>
+                {isEditMode ? 'Save Changes' : 'Add'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

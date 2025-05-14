@@ -6,6 +6,7 @@ import {
   FIRESTORE_PATHS
 } from '../types/FirestoreSchema';
 import { PantryItem } from '../types/PantryItem';
+import logger from '../utils/logger';
 
 export const getPantryItems = async (uid: string): Promise<PantryItem[]> => {
   try {
@@ -60,6 +61,31 @@ export const deletePantryItem = async (uid: string, itemId: string): Promise<boo
     return true;
     } catch (error) {
     console.error('Error deleting pantry item:', error);
+    return false;
+  }
+};
+
+export const updatePantryItem = async (
+  uid: string, 
+  itemId: string, 
+  itemData: Partial<Omit<PantryItem, 'id'>>
+): Promise<boolean> => {
+  if (!uid || !itemId || !itemData) {
+    logger.error('[pantryService] Error updating pantry item: Missing uid, itemId, or itemData');
+    return false;
+  }
+  try {
+    await firestore()
+      .collection(FIRESTORE_PATHS.USERS)
+      .doc(uid)
+      .collection(FIRESTORE_PATHS.PANTRY_ITEMS)
+      .doc(itemId)
+      .update(itemData);
+    
+    logger.debug(`[pantryService] Successfully updated pantry item: ${itemId} for user: ${uid}`);
+    return true;
+  } catch (error) {
+    logger.error(`[pantryService] Error updating pantry item ${itemId} for user ${uid}:`, error);
     return false;
   }
 };
