@@ -104,10 +104,10 @@ const PantryScreen: React.FC = () => {
       if (!networkState.isConnected) {
         if (resilientStorage && typeof resilientStorage.getItem === 'function') {
           const cachedItems = await resilientStorage.getItem('pantryItems');
-          if (cachedItems) {
-            setItems(JSON.parse(cachedItems));
-            setLoading(false);
-            return;
+        if (cachedItems) {
+          setItems(JSON.parse(cachedItems));
+          setLoading(false);
+          return;
           }
         } else {
           logger.warn('[PantryScreen] resilientStorage.getItem is not available for loading cached items offline.');
@@ -150,8 +150,8 @@ const PantryScreen: React.FC = () => {
       
       if (resilientStorage && typeof resilientStorage.getItem === 'function') {
         const cachedItems = await resilientStorage.getItem('pantryItems');
-        if (cachedItems) {
-          setItems(JSON.parse(cachedItems));
+      if (cachedItems) {
+        setItems(JSON.parse(cachedItems));
         }
       } else {
         logger.warn('[PantryScreen] resilientStorage.getItem is not available for fallback loading.');
@@ -231,7 +231,7 @@ const PantryScreen: React.FC = () => {
               let success = false;
               if (fallbackMode) {
                 // In fallback mode, just update UI and cache if possible
-                success = true; 
+                success = true;
                 logger.info('[PantryScreen] Fallback mode: Simulating delete.');
               } else {
                 success = await deletePantryItem(user.uid, itemId);
@@ -365,48 +365,50 @@ const PantryScreen: React.FC = () => {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+          <Ionicons name="arrow-back" size={24} color={styles.title.color} />
         </TouchableOpacity>
         <Text style={styles.title}>My Pantry</Text>
         <TouchableOpacity
-          style={styles.addButton}
+          style={styles.addButtonContainer}
           onPress={() => setModalVisible(true)}
         >
           <LinearGradient
-            colors={theme.colors.primaryGradient || ['#D9A15B', '#B57A42']}
+            colors={['#D9A15B', '#B57A42']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={styles.headerButtonGradient}
+            style={styles.addButtonGradient}
           >
             <Ionicons name="add" size={24} color="white" />
           </LinearGradient>
         </TouchableOpacity>
       </View>
       
-      <Animated.View
-        style={[
-          styles.content, 
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
+        <Animated.View 
+          style={[
+            styles.content,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
         {loading === true && (
-          <View style={styles.loadingContainer}> 
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.loadingText}>Loading pantry items...</Text>
-          </View>
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={'#D9A15B'} />
+              <Text style={styles.loadingText}>Loading pantry items...</Text>
+            </View>
         )}
 
         {loading === false && error !== null && (
           <View style={styles.errorContainer}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={48} color={theme.colors.error} />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
 
         {loading === false && error === null && items.length === 0 && (
-          <View style={styles.emptyContainer}>
+            <View style={styles.emptyContainer}>
+              <MaterialCommunityIcons name="fridge-outline" size={48} color="#A09483" />
               <Text style={styles.emptyText}>Your pantry is empty.</Text>
           </View>
         )}
@@ -420,16 +422,16 @@ const PantryScreen: React.FC = () => {
                   <Text style={styles.simpleItemQuantity}>{item.quantity} {item.unit}</Text>
                 </View>
                 <TouchableOpacity onPress={() => handleOpenEditModal(item)} style={styles.simpleEditButton}> 
-                  <Ionicons name="pencil-outline" size={22} color={theme.colors.primary} />
+                  <Ionicons name="pencil-outline" size={22} color={'#D9A15B'} />
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => handleDeleteItem(item.id)} style={styles.simpleDeleteButton}> 
                   <Ionicons name="trash-outline" size={24} color={theme.colors.error} />
-                </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
+            </View>
             ))}
           </ScrollView>
-        )}
-      </Animated.View>
+          )}
+        </Animated.View>
 
       <View style={{ padding:10, borderTopWidth: 1, borderColor: '#ccc'}}>
         <Text>Debug Info:</Text>
@@ -468,17 +470,16 @@ const PantryScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
+    backgroundColor: '#FAF6F1',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: theme.colors.cardBackground,
+    padding: 16,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: '#E6DED3',
   },
   backButton: {
     marginRight: 12,
@@ -487,18 +488,56 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: theme.colors.text,
+    color: '#4E4E4E',
   },
-  addButton: {
+  addButtonContainer: {
     borderRadius: 8,
     overflow: 'hidden',
   },
-  headerButtonGradient: {
-    paddingHorizontal: 12,
+  addButtonGradient: {
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 8,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  content: { 
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  simpleItemContainer: {
+    backgroundColor: '#FFFFFF',
+    padding: 16, 
+    marginVertical: 6,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  simpleItemName: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#4E4E4E',
+  },
+  simpleItemQuantity: {
+    fontSize: 14,
+    color: '#7A736A',
+    marginTop: 4, 
+  },
+  simpleEditButton: { 
+    padding: 8,
+    marginRight: 4,
+  },
+  simpleDeleteButton: { 
+    padding: 8,
+    marginLeft: 4,
   },
   loadingContainer: {
     flex: 1,
@@ -508,23 +547,21 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 8,
     fontSize: 16,
-    color: theme.colors.textSecondary,
+    color: '#7A736A',
   },
   errorContainer: {
     flex:1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: theme.colors.cardBackground,
     margin: 16,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.error,
   },
   errorText: {
     color: theme.colors.error,
     marginVertical: 8,
     textAlign: 'center',
+    fontSize: 16,
   },
   emptyContainer: {
     flex:1,
@@ -534,50 +571,9 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: theme.colors.textSecondary,
+    color: '#7A736A',
     textAlign: 'center',
     marginTop: 8,
-  },
-  content: { 
-    flex: 1,
-  },
-  listContent: { 
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  simpleItemContainer: {
-    backgroundColor: theme.colors.cardBackground,
-    padding: 16,
-    marginVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  simpleItemName: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: theme.colors.text,
-  },
-  simpleItemQuantity: {
-    fontSize: 15,
-    color: theme.colors.textSecondary,
-    marginTop: 4,
-  },
-  simpleEditButton: { 
-    padding: 8,
-    marginRight: 4,
-  },
-  simpleDeleteButton: { 
-    padding: 8,
-    marginLeft: 4,
   },
 });
 
