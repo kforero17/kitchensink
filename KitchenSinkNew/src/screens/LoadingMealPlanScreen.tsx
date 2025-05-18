@@ -106,7 +106,7 @@ const LoadingMealPlanScreen: React.FC = () => {
           cooking: cookingPrefs,
           budget: budgetPrefs,
           usePantryItems
-        });
+        }, null);
         
         logger.debug(`API returned ${recipes.length} total recipes`);
         
@@ -155,6 +155,13 @@ const LoadingMealPlanScreen: React.FC = () => {
         
         // Success! Set the meal plan and navigate to next screen
         setMealPlan(processedRecipes);
+        
+        // Log a sample of processed recipes with their imageUrls
+        if (processedRecipes.length > 0) {
+          logger.debug('[LoadingMealPlanScreen] Sample recipes being set to context:',
+            processedRecipes.slice(0, 3).map(r => ({ name: r.name, imageUrl: r.imageUrl, tags: r.tags }))
+          );
+        }
         
         if (result.constraintsRelaxed && result.message) {
           // Just log the message instead of showing an alert to users

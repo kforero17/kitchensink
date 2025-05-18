@@ -74,29 +74,42 @@ const RecipeDetailScreen: React.FC = () => {
 
   // Helper function to format measurement
   const formatMeasurement = (measurement: string | undefined | null): string => {
-    // If measurement is undefined or null, return an empty string
     if (!measurement) {
       return '';
     }
-    
-    // Ensure measurement is a string
-    const measurementStr = String(measurement);
-    
+    let measurementStr = String(measurement).trim();
+
+    // Check and correct for "1 X Y" pattern e.g. "1 0.5 unit"
+    const leadingOnePattern = /^1\s+(\d+\.?\d*.*)$/;
+    const leadingOneMatch = measurementStr.match(leadingOnePattern);
+    if (leadingOneMatch && leadingOneMatch[1]) {
+      measurementStr = leadingOneMatch[1]; // Use the part after "1 "
+    }
+
     try {
-      // Check if the measurement starts with a number using a safe regex operation
-      const match = measurementStr.match(/^(\d*\.?\d+)\s*(.*)$/);
-      if (match && match[1]) {
-        const number = match[1];
-        const unit = match[2] || '';
-        const fraction = decimalToFraction(parseFloat(number));
-        return `${fraction} ${unit}`.trim();
+      const numberUnitRegex = /^(\d*\.?\d+)\s*(.*)$/;
+      const parts = measurementStr.match(numberUnitRegex);
+
+      if (parts && parts[1]) {
+        const numberPart = parts[1];
+        const unitPart = parts[2] || '';
+        const numValue = parseFloat(numberPart);
+
+        if (isNaN(numValue)) {
+          // This case should ideally not be reached if numberUnitRegex matches
+          return measurementStr; 
+        }
+
+        const formattedNumber = decimalToFraction(numValue);
+        return `${formattedNumber} ${unitPart}`.trim();
+      } else {
+        // If measurementStr doesn't start with a number (e.g., "a handful")
+        return measurementStr; // Return it as is, trimmed.
       }
     } catch (error) {
       console.error('Error formatting measurement:', error);
-      // Return the original measurement if any error occurs during formatting
+      return String(measurement).trim(); // Fallback to original trimmed string on error
     }
-    
-    return measurementStr;
   };
 
   // Add state for feedback
@@ -339,39 +352,32 @@ const RecipeDetailScreen: React.FC = () => {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Ingredients</Text>
               {recipe.ingredients.map((ingredient: any, index: number) => {
-                // Handle different formats of ingredient data
-                // Format 1: {item: string, measurement: string}
-                // Format 2: {name: string, amount: number, unit: string}
-                // Format 3: string
                 let itemName = '';
                 let itemMeasurement = '';
                 
                 if (typeof ingredient === 'string') {
-                  // If ingredient is a plain string
                   itemName = ingredient;
                 } else if (typeof ingredient === 'object') {
-                  // If ingredient is an object, determine its format
                   if (ingredient.item) {
-                    // Format 1: {item, measurement}
                     itemName = ingredient.item;
                     itemMeasurement = ingredient.measurement;
                   } else if (ingredient.name) {
-                    // Format 2: {name, amount, unit}
                     itemName = ingredient.name;
                     itemMeasurement = ingredient.unit 
                       ? `${ingredient.amount || ''} ${ingredient.unit}` 
                       : String(ingredient.amount || '');
                   } else {
-                    // Unknown format - convert to string
                     itemName = JSON.stringify(ingredient);
                   }
                 }
+                
+                const formattedMeasurement = formatMeasurement(itemMeasurement);
                 
                 return (
                   <View key={index} style={styles.ingredientItem}>
                     <MaterialCommunityIcons name="circle-small" size={20} color="#666" />
                     <Text style={styles.ingredientText}>
-                      {formatMeasurement(itemMeasurement)} {itemName}
+                      {formattedMeasurement ? `${formattedMeasurement} ` : ''}{itemName}
                     </Text>
                   </View>
                 );

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Animated, ActivityIndicator, Alert } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Animated, ActivityIndicator, Alert, Image, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation } from '@react-navigation/native';
@@ -19,6 +19,9 @@ import { firestoreService } from '../services/firebaseService';
 // Update MealType to include a combined lunch_dinner type
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'lunch_dinner' | 'snacks';
 type MealPlanNavigationProp = NativeStackNavigationProp<RootStackParamList, 'MealPlan'>;
+
+const screenWidth = Dimensions.get('window').width;
+const recipeImageHeight = screenWidth * 0.56; // 16:9 aspect ratio
 
 const MealPlanScreen: React.FC = () => {
   const navigation = useNavigation<MealPlanNavigationProp>();
@@ -418,9 +421,20 @@ const MealPlanScreen: React.FC = () => {
     const isSelected = selectedRecipes.has(recipe.id);
     const isSwapping = swappingRecipeId === recipe.id;
     
+    // Log recipe name and imageUrl for debugging
+    logger.debug(`[MealPlanScreen] Rendering card for: ${recipe.name}, ImageUrl: ${recipe.imageUrl}`);
+    if (recipe.imageUrl) {
+      logger.debug(`[MealPlanScreen] Image component will be rendered for ${recipe.name}`);
+    } else {
+      logger.debug(`[MealPlanScreen] Image component will NOT be rendered for ${recipe.name} (no imageUrl)`);
+    }
+    
     return (
       <View key={recipe.id} style={[styles.recipeCard, isSelected ? styles.selectedRecipeCard : null]}>
         <TouchableOpacity style={styles.recipeHeader} onPress={() => toggleRecipeDetails(recipe.id)}>
+          {recipe.imageUrl && (
+            <Image source={{ uri: recipe.imageUrl }} style={styles.recipeImage} />
+          )}
           <View style={styles.recipeTitleRow}>
             <TouchableOpacity 
               style={[styles.checkbox, isSelected ? styles.checkboxSelected : null]} 
@@ -969,6 +983,14 @@ const styles = StyleSheet.create({
   instructionsText: {
     color: '#6c757d',
     fontSize: 14,
+  },
+  recipeImage: {
+    width: '100%',
+    height: recipeImageHeight,
+    resizeMode: 'cover',
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    marginBottom: 8,
   },
 });
 

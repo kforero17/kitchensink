@@ -1,5 +1,4 @@
 #import "AppDelegate.h"
-#import <Firebase.h>
 
 #import <React/RCTBundleURLProvider.h>
 #import <React/RCTLinkingManager.h>
@@ -8,14 +7,6 @@
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
-  // Initialize Firebase
-  if ([FIRApp defaultApp] == nil) {
-    [FIRApp configure];
-    NSLog(@"[AppDelegate] Firebase configured successfully.");
-  } else {
-    NSLog(@"[AppDelegate] Firebase already configured.");
-  }
-
   self.moduleName = @"main";
 
   // You can add your custom initial props in the dictionary below.

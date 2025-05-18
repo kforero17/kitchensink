@@ -1243,6 +1243,8 @@ PODS:
     - ExpoModulesCore
   - ExpoFileSystem (16.0.9):
     - ExpoModulesCore
+  - ExpoHaptics (12.8.1):
+    - ExpoModulesCore
   - ExpoKeepAwake (12.8.2):
     - ExpoModulesCore
   - ExpoLinearGradient (12.7.2):
@@ -2529,6 +2531,7 @@ DEPENDENCIES:
   - "ExpoAdapterGoogleSignIn (from `../node_modules/@react-native-google-signin/google-signin/expo/ios`)"
   - ExpoCrypto (from `../node_modules/expo-crypto/ios`)
   - ExpoFileSystem (from `../node_modules/expo-file-system/ios`)
+  - ExpoHaptics (from `../node_modules/expo-haptics/ios`)
   - ExpoKeepAwake (from `../node_modules/expo-keep-awake/ios`)
   - ExpoLinearGradient (from `../node_modules/expo-linear-gradient/ios`)
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
@@ -2651,6 +2654,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-crypto/ios"
   ExpoFileSystem:
     :path: "../node_modules/expo-file-system/ios"
+  ExpoHaptics:
+    :path: "../node_modules/expo-haptics/ios"
   ExpoKeepAwake:
     :path: "../node_modules/expo-keep-awake/ios"
   ExpoLinearGradient:
@@ -2787,15 +2792,16 @@ SPEC CHECKSUMS:
   EXManifests: 429136cffa3ae82d1ba3b60b7243fb186615562e
   Expo: 1b33cb8ab60cff9abf805ed6020af3d1846e457c
   expo-dev-client: 775a683302570193a7ba71032d0b1b82f6ad1454
-  expo-dev-launcher: 0134240d4e6128142c3adf811fcd353a4e20b3e5
-  expo-dev-menu: 2b4ce6108396233849b71805906129de15aadfbc
+  expo-dev-launcher: cb89c3036809decc64c52f4f3b7be23461c4ba0a
+  expo-dev-menu: efe7323e7f918e437a02f20063eb2b55c13dfe99
   expo-dev-menu-interface: 44e69ddff62bbc6c5418c200e657635720b5a480
   ExpoAdapterGoogleSignIn: f5ca2b67502442629d99dbe202b6ae821d77c75d
   ExpoCrypto: 9be8806e896380cb18e5d3d2c13a89ce2f36946a
   ExpoFileSystem: df58e1eb2a4d6f1006a1ca70bddfbbf63e52fa4f
+  ExpoHaptics: c91902e436f3fb0e07aa19acc118018089fa90de
   ExpoKeepAwake: 3b8cf8533b9212500565a1e41fb080fc5af29918
   ExpoLinearGradient: 501f9bbd83f3ec1d0e0425862b9ef4693605fc1c
-  ExpoModulesCore: bc9f47045cd97b741444e335880d65c681d39007
+  ExpoModulesCore: 43ebd65adf2c0e6ffb0de24a41f8f7de12829331
   ExpoNetwork: e1471e293723905e42c944cb3494aee4e017b49b
   EXUpdatesInterface: 3e444e2093e25b7ca0999a7d8c16e8392dee70c3
   FBLazyVector: fbc4957d9aa695250b55d879c1d86f79d7e69ab4
@@ -2827,56 +2833,56 @@ SPEC CHECKSUMS:
   RCTTypeSafety: a759e3b086eccf3e2cbf2493d22f28e082f958e6
   React: 805f5dd55bbdb92c36b4914c64aaae4c97d358dc
   React-callinvoker: 6a697867607c990c2c2c085296ee32cfb5e47c01
-  React-Codegen: 253af17a44126cd81adf2ffba3a56aa28e65efd8
+  React-Codegen: 5dc5a1d423218759879abd3d4de9df59d0eba45a
   React-Core: b65cfcd4bd8249ed4f55861680ed7a0fc8af7714
   React-CoreModules: 399f72f0892befe0fde5d415703c0b9b356762e7
   React-cxxreact: b626dce463af3c20876ff233489fc3d635f7ff24
-  React-debug: 4559ee61556fb824f5b9b1be7fe3c59442fa5732
-  React-Fabric: 96d2911f8ce68dd0efdb8d9f85f0a442734e0f1f
-  React-FabricImage: f83b630c8174f5c0ddb031770b2433817bf434ac
-  React-graphics: a271860691a655f801c8a6d9e346ded9ae2a6916
+  React-debug: f1637bce73342b2f6eee4982508fdfb088667a87
+  React-Fabric: 8644ea92493088e3ea6743eb3f617733c2692e05
+  React-FabricImage: 6c09f0a5a4c564311cf195fbce34d7bd84196515
+  React-graphics: 87ba141b72379824c7835224c1a87993683151a8
   React-hermes: 0f64b997c565aec9f43300ae177c70356714e4b4
-  React-ImageManager: ff32d454c33363e7826dcea50598cce8c3749d85
-  React-jserrorhandler: 024b18b4356fa712411e4d774c23d1ce2397ee6e
+  React-ImageManager: 1bc92d558d4d5de07c6c1a7244d33ad2a872728e
+  React-jserrorhandler: 0b1476485be6d79f09a8f0548c355b1cc14e8f21
   React-jsi: 757f92f9775686d70e2a50dae04ef1435e598a9b
   React-jsiexecutor: b3a6cdcdc5b3a476dab90c432e0dabfb32965905
   React-jsinspector: 03644c063fc3621c9a4e8bf263a8150909129618
   React-logger: b42a493ae72922d8d6a497038359240ffd457119
-  React-Mapbuffer: 2260f8f5cbd2d9d769d4f2465ade1c5a02b10768
+  React-Mapbuffer: 2cd1af67c3754dfb934948448125f0e051586db7
   react-native-netinfo: 5364263f903da576bdef9c84a76fe243ab06812c
   react-native-safe-area-context: bf9d9d58f0f6726d4a6257088044c2595017579d
-  React-nativeconfig: 4dda3cbbdd1c4ce38450bb10b34b3e54120e4a91
-  React-NativeModulesApple: b5e40375df50e3dcea7865cb8bd6b080ebd9841d
+  React-nativeconfig: d753fbbc8cecc8ae413d615599ac378bbf6999bb
+  React-NativeModulesApple: 4cc974c51ebc4911173bbe5d5897ad55ebc8b90f
   React-perflogger: 29efe63b7ef5fbaaa50ef6eaa92482f98a24b97e
   React-RCTActionSheet: 69134c62aefd362027b20da01cd5d14ffd39db3f
   React-RCTAnimation: ed774e28e707ce47b1e2dc6aa7f8f3267b815061
   React-RCTAppDelegate: cf29aa6cd53d7f31e860a1cb5b5a0b11ae7a7793
   React-RCTBlob: 31c88e549f2e47e6793fd5673ea108d07cc4731a
-  React-RCTFabric: 3ece2f52b31e08786cecdf33b0d379b5bee500d2
+  React-RCTFabric: 772da85b866d2148a974b5453ab41c4344017d47
   React-RCTImage: 1f75f5d0539b381f70981386b1459fbb2c21eb9b
   React-RCTLinking: febd566d57a9cb05a02f39771ccc8c20f8432e89
   React-RCTNetwork: d427de729372fd50d7cb601db64d0fcd9ea9a514
   React-RCTSettings: 73594c6c8c334c7d958cf98ac72335f3e4df9bf5
   React-RCTText: f1079c24f45cec6ddb6363c12ad87f9a940b2ddb
   React-RCTVibration: 62420b57a47482d1b88dde64ba88d333f2625aab
-  React-rendererdebug: b2cb5162f085d46fdcf974ad7358f6dc4ac13b8c
-  React-rncore: 408a3b39ac86ff93cb58136633f34fc01309e15a
+  React-rendererdebug: a474ec4cdfed75211dce6c3828de8391cc5c4280
+  React-rncore: 74030de0ffef7b1a3fb77941168624534cc9ae7f
   React-runtimeexecutor: 2d1f64f58193f00a3ad71d3f89c2bfbfe11cf5a5
-  React-runtimescheduler: 711e302cd50c3a511654221104903b48402ae1da
-  React-utils: 41ff9bcf46370ba233d132ee2b60418be3f7e506
-  ReactCommon: 66f5dc4f6413c5438170dc53c9853f8247f83dac
+  React-runtimescheduler: 96207cc454b77b5f161c7be499db04781207f819
+  React-utils: dd1e04ea7105dc58637939b50f1a74a5dd634ec4
+  ReactCommon: 35e3b6a1c75d462acb0155e38e627b98d5bf586b
   RecaptchaInterop: 7d1a4a01a6b2cb1610a47ef3f85f0c411434cb21
   RNCAsyncStorage: a03b770a50541a761447cea9c24536047832124d
   RNCPicker: 124b4fb5859ba1a3fd53a91e16d1e7a0fc016e59
   RNDateTimePicker: 29264364ea7b8cc0fb355b3843cf276a4ff78966
-  RNFBApp: 3ecdb44edd5cce785ea9b796682766889962a5fd
-  RNFBAuth: 327620a148d9ac142639caf287fd4fba63c6ef51
-  RNFBFirestore: 6c563c1b54063db3258755389fbfc4decabcb842
+  RNFBApp: 5e27e8311042d41fa8350f1751ab42e042c39d52
+  RNFBAuth: 256f82d02f2274d73cf86ea52abb9dc1fa61ef59
+  RNFBFirestore: 2d0ac198f3f3d23861d6db818e16e5eaf9ca0ae9
   RNGoogleSignin: b8760528f2a7cbe157ecfdcc13bdb7d2745c9389
-  RNScreens: 587841d29ca90ccdb0416bf9ac9a48e12e850222
+  RNScreens: 8d1521c6e375a79dbd4525efaf21704cc64ac0cf
   SocketRocket: f32cd54efbe0f095c4d7594881e52619cfe80b17
   Yoga: 13c8ef87792450193e117976337b8527b49e8c03
 
-PODFILE CHECKSUM: 730c8cd6fb56b1c566dd43611ba87df3fa2b591e
+PODFILE CHECKSUM: 1d7cab05c3801f457224375b14ac524bcdf86e9d
 
 COCOAPODS: 1.16.2

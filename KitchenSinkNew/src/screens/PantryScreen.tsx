@@ -77,9 +77,21 @@ const PantryScreen: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [storageServiceReady, setStorageServiceReady] = useState(false);
+  const [multiSelectModeEnabled, setMultiSelectModeEnabled] = useState(false); // New state for multi-select mode
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]); // New state for selected item IDs
   
   const fadeAnim = new Animated.Value(0);
   const slideAnim = new Animated.Value(50);
+
+  const handleToggleSelectAll = () => {
+    if (selectedItemIds.length === items.length) {
+      // All items are selected, so deselect all
+      setSelectedItemIds([]);
+    } else {
+      // Not all items are selected (or none are), so select all
+      setSelectedItemIds(items.map(item => item.id));
+    }
+  };
 
   // loadItems and its dependent useEffects are now being uncommented
   const loadItems = useCallback(async () => {
@@ -240,6 +252,8 @@ const PantryScreen: React.FC = () => {
               if (success) {
                 const updatedItems = items.filter(item => item.id !== itemId);
                 setItems(updatedItems);
+                // If the deleted item was in the multi-select list, remove it
+                setSelectedItemIds(prevSelectedIds => prevSelectedIds.filter(id => id !== itemId));
                 if (resilientStorage && typeof resilientStorage.setItem === 'function') {
                   await resilientStorage.setItem('pantryItems', JSON.stringify(updatedItems));
                 }
@@ -357,6 +371,88 @@ const PantryScreen: React.FC = () => {
     setEditModalVisible(false);
   };
 
+  const handleDeleteSelectedItems = async () => {
+    if (!user?.uid) {
+      Alert.alert("Error", "You must be logged in to delete items.");
+      return;
+    }
+    if (selectedItemIds.length === 0) {
+      Alert.alert("No items selected", "Please select items to delete.");
+      return;
+    }
+
+    Alert.alert(
+      "Delete Selected Items",
+      `Are you sure you want to delete ${selectedItemIds.length} item(s)?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            logger.debug(`[PantryScreen] Attempting to delete ${selectedItemIds.length} selected items.`);
+            const originalItems = [...items];
+            const itemsToDelete = selectedItemIds;
+
+            // Optimistically update UI
+            const newItems = items.filter(item => !itemsToDelete.includes(item.id));
+            setItems(newItems);
+            setSelectedItemIds([]);
+            // No need to exit multiSelectModeEnabled here, user might want to select more
+            // setMultiSelectModeEnabled(false); 
+
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const itemId of itemsToDelete) {
+              try {
+                let success = false;
+                if (fallbackMode) {
+                  logger.info(`[PantryScreen] Fallback mode: Simulating delete for item: ${itemId}`);
+                  success = true;
+                } else {
+                  success = await deletePantryItem(user.uid, itemId);
+                }
+
+                if (success) {
+                  successCount++;
+                } else {
+                  failCount++;
+                  logger.warn(`[PantryScreen] Failed to delete item: ${itemId} from service.`);
+                }
+              } catch (error) {
+                failCount++;
+                logger.error(`[PantryScreen] Error deleting item ${itemId}:`, error);
+              }
+            }
+
+            logger.debug(`[PantryScreen] Batch delete summary: ${successCount} succeeded, ${failCount} failed.`);
+
+            if (failCount > 0) {
+              // Revert UI for failed deletions or fetch fresh list
+              // For simplicity, let's reload items to ensure consistency if any failed
+              Alert.alert(
+                "Deletion Summary",
+                `${successCount} item(s) deleted successfully. ${failCount} item(s) failed to delete. Reloading list for consistency.`
+              );
+              loadItems(); // Reload to get the actual state from the backend
+            } else {
+              Alert.alert("Success", `${successCount} item(s) successfully deleted.`);
+              // Update resilientStorage with the successfully modified list (newItems)
+              if (resilientStorage && typeof resilientStorage.setItem === 'function') {
+                await resilientStorage.setItem('pantryItems', JSON.stringify(newItems));
+                logger.debug('[PantryScreen] resilientStorage updated after batch delete.');
+              }
+            }
+            // Ensure multi-select mode is exited after operations
+            setMultiSelectModeEnabled(false);
+            setSelectedItemIds([]);
+          },
+        },
+      ]
+    );
+  };
+
   // Simplified render, but with structure and some state display
   return (
     <SafeAreaView style={styles.container}>
@@ -368,19 +464,48 @@ const PantryScreen: React.FC = () => {
           <Ionicons name="arrow-back" size={24} color={styles.title.color} />
         </TouchableOpacity>
         <Text style={styles.title}>My Pantry</Text>
-        <TouchableOpacity
-          style={styles.addButtonContainer}
-          onPress={() => setModalVisible(true)}
-        >
-          <LinearGradient
-            colors={['#D9A15B', '#B57A42']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.addButtonGradient}
+        <View style={styles.headerActions}>
+          {multiSelectModeEnabled ? (
+            <>
+              <TouchableOpacity onPress={handleToggleSelectAll} style={styles.headerButton}>
+                <Ionicons 
+                  name={selectedItemIds.length === items.length && items.length > 0 ? "checkmark-done-circle-outline" : "checkmark-done-outline"} 
+                  size={28} 
+                  color={styles.title.color} 
+                />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleDeleteSelectedItems} style={styles.headerButton} disabled={selectedItemIds.length === 0}>
+                <Ionicons name="trash-outline" size={28} color={selectedItemIds.length === 0 ? '#cccccc' : theme.colors.error} />
+                {selectedItemIds.length > 0 && (
+                  <Text style={styles.selectionCount}>{selectedItemIds.length}</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => {
+                setMultiSelectModeEnabled(false);
+                setSelectedItemIds([]);
+              }} style={styles.headerButton}>
+                <Ionicons name="close-outline" size={30} color={styles.title.color} />
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity onPress={() => setMultiSelectModeEnabled(true)} style={styles.headerButton}>
+              <Ionicons name="checkbox-outline" size={28} color={styles.title.color} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.addButtonContainer}
+            onPress={() => setModalVisible(true)}
           >
-            <Ionicons name="add" size={24} color="white" />
-          </LinearGradient>
-        </TouchableOpacity>
+            <LinearGradient
+              colors={['#D9A15B', '#B57A42']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.addButtonGradient}
+            >
+              <Ionicons name="add" size={24} color="white" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
       </View>
       
         <Animated.View 
@@ -415,20 +540,52 @@ const PantryScreen: React.FC = () => {
         
         {loading === false && error === null && items.length > 0 && (
           <ScrollView style={styles.listContent}>
-            {items.map(item => (
-              <View key={item.id} style={styles.simpleItemContainer}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.simpleItemName}>{item.name}</Text>
-                  <Text style={styles.simpleItemQuantity}>{item.quantity} {item.unit}</Text>
-                </View>
-                <TouchableOpacity onPress={() => handleOpenEditModal(item)} style={styles.simpleEditButton}> 
-                  <Ionicons name="pencil-outline" size={22} color={'#D9A15B'} />
+            {items.map(item => {
+              const isSelected = selectedItemIds.includes(item.id);
+              return (
+                <TouchableOpacity 
+                  key={item.id} 
+                  style={[styles.simpleItemContainer, isSelected && styles.selectedItemContainer]} 
+                  onPress={() => {
+                    if (multiSelectModeEnabled) {
+                      setSelectedItemIds(prevSelectedIds => 
+                        isSelected 
+                          ? prevSelectedIds.filter(id => id !== item.id) 
+                          : [...prevSelectedIds, item.id]
+                      );
+                    } else {
+                      // Potentially open edit modal or other action if not in multi-select mode
+                      handleOpenEditModal(item); 
+                    }
+                  }}
+                  onLongPress={() => {
+                    if (!multiSelectModeEnabled) {
+                      setMultiSelectModeEnabled(true);
+                      setSelectedItemIds([item.id]); // Start multi-select by long-pressing and select this item
+                    }
+                  }}
+                >
+                  {multiSelectModeEnabled && (
+                    <Ionicons 
+                      name={isSelected ? "checkbox" : "checkbox-outline"} 
+                      size={24} 
+                      color={isSelected ? theme.colors.primary : '#4E4E4E'} 
+                      style={styles.checkboxIcon}
+                    />
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.simpleItemName}>{item.name}</Text>
+                    <Text style={styles.simpleItemQuantity}>{item.quantity} {item.unit}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => handleOpenEditModal(item)} style={styles.simpleEditButton}> 
+                    <Ionicons name="pencil-outline" size={22} color={'#D9A15B'} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => handleDeleteItem(item.id)} style={styles.simpleDeleteButton}> 
+                    <Ionicons name="trash-outline" size={24} color={theme.colors.error} />
+                  </TouchableOpacity>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDeleteItem(item.id)} style={styles.simpleDeleteButton}> 
-                  <Ionicons name="trash-outline" size={24} color={theme.colors.error} />
-              </TouchableOpacity>
-            </View>
-            ))}
+              );
+            })}
           </ScrollView>
           )}
         </Animated.View>
@@ -476,19 +633,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12, // Adjusted padding
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E6DED3',
   },
   backButton: {
-    marginRight: 12,
-    padding: 4,
+    padding: 4, // Removed marginRight to let headerActions handle spacing
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#4E4E4E',
+    textAlign: 'center', // Center title
+    flex: 1, // Allow title to take available space
+  },
+  headerActions: { // New style for grouping header action buttons
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: { // New style for generic header buttons
+    padding: 8,
+    marginLeft: 8, // Spacing between buttons
+  },
+  selectionCount: { // Style for the selection counter badge
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: theme.colors.error,
+    color: 'white',
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   addButtonContainer: {
     borderRadius: 8,
@@ -530,6 +708,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#7A736A',
     marginTop: 4, 
+  },
+  selectedItemContainer: { // New style for selected items
+    backgroundColor: '#E8F0FE', // A light blue, for example
+    borderColor: theme.colors.primary,
+    borderWidth: 1,
+  },
+  checkboxIcon: { // New style for the checkbox icon
+    marginRight: 12,
   },
   simpleEditButton: { 
     padding: 8,

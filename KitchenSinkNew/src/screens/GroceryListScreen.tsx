@@ -1077,6 +1077,83 @@ const GroceryListScreen: React.FC = () => {
     }
   };
   
+  // Add this new handler function after handleExportToNotes
+  const handleAddAllToPantry = async () => {
+    try {
+      // Ensure user is logged in
+      if (!user?.uid) {
+        Alert.alert('Error', 'You must be logged in to add items to the pantry.');
+        return;
+      }
+
+      setSavingInProgress(true);
+      
+      // Get all non-removed items
+      const itemsToAdd = Object.values(categorizedIngredients)
+        .flat()
+        .filter(item => !removedIngredients.has(item.name.toLowerCase()))
+        .map(item => ({
+          name: item.name,
+          measurement: item.measurement,
+          category: item.category || 'Other'
+        }));
+
+      if (itemsToAdd.length === 0) {
+        Alert.alert('No Items', 'There are no items to add to your pantry.');
+        setSavingInProgress(false);
+        return;
+      }
+      
+      // Use the Firestore-specific function
+      const successCount = await addGroceryItemsToPantryFirestore(user.uid, itemsToAdd);
+      
+      setSavingInProgress(false);
+      
+      if (successCount > 0) {
+        Alert.alert(
+          'Success',
+          `${successCount} item${successCount === 1 ? '' : 's'} added/updated in your pantry.`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Error', 'Failed to add items to pantry. Please try again.');
+      }
+    } catch (error) {
+      setSavingInProgress(false);
+      console.error('Error adding items to pantry:', error);
+      Alert.alert('Error', 'Something went wrong while adding items to the pantry.');
+    }
+  };
+
+  // Handle exporting to Notes app (iOS)
+  const handleExportToNotes = async () => {
+    try {
+      // Create a text representation of the grocery list
+      let notesText = `${listName}\n\n`;
+      
+      Object.keys(categorizedIngredients).forEach(category => {
+        notesText += `${category}:\n`;
+        
+        categorizedIngredients[category].forEach(item => {
+          if (!removedIngredients.has(item.name.toLowerCase())) {
+            notesText += `□ ${item.measurement} ${item.name}\n`;
+          }
+        });
+        
+        notesText += "\n";
+      });
+      
+      // Use the Share API to share the text
+      await Share.share({
+        message: notesText,
+        title: listName
+      });
+    } catch (error) {
+      console.error('Error exporting to Notes:', error);
+      Alert.alert('Error', 'Failed to export your grocery list. Please try again.');
+    }
+  };
+  
   // Handle adding selected items to pantry
   const handleAddToPantry = async () => {
     try {
@@ -1125,35 +1202,6 @@ const GroceryListScreen: React.FC = () => {
     }
   };
 
-  // Handle exporting to Notes app (iOS)
-  const handleExportToNotes = async () => {
-    try {
-      // Create a text representation of the grocery list
-      let notesText = `${listName}\n\n`;
-      
-      Object.keys(categorizedIngredients).forEach(category => {
-        notesText += `${category}:\n`;
-        
-        categorizedIngredients[category].forEach(item => {
-          if (!removedIngredients.has(item.name.toLowerCase())) {
-            notesText += `□ ${item.measurement} ${item.name}\n`;
-          }
-        });
-        
-        notesText += "\n";
-      });
-      
-      // Use the Share API to share the text
-      await Share.share({
-        message: notesText,
-        title: listName
-      });
-    } catch (error) {
-      console.error('Error exporting to Notes:', error);
-      Alert.alert('Error', 'Failed to export your grocery list. Please try again.');
-    }
-  };
-  
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -1256,20 +1304,20 @@ const GroceryListScreen: React.FC = () => {
       
       <View style={styles.actionsContainer}>
         {isFromProfile ? (
-          // Show add to pantry and export to notes buttons when viewing from profile
+          // Show add to pantry, add all to pantry, and export to notes buttons when viewing from profile
           <>
             <TouchableOpacity
-              style={styles.actionButton} // Uses flex:1 and margins
+              style={styles.actionButton}
               onPress={handleAddToPantry}
               disabled={selectedItems.size === 0 || savingInProgress}
             >
               <LinearGradient
-                colors={['#D9A15B', '#B57A42']} // Primary theme gradient
+                colors={['#D9A15B', '#B57A42']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={styles.buttonGradient} // Defines padding and content alignment
+                style={styles.buttonGradient}
               >
-                {savingInProgress && selectedItems.size > 0 ? ( // Show indicator only if this button caused saving
+                {savingInProgress && selectedItems.size > 0 ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <>
@@ -1279,16 +1327,38 @@ const GroceryListScreen: React.FC = () => {
                 )}
               </LinearGradient>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
-              style={styles.actionButton} // Uses flex:1 and margins
+              style={styles.actionButton}
+              onPress={handleAddAllToPantry}
+              disabled={savingInProgress}
+            >
+              <LinearGradient
+                colors={['#C4B5A4', '#A58D78']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.buttonGradient}
+              >
+                {savingInProgress ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="fridge-outline" size={20} color="#fff" />
+                    <Text style={styles.actionButtonText}>Add All to Pantry</Text>
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionButton}
               onPress={handleExportToNotes}
             >
               <LinearGradient
-                colors={['#C4B5A4', '#A58D78']} // Secondary/neutral gradient
+                colors={['#C4B5A4', '#A58D78']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={styles.buttonGradient} // Defines padding and content alignment
+                style={styles.buttonGradient}
               >
                 <MaterialCommunityIcons name="export" size={20} color="#FFF" />
                 <Text style={styles.actionButtonText}>Export to Notes</Text>
@@ -1296,28 +1366,52 @@ const GroceryListScreen: React.FC = () => {
             </TouchableOpacity>
           </>
         ) : (
-          // Show save button when creating a new list
-          <TouchableOpacity
-            style={[styles.saveButton, savingInProgress && styles.disabledButton]}
-            onPress={handleSaveList}
-            disabled={loading || savingInProgress}
-          >
-            <LinearGradient
-              colors={['#D9A15B', '#B57A42']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.buttonGradient}
+          // Show save list and add all to pantry buttons when creating a new list
+          <>
+            <TouchableOpacity
+              style={[styles.actionButton, savingInProgress && styles.disabledButton]}
+              onPress={handleSaveList}
+              disabled={loading || savingInProgress}
             >
-              {savingInProgress ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <MaterialCommunityIcons name="content-save" size={20} color="#fff" />
-                  <Text style={styles.saveButtonText}>Save List</Text>
-                </>
-              )}
-            </LinearGradient>
-          </TouchableOpacity>
+              <LinearGradient
+                colors={['#D9A15B', '#B57A42']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.buttonGradient}
+              >
+                {savingInProgress ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="content-save" size={20} color="#fff" />
+                    <Text style={styles.actionButtonText}>Save List</Text>
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionButton, savingInProgress && styles.disabledButton]}
+              onPress={handleAddAllToPantry}
+              disabled={loading || savingInProgress}
+            >
+              <LinearGradient
+                colors={['#C4B5A4', '#A58D78']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.buttonGradient}
+              >
+                {savingInProgress ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="fridge-outline" size={20} color="#fff" />
+                    <Text style={styles.actionButtonText}>Add All to Pantry</Text>
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </>
         )}
       </View>
       

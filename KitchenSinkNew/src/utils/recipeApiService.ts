@@ -319,6 +319,9 @@ export function convertApiToRecipe(apiRecipe: SpoonacularRecipe): Recipe {
   // Generate appropriate tags based on API data
   const tags: string[] = [];
   
+  // Log raw image data from API
+  logger.debug(`[convertApiToRecipe] Processing recipe: ${apiRecipe.title}, Image: ${apiRecipe.image}, ImageType: ${apiRecipe.imageType}`);
+
   // Map dietary tags
   if (apiRecipe.vegetarian) tags.push('vegetarian');
   if (apiRecipe.vegan) tags.push('vegan');
@@ -429,6 +432,16 @@ export function convertApiToRecipe(apiRecipe: SpoonacularRecipe): Recipe {
   }
   
   // Create the recipe object in our app's format
+  let imageUrl = apiRecipe.image;
+  if (apiRecipe.id && apiRecipe.imageType) {
+    // Always use a high-res size (e.g., 636x393)
+    imageUrl = `https://spoonacular.com/recipeImages/${apiRecipe.id}-636x393.${apiRecipe.imageType}`;
+    logger.debug(`[convertApiToRecipe] Constructed high-res image URL: ${imageUrl}`);
+  } else if (apiRecipe.image) {
+    imageUrl = apiRecipe.image;
+    logger.debug(`[convertApiToRecipe] Fallback to provided image URL: ${imageUrl}`);
+  }
+  
   return {
     id: apiRecipe.id.toString(),
     name: apiRecipe.title,
@@ -447,6 +460,7 @@ export function convertApiToRecipe(apiRecipe: SpoonacularRecipe): Recipe {
     instructions: apiRecipe.analyzedInstructions && apiRecipe.analyzedInstructions.length > 0
       ? apiRecipe.analyzedInstructions[0].steps.map(step => step.step)
       : ['No detailed instructions available'],
+    imageUrl: imageUrl, // Use the constructed high-res imageUrl
     tags: tags,
     estimatedCost: apiRecipe.pricePerServing / 25 // Convert from cents per serving to dollars per recipe
   };
