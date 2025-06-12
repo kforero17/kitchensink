@@ -262,23 +262,19 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   const handleContinue = async () => {
-    try {
-      // Convert extended preferences back to FoodPreferences format
-      const foodPreferences: FoodPreferences = {
-        ...preferences,
-        preferredCuisines: preferences.favoriteCuisines,
-      };
-      const success = await saveFoodPreferences(foodPreferences);
-      if (success) {
-        if (isFromProfile) {
-          navigation.goBack();
-        } else {
-          navigation.navigate('CookingHabits', { fromProfile: false });
-        }
+    // Convert extended preferences back to FoodPreferences format
+    const foodPreferences: FoodPreferences = {
+      ...preferences,
+      preferredCuisines: preferences.favoriteCuisines,
+    };
+    const success = await saveFoodPreferences(foodPreferences);
+    if (success) {
+      if (isFromProfile) {
+        navigation.goBack();
       } else {
-        throw new Error('Failed to save preferences');
+        navigation.navigate('CookingHabits', { fromProfile: false });
       }
-    } catch (error) {
+    } else {
       Alert.alert(
         'Error',
         'Failed to save preferences. Please try again.',

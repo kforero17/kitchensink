@@ -85,22 +85,17 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleContinue = async () => {
-    try {
-      const success = await saveDietaryPreferences(preferences);
-      if (success) {
-        if (isFromProfile) {
-          navigation.navigate('Profile');
-        } else {
-          navigation.navigate('FoodPreferences', { fromProfile: isFromProfile });
-        }
+    const success = await saveDietaryPreferences(preferences);
+    if (success) {
+      if (isFromProfile) {
+        navigation.navigate('Profile');
       } else {
-        throw new Error('Failed to save preferences');
+        navigation.navigate('FoodPreferences', { fromProfile: isFromProfile });
       }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to save preferences';
+    } else {
       Alert.alert(
         'Error',
-        `${errorMessage}. Please try again.`,
+        'Failed to save preferences. Please try again.',
         [{ text: 'OK' }]
       );
     }

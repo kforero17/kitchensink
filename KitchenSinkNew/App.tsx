@@ -19,15 +19,29 @@ const App = () => {
   useEffect(() => {
     const initApp = async () => {
       try {
-        // Test Firebase initialization
-        const apps = firebase.apps;
-        console.log('Firebase Apps:', apps.length);
-        console.log('Default App:', firebase.app().name);
+        // Wait a bit for native Firebase initialization to complete
+        await new Promise(resolve => setTimeout(resolve, 100));
         
-        // Test Firebase Auth initialization
-        const authInstance = auth();
-        console.log('Auth Instance:', authInstance ? 'Initialized' : 'Failed');
-        console.log('Current User:', authInstance.currentUser);
+        // Test Firebase initialization with proper error handling
+        try {
+          const apps = firebase.apps;
+          console.log('Firebase Apps:', apps.length);
+          
+          if (apps.length > 0) {
+            const defaultApp = firebase.app();
+            console.log('Default App:', defaultApp.name);
+            
+            // Test Firebase Auth initialization
+            const authInstance = auth();
+            console.log('Auth Instance:', authInstance ? 'Initialized' : 'Failed');
+            console.log('Current User:', authInstance.currentUser);
+          } else {
+            console.log('No Firebase apps initialized yet');
+          }
+        } catch (firebaseError) {
+          console.error('Firebase not ready yet:', firebaseError);
+          // Continue with app initialization even if Firebase isn't ready
+        }
         
         // Clear all preferences on app start
         await clearAllPreferences();
@@ -69,6 +83,12 @@ const App = () => {
   const preloadCriticalStorageKeys = async () => {
     try {
       logger.debug('[App] Preloading critical storage keys...');
+      
+      // Check if resilientStorage is available
+      if (!resilientStorage) {
+        logger.warn('[App] ResilientStorage not available, skipping preload');
+        return;
+      }
       
       // List of critical keys to preload
       const criticalKeys = [

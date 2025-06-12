@@ -15,8 +15,23 @@ export interface RecipeFeedback {
 
 class RecipeFeedbackService {
   private collection = 'recipe_feedback';
-  private db = firestore();
+  private db: ReturnType<typeof firestore> | null = null;
   private initialized = false;
+
+  /**
+   * Get the Firestore database instance (lazy initialization)
+   */
+  private getDb() {
+    if (!this.db) {
+      try {
+        this.db = firestore();
+      } catch (error) {
+        console.error('Failed to initialize Firestore:', error);
+        throw new Error('Firestore not available. Make sure Firebase is properly initialized.');
+      }
+    }
+    return this.db;
+  }
 
   /**
    * Initialize the feedback collection if it doesn't exist
@@ -25,8 +40,9 @@ class RecipeFeedbackService {
     if (this.initialized) return;
     
     try {
+      const db = this.getDb();
       // Check if the collection exists by trying to get a document from it
-      const testQuery = await this.db.collection(this.collection).limit(1).get();
+      const testQuery = await db.collection(this.collection).limit(1).get();
       
       // If we get here without error, the collection exists
       this.initialized = true;
@@ -38,8 +54,9 @@ class RecipeFeedbackService {
         const user = auth().currentUser;
         if (!user) throw new Error('No authenticated user found');
         
+        const db = this.getDb();
         // Create a placeholder document in the collection
-        await this.db.collection(this.collection).doc('_placeholder').set({
+        await db.collection(this.collection).doc('_placeholder').set({
           created: firestore.FieldValue.serverTimestamp(),
           createdBy: user.uid
         });
@@ -79,7 +96,8 @@ class RecipeFeedbackService {
       // Create a unique document ID using recipeId and userId
       const docId = `${recipeId}_${userId}`;
 
-      await this.db
+      const db = this.getDb();
+      await db
         .collection(this.collection)
         .doc(docId)
         .set(feedbackData, { merge: true });
@@ -113,7 +131,8 @@ class RecipeFeedbackService {
       await this.ensureCollectionExists();
 
       const docId = `${recipeId}_${userId}`;
-      const doc = await this.db
+      const db = this.getDb();
+      const doc = await db
         .collection(this.collection)
         .doc(docId)
         .get();
@@ -142,7 +161,8 @@ class RecipeFeedbackService {
       // Ensure collection exists
       await this.ensureCollectionExists();
       
-      const snapshot = await this.db
+      const db = this.getDb();
+      const snapshot = await db
         .collection(this.collection)
         .where('recipeId', '==', recipeId)
         .get();
@@ -180,7 +200,8 @@ class RecipeFeedbackService {
       // Ensure collection exists
       await this.ensureCollectionExists();
 
-      const snapshot = await this.db
+      const db = this.getDb();
+      const snapshot = await db
         .collection(this.collection)
         .where('userId', '==', userId)
         .orderBy('feedbackDate', 'desc')

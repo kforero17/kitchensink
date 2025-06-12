@@ -139,18 +139,14 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
   };
 
   const handleContinue = async () => {
-    try {
-      const success = await saveCookingPreferences(preferences);
-      if (success) {
-        if (isFromProfile) {
-          navigation.goBack();
-        } else {
-          navigation.navigate('BudgetPreferences', { fromProfile: isFromProfile });
-        }
+    const success = await saveCookingPreferences(preferences);
+    if (success) {
+      if (isFromProfile) {
+        navigation.goBack();
       } else {
-        throw new Error('Failed to save preferences');
+        navigation.navigate('BudgetPreferences', { fromProfile: isFromProfile });
       }
-    } catch (error) {
+    } else {
       Alert.alert(
         'Error',
         'Failed to save preferences. Please try again.',

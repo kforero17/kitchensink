@@ -103,19 +103,14 @@ export const BudgetPreferencesScreen: React.FC<Props> = ({ navigation }) => {
       return;
     }
 
-    try {
-      const success = await saveBudgetPreferences(preferences);
-      if (success) {
-        if (isFromProfile) {
-          navigation.goBack();
-        } else {
-          // This is the last step in the onboarding process
-          navigation.navigate('LoadingMealPlan');
-        }
+    const success = await saveBudgetPreferences(preferences);
+    if (success) {
+      if (isFromProfile) {
+        navigation.goBack();
       } else {
-        throw new Error('Failed to save preferences');
+        navigation.navigate('LoadingMealPlan');
       }
-    } catch (error) {
+    } else {
       Alert.alert(
         'Error',
         'Failed to save preferences. Please try again.',
