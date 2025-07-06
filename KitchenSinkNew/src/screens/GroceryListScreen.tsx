@@ -10,8 +10,6 @@ import { Recipe } from '../types/Recipe';
 import { standardizeGroceryItem } from '../utils/groceryStandardization';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
-import AuthModal from '../components/AuthModal';
-import AuthPrompt from '../components/AuthPrompt';
 import { groceryListService } from '../services/groceryListService';
 import { firestoreService } from '../services/firebaseService';
 import { addGroceryItemsToPantryFirestore } from '../services/pantryService';
@@ -366,8 +364,7 @@ const GroceryListScreen: React.FC = () => {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [categorizedIngredients, setCategorizedIngredients] = useState<Record<string, Ingredient[]>>({});
   const [removedIngredients, setRemovedIngredients] = useState<Set<string>>(new Set());
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [showAuthPrompt, setShowAuthPrompt] = useState(false);
+
   const [savedLists, setSavedLists] = useState<any[]>([]);
   const [savingInProgress, setSavingInProgress] = useState(false);
   const [listName, setListName] = useState('My Grocery List');
@@ -622,18 +619,8 @@ const GroceryListScreen: React.FC = () => {
     loadSavedLists();
   }, []);
   
-  // Show auth prompt when user completes the initial flow
-  useEffect(() => {
-    if (!user && !hasCompletedOnboarding) {
-      // Wait a bit before showing the auth prompt to allow the user to see the grocery list first
-      const timer = setTimeout(() => {
-        setShowAuthPrompt(true);
-        setHasCompletedOnboarding(true);
-      }, 1500);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [user, hasCompletedOnboarding]);
+  // Since authentication is now required before reaching this screen, 
+  // we can remove the auth prompt logic
   
   // Handle removing an ingredient
   const handleRemoveIngredient = (ingredientName: string) => {
@@ -867,9 +854,8 @@ const GroceryListScreen: React.FC = () => {
       console.log('GroceryListScreen: Starting grocery list save process');
       
       if (!user) {
-        console.log('GroceryListScreen: User not authenticated, showing auth prompt.');
-        // Removed call to groceryListService.startBackgroundGroceryListCreation
-        setShowAuthPrompt(true);
+        console.log('GroceryListScreen: User not authenticated, this should not happen.');
+        Alert.alert('Error', 'You must be logged in to save grocery lists.');
         setSavingInProgress(false);
         return;
       }
@@ -938,6 +924,7 @@ const GroceryListScreen: React.FC = () => {
         
         if (listId) {
           console.log('GroceryListScreen: Grocery list created successfully with ID:', listId);
+          setHasCompletedOnboarding(true);
           Alert.alert(
             'Success',
             'Your grocery list has been saved! You can access all your saved lists in your profile.',
@@ -955,99 +942,7 @@ const GroceryListScreen: React.FC = () => {
     }
   };
 
-  // Enhanced auth success handler with data migration
-  const handleAuthSuccess = async () => {
-    try {
-      // Close the modal
-      setShowAuthPrompt(false);
-      setShowAuthModal(false);
-      
-      // Show loading indicator
-      setSavingInProgress(true);
-      
-      // Wait for the auth state to update
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Create grocery list items from categorized ingredients
-      const groceryItems = Object.values(categorizedIngredients)
-        .flat()
-        .filter(item => !removedIngredients.has(item.name.toLowerCase()))
-        .map(item => ({
-          name: item.name,
-          measurement: item.measurement,
-          category: item.category || 'Other',
-          isChecked: false
-        }));
-      
-      // Only save grocery list if there are items and we're not viewing an existing list
-      if (groceryItems.length > 0 && !existingListId) {
-        console.log(`Creating grocery list with ${groceryItems.length} items`);
-        // Save grocery list
-        const listId = await groceryListService.createGroceryList(
-          'My First Grocery List', 
-          groceryItems
-        );
-      }
-      
-      // If there are selected recipes, save them
-      if (selectedRecipes && selectedRecipes.length > 0) {
-        console.log(`Saving ${selectedRecipes.length} selected recipes to profile during onboarding`);
-        
-        // Save recipes to Firestore, marking them as part of the weekly meal plan
-        for (const recipe of selectedRecipes) {
-          console.log(`Saving recipe to profile: ${recipe.name} (isWeeklyMealPlan=true)`);
-          await firestoreService.saveRecipe({
-            name: recipe.name,
-            servings: recipe.servings,
-            readyInMinutes: parseInt(recipe.prepTime || '0') + parseInt(recipe.cookTime || '0'),
-            ingredients: recipe.ingredients.map((ing: { item: string; measurement: string }) => ({
-              name: ing.item,
-              amount: 1, // Default amount
-              unit: ing.measurement,
-              originalString: `${ing.measurement} ${ing.item}`
-            })),
-            instructions: recipe.instructions.map((inst: string, index: number) => ({
-              number: index + 1,
-              instruction: inst
-            })),
-            imageUrl: recipe.imageUrl,
-            tags: recipe.tags || [],
-            isFavorite: true,
-            isWeeklyMealPlan: true, // Mark as part of the weekly meal plan
-            summary: recipe.description || '',
-            sourceUrl: '',
-            cuisines: [],
-            diets: [],
-            dishTypes: []
-          });
-        }
-      }
-      
-      // Mark onboarding as completed
-      setHasCompletedOnboarding(true);
-      
-      // Hide loading indicator
-      setSavingInProgress(false);
-      
-      // Show success message and navigate to profile
-      Alert.alert(
-        'Profile Created Successfully!',
-        'Your account has been set up and your data has been saved. You can access everything from your profile.',
-        [{ 
-          text: 'Go to Profile', 
-          onPress: () => navigation.navigate('Profile') // No params
-        }]
-      );
-    } catch (error) {
-      setSavingInProgress(false);
-      console.error('Error in handleAuthSuccess:', error);
-      Alert.alert(
-        'Profile Created',
-        'Your account has been created, but we encountered an issue saving your data. Please try again from your profile.',
-        [{ text: 'OK', onPress: () => navigation.navigate('Profile') }] // No params
-      );
-    }
-  };
+  // Removed handleAuthSuccess function since authentication is now required before reaching this screen
   
   const handleShareList = async () => {
     try {
@@ -1415,58 +1310,7 @@ const GroceryListScreen: React.FC = () => {
         )}
       </View>
       
-      {/* Auth Prompt Modal */}
-      <Modal
-        visible={showAuthPrompt}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowAuthPrompt(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <MaterialCommunityIcons name="account-plus" size={40} color="#007AFF" style={styles.modalIcon} />
-            
-            <Text style={styles.modalTitle}>Create a Profile</Text>
-            
-            <Text style={styles.modalDescription}>
-              Sign up to save your meal plan, grocery list, and preferences. Your data will be securely stored and available on any device.
-            </Text>
-            
-            <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={styles.skipButton}
-                onPress={() => {
-                  setShowAuthPrompt(false);
-                  Alert.alert(
-                    'Not Saved',
-                    'Your grocery list was created but not saved to your account.',
-                    [{ text: 'OK' }]
-                  );
-                }}
-              >
-                <Text style={styles.skipButtonText}>Skip for now</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.signUpButton}
-                onPress={() => {
-                  setShowAuthPrompt(false);
-                  setShowAuthModal(true);
-                }}
-              >
-                <Text style={styles.signUpButtonText}>Create Profile</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Include the AuthModal component */}
-      <AuthModal
-        visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={handleAuthSuccess}
-      />
+      {/* Removed auth prompts since authentication is now required before reaching this screen */}
       
       {/* Global loading overlay for data saving operations */}
       {savingInProgress && (

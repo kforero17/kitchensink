@@ -98,18 +98,9 @@ export const BudgetPreferencesScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleContinue = async () => {
-    if (preferences.amount <= 0) {
-      Alert.alert('Error', 'Please enter a valid budget amount');
-      return;
-    }
-
     const success = await saveBudgetPreferences(preferences);
     if (success) {
-      if (isFromProfile) {
-        navigation.goBack();
-      } else {
-        navigation.navigate('LoadingMealPlan');
-      }
+      navigation.navigate('LoadingMealPlan');
     } else {
       Alert.alert(
         'Error',

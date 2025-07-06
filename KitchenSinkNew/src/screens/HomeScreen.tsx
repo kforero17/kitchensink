@@ -15,13 +15,17 @@ import { useAuth } from '../contexts/AuthContext';
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
 export const HomeScreen: React.FC<Props> = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, hasCompletedOnboarding } = useAuth();
 
   const handleGetStarted = () => {
     if (user) {
-      navigation.navigate('Profile');
+      if (hasCompletedOnboarding) {
+        navigation.navigate('Profile');
+      } else {
+        navigation.navigate('DietaryPreferences');
+      }
     } else {
-      navigation.navigate('DietaryPreferences');
+      navigation.navigate('Auth');
     }
   };
 

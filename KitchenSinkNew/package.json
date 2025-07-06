@@ -15,6 +15,15 @@
     "test:env": "ts-node src/tests/testEnv.ts",
     "test:env:node": "node src/tests/testEnvNode.js",
     "test:network": "node scripts/test-network.js",
+    "scrape:tasty": "cd scripts/tasty-scraper && node main.js",
+    "scrape:tasty:test": "cd scripts/tasty-scraper && node main.js --test",
+    "scrape:tasty:verify": "cd scripts/tasty-scraper && node run-verification-test.js",
+    "scrape:tasty:stats": "cd scripts/tasty-scraper && node main.js --stats",
+    "scrape:tasty:cleanup": "cd scripts/tasty-scraper && node main.js --cleanup",
+    "scrape:tasty:setup": "cd scripts/tasty-scraper && node setup.js",
+    "scrape:weeknight": "cd scripts/tasty-scraper && node run-weeknight-scraper.js",
+    "scrape:weeknight:dry-run": "cd scripts/tasty-scraper && node run-weeknight-scraper.js --dry-run",
+    "scrape:weeknight:fast": "cd scripts/tasty-scraper && node run-weeknight-scraper.js --skip-images",
     "proxy:restart": "cd proxy-server && node restart-proxy.js",
     "proxy:copy-port": "cd proxy-server && node copy-port-to-app.js",
     "proxy:setup": "npm run proxy:restart && npm run proxy:copy-port",
@@ -24,7 +33,9 @@
     "deep-clean": "rm -rf node_modules && npm cache clean --force && npm run clear-cache && npm install",
     "setup": "npm install && cd ios && pod install",
     "reset": "npm run clean && npm run setup",
-    "debug:build": "node scripts/debug-build.js"
+    "debug:build": "node scripts/debug-build.js",
+    "demo:mealplan": "node scripts/simpleMealPlanDemo.js",
+    "test:algorithm": "node scripts/testAlgorithmSimple.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^13.0.0",
@@ -54,8 +65,10 @@
     "react-native": "0.73.2",
     "react-native-dotenv": "^3.4.9",
     "react-native-fetch-api": "^3.0.0",
+    "react-native-reanimated": "^3.7.1",
     "react-native-safe-area-context": "4.8.2",
-    "react-native-screens": "~3.29.0"
+    "react-native-screens": "~3.29.0",
+    "react-native-vector-icons": "^10.2.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
@@ -64,11 +77,19 @@
     "@babel/plugin-transform-modules-commonjs": "^7.26.3",
     "@babel/plugin-transform-private-methods": "^7.25.9",
     "@babel/plugin-transform-private-property-in-object": "^7.25.9",
+    "@react-native-community/cli": "^18.0.0",
+    "@react-native/metro-config": "^0.80.0",
     "@types/node": "^18.11.18",
     "@types/node-fetch": "^2.6.12",
     "@types/react": "~18.2.45",
+    "cheerio": "^1.0.0-rc.12",
     "dotenv": "^16.4.7",
+    "firebase-admin": "^12.0.0",
     "expo-modules-autolinking": "^2.1.10",
+    "metro-react-native-babel-preset": "^0.77.0",
+    "node-fetch": "^2.7.0",
+    "playwright": "^1.41.2",
+    "slugify": "^1.6.6",
     "ts-node": "^10.9.2",
     "typescript": "^4.9.4"
   },

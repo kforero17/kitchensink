@@ -16,6 +16,8 @@ import { SPOONACULAR_CONFIG, createSpoonacularUrl } from '../config/spoonacular'
 import DirectApiTest from '../components/DirectApiTest';
 import { testSpoonacularWithCertificateBypass } from '../utils/certificateHelper';
 import { isProxyAvailable, getProxiedUrl } from '../utils/proxyConfig';
+import * as cryptoWrapper from '../utils/cryptoWrapper';
+import * as expoCrypto from 'expo-crypto';
 
 const DebugScreen: React.FC = () => {
   const [results, setResults] = useState<Array<{test: string, status: 'success' | 'failure' | 'pending', message: string}>>([]);
@@ -330,28 +332,25 @@ const DebugScreen: React.FC = () => {
   };
 
   const checkCryptoModule = async () => {
-    addResult('Crypto Module Diagnostics', 'pending', 'Checking crypto module availability...');
-    
+    resetResults();
+    addResult('Crypto Module Check', 'pending', 'Checking crypto module availability...');
+
     try {
-      // Dynamically import the module to avoid load-time errors
-      const cryptoWrapper = require('../utils/cryptoWrapper');
-      
-      // Test basic hashing functionality
-      const testHash = await cryptoWrapper.md5('test-string');
-      
-      addResult('Crypto Module Diagnostics', 'success', 
-        `Crypto module loaded successfully. Test hash: ${testHash.substring(0, 8)}...`);
-      
-      // Check if we're using the native module or fallback
-      if (typeof require('expo-crypto').digestStringAsync === 'function') {
-        addResult('Native Crypto Module', 'success', 'Using native expo-crypto implementation');
+      // Check if the wrapper is loaded
+      if (cryptoWrapper && typeof cryptoWrapper.md5 === 'function') {
+        addResult('Crypto Module Check', 'success', 'cryptoWrapper is loaded and md5 function is available.');
       } else {
-        addResult('Native Crypto Module', 'failure', 'Using fallback crypto implementation');
+        addResult('Crypto Module Check', 'failure', 'cryptoWrapper or md5 function is not available.');
+      }
+
+      // Check for expo-crypto directly
+      if (expoCrypto && typeof expoCrypto.digestStringAsync === 'function') {
+        addResult('expo-crypto Direct Check', 'success', 'expo-crypto.digestStringAsync is available.');
+      } else {
+        addResult('expo-crypto Direct Check', 'failure', 'expo-crypto.digestStringAsync is not available.');
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      addResult('Crypto Module Diagnostics', 'failure', 
-        `Failed to load crypto module: ${errorMessage}`);
+      addResult('Crypto Module Check', 'failure', `Error checking crypto module: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 

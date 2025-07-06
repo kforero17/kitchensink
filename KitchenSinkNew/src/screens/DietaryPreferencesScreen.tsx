@@ -87,11 +87,7 @@ export const DietaryPreferencesScreen: React.FC<Props> = ({ navigation }) => {
   const handleContinue = async () => {
     const success = await saveDietaryPreferences(preferences);
     if (success) {
-      if (isFromProfile) {
-        navigation.navigate('Profile');
-      } else {
-        navigation.navigate('FoodPreferences', { fromProfile: isFromProfile });
-      }
+      navigation.navigate('FoodPreferences');
     } else {
       Alert.alert(
         'Error',

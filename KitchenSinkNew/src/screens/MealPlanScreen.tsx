@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Animated, ActivityIndicator, Alert, Image, Dimensions } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Animated, ActivityIndicator, Alert, Image, Dimensions, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation } from '@react-navigation/native';
@@ -33,6 +33,7 @@ const MealPlanScreen: React.FC = () => {
   const { mealPlan, setMealPlan } = useMealPlan();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showPostMealPlanModal, setShowPostMealPlanModal] = useState(false);
   
   // Load budget preferences when component mounts
   useEffect(() => {
@@ -690,6 +691,49 @@ const MealPlanScreen: React.FC = () => {
           </Text>
         )}
       </ScrollView>
+
+      {/* Add a button at the bottom of the screen to finish meal planning */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={styles.finishButton}
+          onPress={() => setShowPostMealPlanModal(true)}
+        >
+          <Text style={styles.finishButtonText}>Finish</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Modal
+        visible={showPostMealPlanModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPostMealPlanModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>What would you like to do next?</Text>
+            {selectedRecipes.size > 0 && (
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={() => {
+                  setShowPostMealPlanModal(false);
+                  navigation.navigate('GroceryList', { selectedRecipes: mealPlan.filter(r => selectedRecipes.has(r.id)) });
+                }}
+              >
+                <Text style={styles.modalButtonText}>Create Grocery List</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => {
+                setShowPostMealPlanModal(false);
+                navigation.navigate('Profile');
+              }}
+            >
+              <Text style={styles.modalButtonText}>Go to Profile</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -996,6 +1040,52 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 8,
     borderTopRightRadius: 8,
     marginBottom: 8,
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    padding: 10,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E0D8CC',
+  },
+  finishButton: {
+    backgroundColor: '#5C8A4F',
+    padding: 12,
+    borderRadius: 5,
+  },
+  finishButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 10,
+    color: '#4E4E4E',
+  },
+  modalButton: {
+    backgroundColor: '#5C8A4F',
+    padding: 12,
+    borderRadius: 5,
+    marginBottom: 10,
+  },
+  modalButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '500',
   },
 });
 

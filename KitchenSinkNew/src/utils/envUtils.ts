@@ -3,6 +3,12 @@
  */
 
 import Constants from 'expo-constants';
+import {
+  SPOONACULAR_API_KEY,
+  SPOONACULAR_BASE_URL,
+  SPOONACULAR_INGREDIENTS_ENDPOINT,
+  SPOONACULAR_RECIPES_ENDPOINT
+} from '@env';
 
 interface EnvConfig {
   SPOONACULAR_API_KEY: string;
@@ -14,26 +20,6 @@ interface EnvConfig {
 // Import environment variables directly or from constants
 // This approach avoids wildcard imports which aren't supported
 let envVars: Partial<EnvConfig> = {};
-
-// Try to load from @env (dotenv)
-try {
-  // We use require here to avoid wildcard imports
-  // Using individual imports would be preferred, but this approach
-  // provides a clean fallback mechanism
-  const dotEnv = require('@env');
-  
-  if (dotEnv) {
-    envVars = {
-      ...envVars,
-      SPOONACULAR_API_KEY: dotEnv.SPOONACULAR_API_KEY,
-      SPOONACULAR_BASE_URL: dotEnv.SPOONACULAR_BASE_URL,
-      SPOONACULAR_INGREDIENTS_ENDPOINT: dotEnv.SPOONACULAR_INGREDIENTS_ENDPOINT,
-      SPOONACULAR_RECIPES_ENDPOINT: dotEnv.SPOONACULAR_RECIPES_ENDPOINT
-    };
-  }
-} catch (error) {
-  console.warn('Failed to load variables from @env', error);
-}
 
 // Load from Constants (app.config.js)
 if (Constants.expoConfig?.extra) {
@@ -77,11 +63,12 @@ export function getApiKey(): string {
   return ENV.SPOONACULAR_API_KEY;
 }
 
-// Export a default object for convenience
-export default {
+const envUtils = {
   ...ENV,
   IS_DEVELOPMENT,
   APP_VERSION,
   getApiUrl,
   getApiKey
-}; 
+};
+
+export default envUtils; 

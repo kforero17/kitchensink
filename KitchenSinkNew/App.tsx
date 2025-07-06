@@ -134,21 +134,21 @@ const App = () => {
   };
 
   return (
-    <ErrorBoundary 
-      onError={handleErrorBoundaryError}
-      storageKeys={[
-        STORAGE_KEYS.GROCERY_LIST_CURRENT,
-        STORAGE_KEYS.GROCERY_LISTS_HISTORY
-      ]}
-    >
-      <SafeAreaProvider>
+    <SafeAreaProvider>
+      <ErrorBoundary
+        onError={handleErrorBoundaryError}
+        storageKeys={[
+          STORAGE_KEYS.GROCERY_LIST_CURRENT,
+          STORAGE_KEYS.GROCERY_LISTS_HISTORY
+        ]}
+      >
         <MealPlanProvider>
           <AuthProvider>
             <AppNavigator />
           </AuthProvider>
         </MealPlanProvider>
-      </SafeAreaProvider>
-    </ErrorBoundary>
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 };
 

@@ -269,11 +269,7 @@ export const FoodPreferencesScreen: React.FC<Props> = ({ navigation }) => {
     };
     const success = await saveFoodPreferences(foodPreferences);
     if (success) {
-      if (isFromProfile) {
-        navigation.goBack();
-      } else {
-        navigation.navigate('CookingHabits', { fromProfile: false });
-      }
+      navigation.navigate('CookingHabits');
     } else {
       Alert.alert(
         'Error',

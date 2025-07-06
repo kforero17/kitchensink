@@ -22,7 +22,7 @@ import { getRecipeHistory, RecipeHistoryItem } from '../utils/recipeHistory';
 import { recipeFeedbackService, RecipeFeedback } from '../services/recipeFeedbackService';
 import { firestoreService } from '../services/firebaseService';
 import { RecipeDocument } from '../types/FirestoreSchema';
-import AuthModal from '../components/AuthModal';
+
 import { safeStorage } from '../utils/asyncStorageUtils';
 import { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -56,7 +56,7 @@ const RecipeHistoryScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [recipes, setRecipes] = useState<RecipeDocument[]>([]);
   const [feedbackRecipes, setFeedbackRecipes] = useState<(RecipeDocument & { feedback?: RecipeFeedback })[]>([]);
-  const [showAuthModal, setShowAuthModal] = useState(false);
+
 
   // Tabs for filtering recipes
   const [activeTab, setActiveTab] = useState<'all' | 'favorites' | 'cooked' | 'highlyRated'>('all');
@@ -207,11 +207,7 @@ const RecipeHistoryScreen: React.FC = () => {
     loadHistoryData(true);
   };
 
-  const handleAuthSuccess = () => {
-    debugLog('Auth success, reloading data');
-    setShowAuthModal(false);
-    loadHistoryData();
-  };
+  // Removed handleAuthSuccess since authentication is now required before reaching this screen
 
   // Filter recipes based on active tab
   const getFilteredRecipes = () => {
@@ -272,28 +268,8 @@ const RecipeHistoryScreen: React.FC = () => {
         </View>
       )}
 
-      {!user ? (
-        <View style={styles.authContainer}>
-          <MaterialCommunityIcons name="account-lock" size={64} color="#C4B5A4" />
-          <Text style={styles.authTitle}>Sign in to see your recipe history</Text>
-          <Text style={styles.authSubtitle}>
-            Your recipe history and preferences will be saved when you sign in
-          </Text>
-          <TouchableOpacity
-            style={styles.signInButton}
-            onPress={() => setShowAuthModal(true)}
-          >
-            <LinearGradient
-              colors={['#D9A15B', '#B57A42']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ paddingVertical: 12, paddingHorizontal: 24 }}
-            >
-              <Text style={styles.signInButtonText}>Sign In</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      ) : (
+      {/* Since authentication is now required before reaching this screen, we can remove the auth check */}
+      {user ? (
         <>
           {/* Filter tabs */}
           <View style={styles.tabContainer}>
@@ -499,13 +475,17 @@ const RecipeHistoryScreen: React.FC = () => {
             </ScrollView>
           )}
         </>
+      ) : (
+        <View style={styles.authContainer}>
+          <MaterialCommunityIcons name="account-lock" size={64} color="#C4B5A4" />
+          <Text style={styles.authTitle}>Authentication Required</Text>
+          <Text style={styles.authSubtitle}>
+            Please sign in to view your recipe history
+          </Text>
+        </View>
       )}
 
-      <AuthModal
-        visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={handleAuthSuccess}
-      />
+      {/* Removed AuthModal since authentication is now required before reaching this screen */}
     </SafeAreaView>
   );
 };

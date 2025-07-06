@@ -1,0 +1,10 @@
+{
+  "name": "KitchenSink",
+  "displayName": "Kitchen Sink",
+  "ios": {
+    "bundleIdentifier": "com.anonymous.kitchensink"
+  },
+  "android": {
+    "package": "com.anonymous.kitchensink"
+  }
+}

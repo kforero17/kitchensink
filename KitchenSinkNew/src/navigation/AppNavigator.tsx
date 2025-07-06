@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 
 import HomeScreen from '../screens/HomeScreen';
+import AuthScreen from '../screens/AuthScreen';
 import { DietaryPreferencesScreen } from '../screens/DietaryPreferencesScreen';
 import { FoodPreferencesScreen } from '../screens/FoodPreferencesScreen';
 import { CookingHabitsScreen } from '../screens/CookingHabitsScreen';
@@ -21,6 +22,7 @@ import PantryScreen from '../screens/PantryScreen';
 
 export type RootStackParamList = {
   Home: undefined;
+  Auth: undefined;
   DietaryPreferences: { fromProfile?: boolean } | undefined;
   FoodPreferences: { fromProfile?: boolean } | undefined;
   CookingHabits: { fromProfile?: boolean } | undefined;
@@ -78,6 +80,7 @@ const AppNavigator = () => {
         }}
       >
         <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="Auth" component={AuthScreen} />
         
         {/* Show all screens separately */}
         <Stack.Screen name="DietaryPreferences" component={DietaryPreferencesScreen} />

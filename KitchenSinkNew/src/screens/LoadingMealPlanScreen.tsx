@@ -12,10 +12,11 @@ import {
   getCookingPreferences,
   getBudgetPreferences
 } from '../utils/preferences';
-import { apiRecipeService } from '../services/apiRecipeService';
+import { fetchRecommendedRecipes } from '../services/recommendationMealPlanService';
 import { getPreferenceValue } from '../utils/preferences';
 import logger from '../utils/logger';
 import { MealType } from '../types/CookingPreferences';
+import { apiRecipeService } from '../services/apiRecipeService';
 
 type LoadingMealPlanScreenProps = NativeStackNavigationProp<RootStackParamList, 'LoadingMealPlan'>;
 
@@ -100,13 +101,13 @@ const LoadingMealPlanScreen: React.FC = () => {
         
         // Now fetch recipes with API preferences
         setLoadingState('fetching_recipes');
-        const recipes = await apiRecipeService.getRecipes({
+        const recipes = await fetchRecommendedRecipes({
           dietary: dietaryPrefs,
           food: foodPrefs,
           cooking: cookingPrefs,
           budget: budgetPrefs,
-          usePantryItems
-        }, null);
+          usePantryItems,
+        });
         
         logger.debug(`API returned ${recipes.length} total recipes`);
         

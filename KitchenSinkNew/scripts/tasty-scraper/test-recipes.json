@@ -1,0 +1,57 @@
+[
+  {
+    "title": "One-Pot Garlic Parmesan Pasta Recipe by Tasty",
+    "description": "This delicious one-pot pasta dish is a godsend for busy evenings when you crave a satisfying meal without the hassle of cooking and cleanup. In a single pot, you sauté garlic until golden and aromatic, then add the chicken broth, milk, and fettuccine and let the magic happen. As the pasta simmers, it soaks up the flavors of the garlicky broth, making it super tasty. Once the pasta is tender, generous handfuls of grated Parmesan cheese are stirred into the dish, adding a luxurious touch. It's a mouthwatering combination of flavors and textures that kids and adults adore, making it a surefire hit at the dinner table. ",
+    "ingredients": [
+      {
+        "measurement": "2",
+        "item": "tablespoons unsalted butter"
+      },
+      {
+        "measurement": "4 cloves",
+        "item": "garlic, minced"
+      },
+      {
+        "measurement": "2 cups",
+        "item": "chicken broth"
+      },
+      {
+        "measurement": "1 cup",
+        "item": "milk"
+      },
+      {
+        "measurement": "8 oz",
+        "item": "fettuccine"
+      },
+      {
+        "measurement": "",
+        "item": "salt, to taste"
+      },
+      {
+        "measurement": "",
+        "item": "pepper, to taste"
+      },
+      {
+        "measurement": "",
+        "item": "¼ cup grated parmesan cheese"
+      },
+      {
+        "measurement": "2",
+        "item": "tablespoons fresh parsley, chopped"
+      }
+    ],
+    "instructions": [
+      "Heat unsalted butter in a large skillet over medium high heat. Add garlic and cook, stirring frequently, until fragrant, about 1-2 minutes.",
+      "Add in the chicken broth, milk, and fettuccine. Season with salt and pepper.",
+      "Bring the pot to a boil, then reduce heat and simmer, stirring occasionally, until pasta is cooked through, about 18-20 minutes.",
+      "Stir in Parmesan. If the mixture is too thick, add more milk as needed until desired consistency is reached.",
+      "Serve immediately, and top with parsley.",
+      "Enjoy!"
+    ],
+    "imageUrl": "https://img.buzzfeed.com/thumbnailer-prod-us-east-1/f69a7f4192b94d8395757b365ac6d866/GarlicParmPasta.jpg?resize=1200:*",
+    "prepTime": "10 mins",
+    "cookTime": "22 mins",
+    "servings": 4,
+    "sourceUrl": "https://tasty.co/recipe/one-pot-garlic-parmesan-pasta"
+  }
+]

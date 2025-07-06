@@ -38,7 +38,7 @@ const AuthPrompt: React.FC<AuthPromptProps> = ({ visible, onClose }) => {
   const handleAuthSuccess = () => {
     setShowAuthModal(false);
     onClose();
-    navigation.navigate('Profile');
+    navigation.navigate('DietaryPreferences');
   };
   
   const handleAuthModalClose = () => {
@@ -54,7 +54,7 @@ const AuthPrompt: React.FC<AuthPromptProps> = ({ visible, onClose }) => {
     >
       <View style={styles.overlay}>
         <View style={styles.container}>
-          <MaterialCommunityIcons name="account-circle" size={60} color="#007AFF" style={styles.icon} />
+          <MaterialCommunityIcons name="account-circle-outline" size={60} color="#007AFF" style={styles.icon} />
           
           <Text style={styles.title}>Create Your Account</Text>
           
@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
-    maxHeight: '80%',
+    maxHeight: '90%',
   },
   icon: {
     marginBottom: 16,
