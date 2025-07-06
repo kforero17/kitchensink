@@ -1,3 +1,4 @@
 node_modules/ .DS_Store *.log .env .env.local dist/ build/ .vscode/ .idea/
 node_modules/
 service-account.json
+KitchenSinkNew/scripts/tasty-scraper/firebase-service-account.json
