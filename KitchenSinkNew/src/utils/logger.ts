@@ -28,7 +28,8 @@ class Logger {
 
   public info(message: string, ...args: any[]): void {
     if (this.isDevelopment) {
-      console.info(this.formatMessage('info', message), ...args);
+      // Use console.debug so that Metro / RN consoles always display the message.
+      console.debug(this.formatMessage('info', message), ...args);
     }
   }
 

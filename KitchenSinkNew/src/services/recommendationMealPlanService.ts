@@ -43,10 +43,37 @@ export async function fetchRecommendedRecipes(
     const scored = rankRecipes(candidates, {
       userTokens: buildUserTokens(prefs),
       pantryIngredients: pantryTopK,
-      spoonacularBias: -0.05,
+      spoonacularBias: -1,
+      weights: {
+        sourceBias: 0.4,
+      },
     });
 
-    const recipes = scored.map(s => unifiedToAppRecipe(s.recipe));
+    const tastyScored = scored.filter(s => s.recipe.source === 'tasty');
+    const spoonScored = scored.filter(s => s.recipe.source === 'spoonacular');
+
+    logger.info(`[RANK] tastyScored=${tastyScored.length} spoonScored=${spoonScored.length}`);
+    // ---- Enforce ~50/50 source mix (or favour Tasty) ----
+    const desiredTotal = scored.length;
+    const half = Math.floor(desiredTotal / 2);
+
+    // Take up to half from Tasty, refill remainder with Spoonacular.
+    const finalScored: typeof scored = [];
+
+    finalScored.push(...tastyScored.slice(0, half));
+
+    // If we don't have enough Tasty to fill half, leave gap to be filled by spoon
+    const neededFromSpoon = desiredTotal - finalScored.length;
+    finalScored.push(...spoonScored.slice(0, neededFromSpoon));
+
+    // In case we had more than half tasty and want to favour them, we can append remaining tasty
+    if (finalScored.length < desiredTotal) {
+      const remaining = tastyScored.slice(half);
+      finalScored.push(...remaining.slice(0, desiredTotal - finalScored.length));
+    }
+
+    // Finally convert to app recipes
+    const recipes = finalScored.map(s => unifiedToAppRecipe(s.recipe));
     logger.debug(`Recommendation service returned ${recipes.length} recipes`);
     return recipes;
   } catch (err) {

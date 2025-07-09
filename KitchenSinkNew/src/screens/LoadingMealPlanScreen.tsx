@@ -17,6 +17,7 @@ import { getPreferenceValue } from '../utils/preferences';
 import logger from '../utils/logger';
 import { MealType } from '../types/CookingPreferences';
 import { apiRecipeService } from '../services/apiRecipeService';
+import auth from '@react-native-firebase/auth';
 
 type LoadingMealPlanScreenProps = NativeStackNavigationProp<RootStackParamList, 'LoadingMealPlan'>;
 
@@ -98,6 +99,25 @@ const LoadingMealPlanScreen: React.FC = () => {
         }
         
         logger.debug('Final meal counts:', counts);
+        
+        // ---- Ensure Firebase auth is ready ----
+        if (!auth().currentUser) {
+          logger.info('[AUTH DEBUG] Waiting for Firebase auth...');
+          await new Promise(resolve => {
+            const timeout = setTimeout(() => {
+              logger.warn('[AUTH DEBUG] Auth wait timeout – continuing without uid');
+              resolve(null);
+            }, 5000);
+            const unsub = auth().onAuthStateChanged(user => {
+              if (user) {
+                clearTimeout(timeout);
+                unsub();
+                logger.info('[AUTH DEBUG] Auth ready:', user.uid);
+                resolve(null);
+              }
+            });
+          });
+        }
         
         // Now fetch recipes with API preferences
         setLoadingState('fetching_recipes');

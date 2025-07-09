@@ -1,4 +1,5 @@
 import { UnifiedRecipe, Ingredient as UnifiedIngredient } from '../shared/interfaces';
+import { sanitizeImageUrl } from './imageUtils';
 import { Recipe } from '../contexts/MealPlanContext';
 
 function formatMeasurement(ing: UnifiedIngredient): string {
@@ -23,7 +24,7 @@ export function unifiedToAppRecipe(u: UnifiedRecipe): Recipe {
       measurement: formatMeasurement(i),
     })),
     instructions: u.instructions ?? [],
-    imageUrl: u.imageUrl,
+    imageUrl: sanitizeImageUrl(u.imageUrl),
     tags: u.tags,
     cuisines: [],
     estimatedCost: 10, // placeholder; could be improved later

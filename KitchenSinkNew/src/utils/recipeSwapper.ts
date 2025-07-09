@@ -12,6 +12,8 @@ import {
 } from './preferences';
 import { apiRecipeService } from '../services/apiRecipeService';
 import logger from './logger';
+import { recordRecipeSwap, getRecentSwappedRecipes } from './recipeHistory';
+import auth from '@react-native-firebase/auth';
 
 /**
  * Handles swapping a recipe with a suitable alternative of the same meal type
@@ -54,19 +56,25 @@ export async function swapRecipe(
     // Force clear cache to get fresh recipes
     apiRecipeService.setClearCache(true);
     
+    const uid = auth().currentUser?.uid ?? null;
+    
     // Fetch new recipes from API
     const recipes = await apiRecipeService.getRecipes({
       dietary: dietaryPrefs,
       food: foodPrefs,
       cooking: cookingPrefs,
       budget: budgetPrefs
-    });
+    }, uid);
+    
+    // Exclude recently swapped recipes to avoid showing them again too soon
+    const recentlySwapped = await getRecentSwappedRecipes();
+    const filteredRecipes = recipes.filter(r => !recentlySwapped.includes(r.id));
     
     // Find an alternative recipe
     const alternativeRecipe = await findAlternativeRecipe(
       recipeId,
       mealType,
-      recipes, // Use API recipes instead of mock database
+      filteredRecipes, // Use filtered recipes list
       currentMealPlan,
       {
         dietary: dietaryPrefs,
@@ -82,6 +90,10 @@ export async function swapRecipe(
     }
     
     logger.debug(`Swapping recipe ${recipeId} with ${alternativeRecipe.id}`);
+    
+    // Record the recipe that the user swapped out so we can avoid it in future generations
+    await recordRecipeSwap(recipeId);
+    
     return alternativeRecipe;
   } catch (error) {
     logger.error('Error in swapRecipe:', error);
@@ -142,13 +154,15 @@ export async function getAlternativeRecipes(
     // Force clear cache to get fresh recipes
     apiRecipeService.setClearCache(true);
     
+    const uid = auth().currentUser?.uid ?? null;
+    
     // Fetch recipes from API
     const recipes = await apiRecipeService.getRecipes({
       dietary: dietaryPrefs,
       food: foodPrefs,
       cooking: cookingPrefs,
       budget: budgetPrefs
-    });
+    }, uid);
     
     // Filter eligible recipes of the requested meal type that aren't in the current meal plan
     const eligibleRecipes = recipes.filter(recipe => 

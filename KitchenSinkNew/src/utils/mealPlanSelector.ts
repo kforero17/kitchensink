@@ -6,7 +6,7 @@ import { FoodPreferences } from '../types/FoodPreferences';
 import { findMatchingIngredients, calculateIngredientSimilarity } from './ingredientMatching';
 import { getTimeRange, calculateTimeScore, DEFAULT_TIME_CONFIG } from '../config/cookingTimeConfig';
 import { calculateRecipeComplexity } from '../config/recipeComplexityConfig';
-import { calculateVarietyPenalty, getRecipeHistory, RecipeHistoryItem } from './recipeHistory';
+import { calculateVarietyPenalty, getRecipeHistory, RecipeHistoryItem, getRecentSwappedRecipes } from './recipeHistory';
 import { calculateIngredientOverlapScore, optimizeMealPlanForIngredientOverlap, calculateUniqueIngredientCount } from './ingredientOverlap';
 import { RecipeFeedback } from '../services/recipeFeedbackService';
 import logger from './logger';
@@ -851,6 +851,9 @@ export async function generateMealPlan(
     // Get user recipe history
     const history = await getRecipeHistory();
     
+    // Get recently swapped recipes (avoid these for a while)
+    const recentSwapped = await getRecentSwappedRecipes();
+    
     // Combine lunch and dinner counts as they often overlap
     // This helps prevent the same recipes showing in both categories
     const combinedMealCounts = {
@@ -920,10 +923,13 @@ export async function generateMealPlan(
       return true;
     };
     
-    const eligibleRecipes = recipes.filter(essentialDietaryFilter);
-    
-    // Log the number of eligible recipes that meet dietary requirements
-    logger.debug(`Total recipes after essential dietary filtering: ${eligibleRecipes.length}/${recipes.length}`);
+    const eligibleRecipes = recipes
+      .filter(essentialDietaryFilter)
+      .filter(r => !recentSwapped.includes(r.id));
+
+    logger.info(`[FILTER] eligible recipes after dietary+swap: ` +
+      `tasty=${eligibleRecipes.filter(r => r.id.startsWith('tasty-')).length} ` +
+      `spoon=${eligibleRecipes.filter(r => r.id.startsWith('spn-')).length}`);
     
     if (eligibleRecipes.length === 0) {
       logger.error('No recipes meet essential dietary requirements');

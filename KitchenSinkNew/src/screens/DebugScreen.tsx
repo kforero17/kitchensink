@@ -18,6 +18,7 @@ import { testSpoonacularWithCertificateBypass } from '../utils/certificateHelper
 import { isProxyAvailable, getProxiedUrl } from '../utils/proxyConfig';
 import * as cryptoWrapper from '../utils/cryptoWrapper';
 import * as expoCrypto from 'expo-crypto';
+import firestore from '@react-native-firebase/firestore';
 
 const DebugScreen: React.FC = () => {
   const [results, setResults] = useState<Array<{test: string, status: 'success' | 'failure' | 'pending', message: string}>>([]);
@@ -331,6 +332,27 @@ const DebugScreen: React.FC = () => {
     }
   };
 
+  const testFirestoreRecipes = async () => {
+    resetResults();
+    setIsLoading(true);
+ 
+     addResult('Firestore access', 'pending', 'Fetching 5 docs from collection "recipes"...');
+ 
+     try {
+       const snapshot = await firestore().collection('recipes').limit(5).get();
+       if (snapshot.empty) {
+         addResult('Firestore access', 'failure', 'Collection "recipes" returned 0 documents');
+       } else {
+         const sampleNames = snapshot.docs.map(d => d.get('name') || d.id).join(', ');
+         addResult('Firestore access', 'success', `Fetched ${snapshot.size} docs. Sample: ${sampleNames}`);
+       }
+     } catch (err: any) {
+       addResult('Firestore access', 'failure', `Error: ${err.message ?? err.toString()}`);
+     } finally {
+       setIsLoading(false);
+     }
+   };
+
   const checkCryptoModule = async () => {
     resetResults();
     addResult('Crypto Module Check', 'pending', 'Checking crypto module availability...');
@@ -475,6 +497,14 @@ const DebugScreen: React.FC = () => {
           disabled={isLoading}
         >
             <Text style={styles.buttonText}>Test VPN Certificate</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.button} 
+            onPress={testFirestoreRecipes}
+          disabled={isLoading}
+        >
+            <Text style={styles.buttonText}>Test Firestore "recipes" Access</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 

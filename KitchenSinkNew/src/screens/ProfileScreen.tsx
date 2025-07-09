@@ -243,6 +243,24 @@ const ProfileScreen: React.FC = () => {
     }
   };
 
+  // Direct test for reading the Firestore "recipes" collection
+  const handleTestRecipesAccess = async () => {
+    try {
+      Alert.alert('Testing "recipes" Access', 'Fetching 5 docs from collection "recipes"...');
+
+      const snapshot = await firestore().collection('recipes').limit(5).get();
+
+      if (snapshot.empty) {
+        Alert.alert('Recipes Access', 'Collection "recipes" returned 0 documents');
+      } else {
+        const sampleNames = snapshot.docs.map(d => d.get('name') || d.id).join(', ');
+        Alert.alert('Recipes Access', `Fetched ${snapshot.size} docs. Sample: ${sampleNames}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Recipes Access Error', err?.message ?? err.toString());
+    }
+  };
+
   // Clean weekly meal plan data - dev only
   const handleCleanMealPlanData = async () => {
     try {
@@ -649,6 +667,14 @@ const ProfileScreen: React.FC = () => {
               onPress={handleCleanMealPlanData}
             >
               <Text style={styles.debugButtonText}>Reset Weekly Meal Plan Data</Text>
+            </TouchableOpacity>
+
+            {/* New button: direct test of recipes collection */}
+            <TouchableOpacity 
+              style={[styles.debugButton, { backgroundColor: '#5C8A4F', marginTop: 8 }]} 
+              onPress={handleTestRecipesAccess}
+            >
+              <Text style={styles.debugButtonText}>Test "recipes" Collection</Text>
             </TouchableOpacity>
           </View>
         )}

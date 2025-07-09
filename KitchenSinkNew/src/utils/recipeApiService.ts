@@ -11,6 +11,7 @@ import { Platform } from 'react-native';
 import { secureFetch, createSecureSpoonacularUrl } from './certificateHelper';
 import { isProxyAvailable, getProxiedUrl } from './proxyConfig';
 import logger from './logger';
+import { sanitizeImageUrl } from './imageUtils';
 
 // Read config from env file
 const SPOONACULAR_API_KEY = env.SPOONACULAR_API_KEY;
@@ -460,7 +461,7 @@ export function convertApiToRecipe(apiRecipe: SpoonacularRecipe): Recipe {
     instructions: apiRecipe.analyzedInstructions && apiRecipe.analyzedInstructions.length > 0
       ? apiRecipe.analyzedInstructions[0].steps.map(step => step.step)
       : ['No detailed instructions available'],
-    imageUrl: imageUrl, // Use the constructed high-res imageUrl
+    imageUrl: sanitizeImageUrl(imageUrl), // Use the constructed high-res imageUrl
     tags: tags,
     estimatedCost: apiRecipe.pricePerServing / 25 // Convert from cents per serving to dollars per recipe
   };

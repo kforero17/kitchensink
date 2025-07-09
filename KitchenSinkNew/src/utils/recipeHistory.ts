@@ -8,6 +8,11 @@ import { safeStorage } from './asyncStorageUtils';
 const RECIPE_HISTORY_KEY = 'recipe_history';
 const MAX_HISTORY_ITEMS = 100;
 
+// Key to track recently swapped recipes
+const SWAPPED_RECIPES_KEY = 'swapped_recipes';
+// Store more than needed to give buffer; we will filter by limit when retrieving
+const MAX_SWAPPED_ITEMS = 50;
+
 // Define history item structure
 export interface RecipeHistoryItem {
   recipeId: string;
@@ -239,5 +244,48 @@ export async function saveMealPlanToFirestore(
   } catch (error) {
     logger.error('Error saving meal plan:', error);
     return false;
+  }
+}
+
+/**
+ * Records a recipe that the user swapped out. This ensures the same recipe
+ * will not re-appear for the next several swaps / generations.
+ * We keep the list in most-recent-first order capped at MAX_SWAPPED_ITEMS.
+ */
+export async function recordRecipeSwap(recipeId: string): Promise<boolean> {
+  try {
+    const data = await safeStorage.getItem(SWAPPED_RECIPES_KEY);
+    const swapped: string[] = data ? JSON.parse(data) as string[] : [];
+
+    // Put the new recipeId at the beginning, removing duplicates
+    const updated = [recipeId, ...swapped.filter(id => id !== recipeId)];
+
+    if (updated.length > MAX_SWAPPED_ITEMS) {
+      updated.length = MAX_SWAPPED_ITEMS;
+    }
+
+    await safeStorage.setItem(SWAPPED_RECIPES_KEY, JSON.stringify(updated));
+    return true;
+  } catch (error) {
+    logger.error('Error recording recipe swap:', error);
+    return false;
+  }
+}
+
+/**
+ * Returns a list of recently swapped recipes. Default limit is 15, matching
+ * the UX requirement that swapped recipes should not re-appear for at least
+ * 15 swaps / generations.
+ */
+export async function getRecentSwappedRecipes(limit: number = 15): Promise<string[]> {
+  try {
+    const data = await safeStorage.getItem(SWAPPED_RECIPES_KEY);
+    if (!data) return [];
+
+    const swapped: string[] = JSON.parse(data) as string[];
+    return swapped.slice(0, limit);
+  } catch (error) {
+    logger.error('Error retrieving recent swapped recipes:', error);
+    return [];
   }
 } 
