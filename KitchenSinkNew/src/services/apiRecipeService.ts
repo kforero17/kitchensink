@@ -107,8 +107,23 @@ export class ApiRecipeService {
         
         // Fetch recipes from API with cache support
         logger.debug('Fetching recipes from API with preferences:', apiPreferences);
-        const recipes = await getRecipesWithCache(apiPreferences);
-        
+        const recipes = await getRecipesWithCache(apiPreferences) as Recipe[];
+
+        // --- NEW: If caller specified mealTypes in cooking prefs, filter results ---
+        if (preferences.cooking && Array.isArray(preferences.cooking.mealTypes) && preferences.cooking.mealTypes.length > 0) {
+          const desiredTypes = new Set(preferences.cooking.mealTypes);
+          const typeFiltered = recipes.filter(r => r.tags.some(t => desiredTypes.has(t as any)));
+          // Only use filtered set if we still have a reasonable pool (≥25% of original or at least 30)
+          if (typeFiltered.length > 0 && (typeFiltered.length >= Math.min(30, recipes.length * 0.25))) {
+            logger.debug(`Filtered recipes by desired meal types [${[...desiredTypes].join(', ')}]: ${typeFiltered.length}/${recipes.length}`);
+            // Replace original list with filtered
+            (apiPreferences as any)._filteredByTypes = [...desiredTypes]; // debug marker
+            recipes.splice(0, recipes.length, ...typeFiltered);
+          } else {
+            logger.debug('Meal-type filtering skipped (not enough results)');
+          }
+        }
+
         // If pantry items should be prioritized, sort recipes by ingredient match
         let processedRecipes = [...recipes];
         if (preferences.usePantryItems && availablePantryIngredients.length > 0) {
@@ -211,16 +226,18 @@ export class ApiRecipeService {
     // Calculate pantry match score for each recipe
     const recipesWithScore = recipes.map(recipe => {
       // Extract ingredient names, handling different formats
-      const ingredients = recipe.ingredients.map(ing => {
+      const ingredients = (recipe.ingredients as any[]).map((ing: any) => {
         if (typeof ing === 'string') {
           return ing.toLowerCase();
-        } else if ('item' in ing) {
-          return ing.item.toLowerCase();
-        } else if ('name' in ing) {
-          return (ing as any).name.toLowerCase();
+        }
+        if (ing && ing.item) {
+          return String(ing.item).toLowerCase();
+        }
+        if (ing && ing.name) {
+          return String(ing.name).toLowerCase();
         }
         return '';
-      }).filter(ing => ing !== '');
+      }).filter((ing: string) => ing !== '');
       
       // Count how many pantry items are used in this recipe
       const pantryMatchCount = ingredients.filter(ingredient => 

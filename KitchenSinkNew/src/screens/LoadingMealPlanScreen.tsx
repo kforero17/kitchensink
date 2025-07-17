@@ -75,10 +75,12 @@ const LoadingMealPlanScreen: React.FC = () => {
           snacks: 0
         };
         
-        // Determine the number of meals per type
-        // If user specified a particular count, respect that exactly
-        const mealsPerType = cookingPrefs.weeklyMealPrepCount || 3;
-        logger.debug(`User requested ${mealsPerType} meals per type`);
+        // Determine the number of meals per type, enforcing a minimum of 5
+        // The user can ask for more than 5, but never less.
+        const MIN_MEALS_PER_TYPE = 5;
+        const requestedMealsPerType = cookingPrefs.weeklyMealPrepCount ?? MIN_MEALS_PER_TYPE;
+        const mealsPerType = Math.max(requestedMealsPerType, MIN_MEALS_PER_TYPE);
+        logger.debug(`Meals per type set to ${mealsPerType} (requested: ${requestedMealsPerType}, minimum enforced: ${MIN_MEALS_PER_TYPE})`);
         
         // Set the requested number for each meal type
         mealTypes.forEach(type => {
@@ -150,10 +152,56 @@ const LoadingMealPlanScreen: React.FC = () => {
         
         logger.debug(`Recipe distribution: breakfast=${breakfastRecipes}, lunch=${lunchRecipes}, dinner=${dinnerRecipes}, snacks=${snackRecipes}`);
         
+        // DEBUG: Log first 5 recipes with their tags to see what we're working with
+        logger.debug('[DEBUG] First 5 recipes from API:');
+        recipes.slice(0, 5).forEach((r, i) => {
+          logger.debug(`[DEBUG] ${i + 1}. ${r.name} - Tags: [${r.tags.join(', ')}]`);
+        });
+        
+        // DEBUG: Log specifically any breakfast-tagged recipes
+        const breakfastTaggedRecipes = recipes.filter(r => r.tags.includes('breakfast'));
+        logger.debug(`[DEBUG] Found ${breakfastTaggedRecipes.length} breakfast-tagged recipes`);
+        if (breakfastTaggedRecipes.length > 0) {
+          logger.debug('[DEBUG] Sample breakfast recipes:');
+          breakfastTaggedRecipes.slice(0, 3).forEach(r => {
+            logger.debug(`[DEBUG] - ${r.name} (${r.id})`);
+          });
+        }
+        
         if (recipes.length === 0) {
           throw new Error('No recipes found. Try adjusting your preferences.');
         }
-        
+
+        // ------------------------------------------------------------------
+        // Ensure we have at least the desired number of breakfast recipes
+        // ------------------------------------------------------------------
+        if (counts.breakfast > 0 && breakfastRecipes < counts.breakfast) {
+          const extraNeeded = counts.breakfast - breakfastRecipes;
+          logger.debug(`[DEBUG] Need ${extraNeeded} more breakfast recipes – fetching dedicated breakfast batch`);
+
+          try {
+            // Re-use apiRecipeService directly for a broad fetch then filter
+            const uid = auth().currentUser?.uid ?? null;
+            const apiRecipes = await apiRecipeService.getRecipes({
+              dietary: dietaryPrefs,
+              food: foodPrefs,
+              cooking: { ...cookingPrefs, mealTypes: ['breakfast'] },
+              budget: budgetPrefs,
+            }, uid);
+
+            const extraBreakfast = apiRecipes
+              .filter(r => r.tags.includes('breakfast'))
+              .filter(r => !recipes.some(existing => existing.id === r.id))
+              .slice(0, extraNeeded);
+
+            logger.debug(`[DEBUG] Fetched ${extraBreakfast.length} extra breakfast recipes`);
+
+            recipes.push(...extraBreakfast);
+          } catch (extraErr) {
+            logger.warn('[DEBUG] Extra breakfast fetch failed:', extraErr);
+          }
+        }
+ 
         // Generate the meal plan
         setLoadingState('generating_plan');
         const result = await generateMealPlan(

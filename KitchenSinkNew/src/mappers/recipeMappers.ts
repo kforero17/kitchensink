@@ -3,6 +3,31 @@ import { sanitizeImageUrl } from '../utils/imageUtils';
 import { RecipeDocument, RecipeIngredient } from '../types/FirestoreSchema';
 import { SpoonacularRecipe } from '../utils/recipeApiService';
 
+// ---- tag normalisation helpers ---- //
+const MEAL_TYPE_CANONICAL: Record<string, string> = {
+  breakfast: 'breakfast',
+  brunch: 'breakfast',
+  morning: 'breakfast',
+  lunch: 'lunch',
+  'main course': 'lunch',
+  'main dish': 'lunch',
+  midday: 'lunch',
+  dinner: 'dinner',
+  supper: 'dinner',
+  evening: 'dinner',
+  snack: 'snacks',
+  snacks: 'snacks',
+  appetizer: 'snacks',
+  'side dish': 'snacks',
+  'finger food': 'snacks',
+  dessert: 'snacks',
+};
+
+function canonicalizeMealTypeTag(raw: string): string | null {
+  const key = raw.toLowerCase();
+  return MEAL_TYPE_CANONICAL[key] ?? null;
+}
+
 /**
  * Convert Firestore-owned Tasty recipe documents into the shared
  * `UnifiedRecipe` contract.
@@ -49,6 +74,9 @@ export function mapTastyRecipeToUnified(doc: RecipeDocument): UnifiedRecipe {
   // ----- derive meal type tag ordering ----- //
   const mealTypes = ['breakfast', 'lunch', 'dinner', 'snacks'];
   let tags: string[] = (doc.tags ?? []).map((t: string) => t.toLowerCase());
+
+  // Replace any meal-type synonyms with canonical form
+  tags = tags.map(t => canonicalizeMealTypeTag(t) ?? t);
 
   // If the recipe has an explicit mealType field, inject it
   if ((doc as any).mealType && typeof (doc as any).mealType === 'string') {
@@ -134,7 +162,7 @@ export function mapSpoonacularRecipeToUnified(apiRecipe: SpoonacularRecipe & { n
     ...(apiRecipe.diets || []),
   ].map(t => t.toLowerCase());
 
-  let tags = rawTags;
+  let tags = rawTags.map(t => canonicalizeMealTypeTag(t) ?? t);
   const primary = rawTags.find(t => mealTypes.includes(t));
   if (primary) {
     tags = [primary, ...rawTags.filter(t => t !== primary)];

@@ -9,6 +9,11 @@ import { getPantryItems } from './pantryService';
 import auth from '@react-native-firebase/auth';
 import logger from '../utils/logger';
 
+const PANTRY_STOP_WORDS = new Set([
+  'water','salt','pepper','teaspoon','tablespoon','tsp','tbsp','cup','cups','ounce','ounces','oz','lb','lbs','gram','grams','kg','lean','hash'
+]);
+const MAX_PANTRY_INCLUDE = 5;
+
 export async function fetchRecommendedRecipes(
   prefs: {
     dietary: DietaryPreferences;
@@ -20,13 +25,24 @@ export async function fetchRecommendedRecipes(
 ): Promise<import('../contexts/MealPlanContext').Recipe[]> {
   try {
     // collect pantry top-K (max 5)
-    let pantryTopK: string[] = [];
+    let pantryTokensForInclude: string[] = [];
+    let pantryTokensForRanking: string[] = [];
     if (prefs.usePantryItems) {
       const uid = auth().currentUser?.uid;
       if (uid) {
         try {
           const items = await getPantryItems(uid);
-          pantryTopK = items.slice(0, 5).map(i => i.name.split(' ')[0]);
+          const tokens = items
+            .map(i => i.name.split(' ')[0].toLowerCase())
+            .filter(tok => tok.length >= 3 && !PANTRY_STOP_WORDS.has(tok));
+
+          // Deduplicate while preserving order
+          const dedup: string[] = [];
+          for (const tok of tokens) {
+            if (!dedup.includes(tok)) dedup.push(tok);
+          }
+          pantryTokensForInclude = dedup.slice(0, MAX_PANTRY_INCLUDE); // smaller list for API
+          pantryTokensForRanking = dedup.slice(0, 5); // up to 5 for ranking weight
         } catch (err) { logger.warn('Cannot fetch pantry items', err); }
       }
     }
@@ -36,16 +52,17 @@ export async function fetchRecommendedRecipes(
       diet: buildDietParam(prefs.dietary),
       intolerances: buildIntoleranceParam(prefs.dietary),
       cuisine: prefs.food.preferredCuisines?.join(',') || undefined,
-      pantryTopK,
+      pantryTopK: pantryTokensForInclude,
       maxReadyTime: deriveMaxReadyTime(prefs.cooking),
     });
 
     const scored = rankRecipes(candidates, {
       userTokens: buildUserTokens(prefs),
-      pantryIngredients: pantryTopK,
+      pantryIngredients: pantryTokensForRanking,
       spoonacularBias: -1,
+      // Keep light bias against Spoonacular but let new default weights dominate
       weights: {
-        sourceBias: 0.4,
+        sourceBias: 0.15,
       },
     });
 
@@ -71,6 +88,24 @@ export async function fetchRecommendedRecipes(
       const remaining = tastyScored.slice(half);
       finalScored.push(...remaining.slice(0, desiredTotal - finalScored.length));
     }
+
+    // ------------------------------------------------------------------
+    // Ensure we have at least 4 recipes per primary meal type so the UI
+    //   tab view always gives users enough choice.
+    // ------------------------------------------------------------------
+    const MIN_PER_TYPE = 4;
+
+    const byType = (type: string, arr: typeof scored) => arr.filter(s => s.recipe.tags.includes(type));
+
+    const addExtras = (type: string) => {
+      const current = byType(type, finalScored);
+      if (current.length >= MIN_PER_TYPE) return;
+      const needed = MIN_PER_TYPE - current.length;
+      const pool = scored.filter(s => !finalScored.includes(s) && s.recipe.tags.includes(type));
+      finalScored.push(...pool.slice(0, needed));
+    };
+
+    ['breakfast', 'lunch', 'dinner', 'snacks'].forEach(addExtras);
 
     // Finally convert to app recipes
     const recipes = finalScored.map(s => unifiedToAppRecipe(s.recipe));

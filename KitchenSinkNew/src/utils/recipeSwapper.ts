@@ -14,6 +14,7 @@ import { apiRecipeService } from '../services/apiRecipeService';
 import logger from './logger';
 import { recordRecipeSwap, getRecentSwappedRecipes } from './recipeHistory';
 import auth from '@react-native-firebase/auth';
+import { isCondimentRecipe } from './mealPlanSelector';
 
 /**
  * Handles swapping a recipe with a suitable alternative of the same meal type
@@ -68,7 +69,9 @@ export async function swapRecipe(
     
     // Exclude recently swapped recipes to avoid showing them again too soon
     const recentlySwapped = await getRecentSwappedRecipes();
-    const filteredRecipes = recipes.filter(r => !recentlySwapped.includes(r.id));
+    const filteredRecipes = recipes
+      .filter(r => !recentlySwapped.includes(r.id))
+      .filter(r => !isCondimentRecipe(r));
     
     // Find an alternative recipe
     const alternativeRecipe = await findAlternativeRecipe(

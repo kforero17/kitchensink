@@ -8,6 +8,8 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -122,59 +124,70 @@ export const BudgetPreferencesScreen: React.FC<Props> = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.content}>
-        <View style={styles.header}>
-          <BackButton onPress={isFromProfile ? () => navigation.goBack() : undefined} />
-        </View>
-
-        <Text style={styles.title}>Budget Preferences</Text>
-        <Text style={styles.subtitle}>
-          Set your meal budget to help us plan affordable recipes
-        </Text>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Budget Frequency</Text>
-          {renderFrequencyOptions()}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Budget Amount</Text>
-          <View style={styles.inputContainer}>
-            <Text style={styles.currencySymbol}>$</Text>
-            <TextInput
-              style={styles.input}
-              value={preferences.amount.toString()}
-              onChangeText={handleAmountChange}
-              placeholder="0.00"
-              placeholderTextColor="#7A736A"
-              keyboardType="decimal-pad"
-            />
-          </View>
-          <Text style={styles.helper}>
-            Enter your {preferences.frequency} budget for meal planning
-          </Text>
-        </View>
-      </ScrollView>
-
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.continueButton}
-          onPress={handleContinue}
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+    >
+      <SafeAreaView style={styles.container}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
         >
-          <LinearGradient
-            colors={['#D9A15B', '#B57A42']}
-            style={styles.buttonGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <Text style={styles.buttonText}>
-              {isFromProfile ? 'Save Changes' : 'Generate Meal Plan'}
+          <View style={styles.header}>
+            <BackButton onPress={isFromProfile ? () => navigation.goBack() : undefined} />
+          </View>
+
+          <Text style={styles.title}>Budget Preferences</Text>
+          <Text style={styles.subtitle}>
+            Set your meal budget to help us plan affordable recipes
+          </Text>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Budget Frequency</Text>
+            {renderFrequencyOptions()}
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Budget Amount</Text>
+            <View style={styles.inputContainer}>
+              <Text style={styles.currencySymbol}>$</Text>
+              <TextInput
+                style={styles.input}
+                value={preferences.amount.toString()}
+                onChangeText={handleAmountChange}
+                placeholder="0.00"
+                placeholderTextColor="#7A736A"
+                keyboardType="decimal-pad"
+                returnKeyType="done"
+              />
+            </View>
+            <Text style={styles.helper}>
+              Enter your {preferences.frequency} budget for meal planning
             </Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+          </View>
+        </ScrollView>
+
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={styles.continueButton}
+            onPress={handleContinue}
+          >
+            <LinearGradient
+              colors={['#D9A15B', '#B57A42']}
+              style={styles.buttonGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Text style={styles.buttonText}>
+                {isFromProfile ? 'Save Changes' : 'Generate Meal Plan'}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -300,5 +313,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
     color: '#7A736A',
+  },
+  // Optional style helper
+  flex1: {
+    flex: 1,
   },
 }); 

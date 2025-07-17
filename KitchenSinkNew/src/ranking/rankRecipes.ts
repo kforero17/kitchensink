@@ -10,11 +10,19 @@ export interface RankingWeights {
   sourceBias: number; // weight applied to bias value
 }
 
+/**
+ * Default weighting tuned for:
+ *  – Higher emphasis on ingredient / preference alignment (`sim`, `pantry`)
+ *  – Moderate emphasis on variety / freshness (`novelty`)
+ *  – Popularity still matters but less dominant
+ *  – Small bias term reserved for source fine-tuning (caller can override)
+ *  Weights sum to 1.0 for clarity.
+ */
 const DEFAULT_WEIGHTS: RankingWeights = {
-  sim: 0.4,
-  pantry: 0.3,
-  popularity: 0.2,
-  novelty: 0.05,
+  sim: 0.45,       // ingredient & title similarity to user tokens
+  pantry: 0.30,    // overlap with pantry ingredients
+  popularity: 0.10,
+  novelty: 0.10,   // encourages variety / unseen items
   sourceBias: 0.05,
 };
 

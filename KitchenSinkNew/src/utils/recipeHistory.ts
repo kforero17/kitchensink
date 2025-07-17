@@ -289,3 +289,89 @@ export async function getRecentSwappedRecipes(limit: number = 15): Promise<strin
     return [];
   }
 } 
+
+// -----------------------------
+// Blocked Recipes Management
+// -----------------------------
+
+const PERMANENT_BLOCK_KEY = 'permanent_block_recipes';
+const TEMP_BLOCK_KEY = 'temporary_block_recipes'; // stores array of {id, remaining}
+
+interface TempBlockedRecipe {
+  id: string;
+  remaining: number; // number of meal-plan generations left to skip
+}
+
+/**
+ * Permanently blocks a recipe from being recommended.
+ */
+export async function blockRecipePermanent(recipeId: string): Promise<boolean> {
+  try {
+    const data = await safeStorage.getItem(PERMANENT_BLOCK_KEY);
+    const list: string[] = data ? JSON.parse(data) as string[] : [];
+
+    if (!list.includes(recipeId)) {
+      list.push(recipeId);
+      await safeStorage.setItem(PERMANENT_BLOCK_KEY, JSON.stringify(list));
+    }
+    return true;
+  } catch (err) {
+    logger.error('Error blocking recipe permanently:', err);
+    return false;
+  }
+}
+
+/**
+ * Temporarily blocks a recipe for a given number of generations (default 10).
+ */
+export async function blockRecipeTemporary(recipeId: string, generations: number = 10): Promise<boolean> {
+  try {
+    if (generations <= 0) return true;
+
+    const data = await safeStorage.getItem(TEMP_BLOCK_KEY);
+    let list: TempBlockedRecipe[] = data ? JSON.parse(data) as TempBlockedRecipe[] : [];
+
+    const existing = list.find(r => r.id === recipeId);
+    if (existing) {
+      existing.remaining = Math.max(existing.remaining, generations);
+    } else {
+      list.push({ id: recipeId, remaining: generations });
+    }
+
+    await safeStorage.setItem(TEMP_BLOCK_KEY, JSON.stringify(list));
+    return true;
+  } catch (err) {
+    logger.error('Error blocking recipe temporarily:', err);
+    return false;
+  }
+}
+
+/**
+ * Retrieves all currently blocked recipe IDs (permanent + temporary).
+ * For temporary blocks, the remaining counter is decremented by 1 (i.e., one generation has passed) and
+ * entries that reach 0 are removed automatically.
+ */
+export async function getBlockedRecipeIds(): Promise<string[]> {
+  try {
+    // Permanent list
+    const permanentData = await safeStorage.getItem(PERMANENT_BLOCK_KEY);
+    const permanent: string[] = permanentData ? JSON.parse(permanentData) as string[] : [];
+
+    // Temporary list
+    const tempData = await safeStorage.getItem(TEMP_BLOCK_KEY);
+    let temp: TempBlockedRecipe[] = tempData ? JSON.parse(tempData) as TempBlockedRecipe[] : [];
+
+    // Decrement remaining counters and filter out expired
+    temp = temp.map(r => ({ ...r, remaining: r.remaining - 1 })).filter(r => r.remaining > 0);
+
+    // Persist updated temp list
+    await safeStorage.setItem(TEMP_BLOCK_KEY, JSON.stringify(temp));
+
+    const tempIds = temp.map(r => r.id);
+
+    return [...new Set([...permanent, ...tempIds])];
+  } catch (err) {
+    logger.error('Error retrieving blocked recipes:', err);
+    return [];
+  }
+} 

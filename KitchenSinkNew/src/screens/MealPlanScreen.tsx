@@ -7,7 +7,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useMealPlan } from '../contexts/MealPlanContext';
 import { Recipe } from '../contexts/MealPlanContext';
-import { recordMealPlan, saveMealPlanToFirestore } from '../utils/recipeHistory';
+import { recordMealPlan, saveMealPlanToFirestore, blockRecipePermanent, blockRecipeTemporary } from '../utils/recipeHistory';
 import { getBudgetPreferences } from '../utils/preferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
 import { swapRecipe } from '../utils/recipeSwapper';
@@ -17,7 +17,7 @@ import PantryIngredientMatch from '../components/PantryIngredientMatch';
 import { firestoreService } from '../services/firebaseService';
 
 // Update MealType to include a combined lunch_dinner type
-type MealType = 'breakfast' | 'lunch' | 'dinner' | 'lunch_dinner' | 'snacks';
+type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
 type MealPlanNavigationProp = NativeStackNavigationProp<RootStackParamList, 'MealPlan'>;
 
 const screenWidth = Dimensions.get('window').width;
@@ -30,6 +30,31 @@ const MealPlanScreen: React.FC = () => {
   const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
   const [budget, setBudget] = useState<BudgetPreferences>({ amount: 0, frequency: 'weekly' });
   const [swappingRecipeId, setSwappingRecipeId] = useState<string | null>(null);
+  const [blockingRecipeId, setBlockingRecipeId] = useState<string | null>(null);
+
+  // Pending action state for confirmation modal
+  const [pendingAction, setPendingAction] = useState<{
+    type: 'swap' | 'hide_temp' | 'hide_perm';
+    recipe: Recipe;
+    mealType: MealType;
+  } | null>(null);
+
+  const executePendingAction = async () => {
+    if (!pendingAction) return;
+    const { type, recipe, mealType } = pendingAction;
+    setPendingAction(null);
+    switch (type) {
+      case 'swap':
+        await handleSwapRecipe(recipe.id, mealType);
+        break;
+      case 'hide_temp':
+        await blockAndSwapRecipe(recipe, mealType, true, 10);
+        break;
+      case 'hide_perm':
+        await blockAndSwapRecipe(recipe, mealType, false);
+        break;
+    }
+  };
   const { mealPlan, setMealPlan } = useMealPlan();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -50,12 +75,10 @@ const MealPlanScreen: React.FC = () => {
   useEffect(() => {
     if (mealPlan.length > 0) {
       // Check if we have any lunch or dinner recipes
-      const hasLunchOrDinner = mealPlan.some(recipe => 
-        recipe.tags.includes('lunch') || recipe.tags.includes('dinner')
-      );
-      
-      if (hasLunchOrDinner) {
-        setSelectedTab('lunch_dinner');
+      if (mealPlan.some(recipe => recipe.tags.includes('lunch'))) {
+        setSelectedTab('lunch');
+      } else if (mealPlan.some(recipe => recipe.tags.includes('dinner'))) {
+        setSelectedTab('dinner');
       } else if (mealPlan.some(recipe => recipe.tags.includes('breakfast'))) {
         setSelectedTab('breakfast');
       } else if (mealPlan.some(recipe => recipe.tags.includes('snacks'))) {
@@ -74,57 +97,11 @@ const MealPlanScreen: React.FC = () => {
     }
   }, [mealPlan]);
 
-  // Filter recipes by meal type (ensuring no duplicates in the UI)
+  // Filter recipes by their PRIMARY tag (tags[0]).
+  // Using the primary tag guarantees that each recipe appears under exactly one meal-type tab,
+  // eliminating cross-category duplicates and ensuring the counts match the generator’s intent.
   const getRecipesByType = useCallback((type: MealType): Recipe[] => {
-    // Create a Set to track recipe IDs we've already displayed
-    // This prevents the same recipe from appearing in multiple categories
-    
-    // Get all recipe IDs that have been shown in higher priority categories
-    const usedRecipeIds = new Set<string>();
-    
-    // Define priority order for meal types (breakfast → lunch/dinner → snacks)
-    const mealTypePriority: MealType[] = ['breakfast', 'lunch_dinner', 'snacks'];
-    
-    // If current type is not the highest priority, collect IDs from higher priority types
-    const currentTypeIndex = mealTypePriority.indexOf(type === 'lunch' || type === 'dinner' ? 'lunch_dinner' : type);
-    
-    // For each higher priority meal type, add its recipe IDs to the used set
-    for (let i = 0; i < currentTypeIndex; i++) {
-      const higherPriorityType = mealTypePriority[i];
-      
-      if (higherPriorityType === 'lunch_dinner') {
-        // For the combined lunch_dinner type, add both lunch and dinner tagged recipes
-        mealPlan
-          .filter(recipe => recipe.tags.includes('lunch') || recipe.tags.includes('dinner'))
-          .forEach(recipe => usedRecipeIds.add(recipe.id));
-      } else {
-        mealPlan
-          .filter(recipe => recipe.tags.includes(higherPriorityType))
-          .forEach(recipe => usedRecipeIds.add(recipe.id));
-      }
-    }
-    
-    // Handle the special case of the combined lunch_dinner category
-    if (type === 'lunch_dinner') {
-      return mealPlan.filter(recipe => 
-        (recipe.tags.includes('lunch') || recipe.tags.includes('dinner')) && 
-        !usedRecipeIds.has(recipe.id)
-      );
-    }
-    
-    // For backward compatibility - if someone still selects the individual tabs
-    if (type === 'lunch' || type === 'dinner') {
-      return mealPlan.filter(recipe => 
-        recipe.tags.includes(type) && 
-        !usedRecipeIds.has(recipe.id)
-      );
-    }
-    
-    // Return recipes for this meal type that haven't been shown in a higher priority category
-    return mealPlan.filter(recipe => 
-      recipe.tags.includes(type) && 
-      !usedRecipeIds.has(recipe.id)
-    );
+    return mealPlan.filter(recipe => recipe.tags[0] === type);
   }, [mealPlan]);
 
   const toggleRecipeSelection = (recipeId: string) => {
@@ -148,22 +125,8 @@ const MealPlanScreen: React.FC = () => {
     try {
       setSwappingRecipeId(recipeId);
       
-      // For the combined lunch_dinner category, we need to determine the actual meal type
-      // of the recipe to make sure we swap with the correct type
-      const recipe = mealPlan.find(r => r.id === recipeId);
-      let actualMealType = mealType;
-      
-      // If we're in the combined lunch_dinner category, find the actual meal type
-      if (mealType === 'lunch_dinner' && recipe) {
-        if (recipe.tags.includes('lunch')) {
-          actualMealType = 'lunch';
-        } else if (recipe.tags.includes('dinner')) {
-          actualMealType = 'dinner';
-        }
-      }
-      
-      // Use the centralized swapRecipe utility
-      const alternativeRecipe = await swapRecipe(recipeId, actualMealType, mealPlan);
+      // Use the centralized swapRecipe utility directly with mealType
+      const alternativeRecipe = await swapRecipe(recipeId, mealType, mealPlan);
       
       if (!alternativeRecipe) {
         Alert.alert(
@@ -204,6 +167,42 @@ const MealPlanScreen: React.FC = () => {
       );
     } finally {
       setSwappingRecipeId(null);
+    }
+  };
+
+  // Helper to block a recipe (permanent or temporary) and attempt to swap in an alternative.
+  const blockAndSwapRecipe = async (
+    recipe: Recipe,
+    mealType: MealType,
+    temporary: boolean = false,
+    generations: number = 10
+  ) => {
+    try {
+      setBlockingRecipeId(recipe.id);
+
+      // Block recipe
+      if (temporary) {
+        await blockRecipeTemporary(recipe.id, generations);
+      } else {
+        await blockRecipePermanent(recipe.id);
+      }
+
+      // Try to fetch an alternative recipe of the same meal type
+      const alternative = await swapRecipe(recipe.id, mealType, mealPlan);
+
+      if (alternative) {
+        // Replace recipe in meal plan
+        const updated = mealPlan.map(r => (r.id === recipe.id ? alternative : r));
+        setMealPlan(updated);
+      } else {
+        // If no alternative, just remove it
+        setMealPlan(mealPlan.filter(r => r.id !== recipe.id));
+      }
+    } catch (err) {
+      logger.error('Error blocking and swapping recipe:', err);
+      Alert.alert('Error', 'Unable to hide recipe at the moment. Please try again.');
+    } finally {
+      setBlockingRecipeId(null);
     }
   };
 
@@ -360,20 +359,19 @@ const MealPlanScreen: React.FC = () => {
   };
 
   const renderMealTypeTabs = () => {
-    // Count recipes by meal type
-    const breakfastCount = mealPlan.filter(recipe => recipe.tags.includes('breakfast')).length;
-    const lunchCount = mealPlan.filter(recipe => recipe.tags.includes('lunch')).length;
-    const dinnerCount = mealPlan.filter(recipe => recipe.tags.includes('dinner')).length;
-    const snacksCount = mealPlan.filter(recipe => recipe.tags.includes('snacks')).length;
+    // Count recipes by **primary** meal type to stay consistent with getRecipesByType
+    const breakfastCount = mealPlan.filter(r => r.tags[0] === 'breakfast').length;
+    const lunchCount = mealPlan.filter(r => r.tags[0] === 'lunch').length;
+    const dinnerCount = mealPlan.filter(r => r.tags[0] === 'dinner').length;
+    const snacksCount = mealPlan.filter(r => r.tags[0] === 'snacks').length;
     
     // Define tabs to show - always include the combined lunch_dinner tab instead of separate ones
-    const tabs: MealType[] = ['breakfast', 'lunch_dinner', 'snacks'];
+    const tabs: MealType[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
     
     // Only show tabs that have recipes
     const filteredTabs = tabs.filter(tab => {
-      if (tab === 'lunch_dinner') {
-        return lunchCount > 0 || dinnerCount > 0;
-      }
+      // No combined logic needed
+      
       return mealPlan.some(recipe => recipe.tags.includes(tab));
     });
     
@@ -383,19 +381,13 @@ const MealPlanScreen: React.FC = () => {
     return (
       <View style={styles.tabsContainer}>
         {displayTabs.map(tab => {
-          const isActive = (tab === 'lunch_dinner' && (selectedTab === 'lunch' || selectedTab === 'dinner' || selectedTab === 'lunch_dinner')) ||
-                          (tab === selectedTab);
+          const isActive = tab === selectedTab;
           
           let count = getRecipesByType(tab).length;
           let tabLabel = '';
           
           // Set the tab label based on the tab type
           switch(tab) {
-            case 'lunch_dinner':
-              tabLabel = "Lunch & Dinner";
-              // Update the count for the combined tab
-              count = getRecipesByType('lunch_dinner').length;
-              break;
             default:
               tabLabel = tab.charAt(0).toUpperCase() + tab.slice(1);
           }
@@ -421,6 +413,7 @@ const MealPlanScreen: React.FC = () => {
     const isExpanded = expandedRecipeId === recipe.id;
     const isSelected = selectedRecipes.has(recipe.id);
     const isSwapping = swappingRecipeId === recipe.id;
+    const isBlocking = blockingRecipeId === recipe.id;
     
     // Log recipe name and imageUrl for debugging
     logger.debug(`[MealPlanScreen] Rendering card for: ${recipe.name}, ImageUrl: ${recipe.imageUrl}`);
@@ -496,20 +489,53 @@ const MealPlanScreen: React.FC = () => {
               </Text>
             ))}
             
-            <TouchableOpacity 
-              style={styles.swapButton}
-              onPress={() => handleSwapRecipe(recipe.id, selectedTab)}
-              disabled={isSwapping}
-            >
-              {isSwapping ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <>
-                  <MaterialCommunityIcons name="swap-horizontal" size={16} color="#ffffff" />
-                  <Text style={styles.swapButtonText}>Swap Recipe</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            {/* Action buttons container */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+              <TouchableOpacity 
+                style={[styles.swapButton, { flex: 1 }]}
+                onPress={() => setPendingAction({ type: 'swap', recipe, mealType: selectedTab })}
+                disabled={isSwapping || isBlocking}
+              >
+                {isSwapping ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="swap-horizontal" size={16} color="#ffffff" />
+                    <Text style={styles.swapButtonText}>Swap</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.blockTempButton, { flex: 1 }]}
+                onPress={() => setPendingAction({ type: 'hide_temp', recipe, mealType: selectedTab })}
+                disabled={isBlocking || isSwapping}
+              >
+                {isBlocking ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="clock-alert" size={16} color="#ffffff" />
+                    <Text style={styles.swapButtonText}>Hide 10x</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.blockPermButton, { flex: 1 }]}
+                onPress={() => setPendingAction({ type: 'hide_perm', recipe, mealType: selectedTab })}
+                disabled={isBlocking || isSwapping}
+              >
+                {isBlocking ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="block-helper" size={16} color="#ffffff" />
+                    <Text style={styles.swapButtonText}>Hide</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
@@ -636,60 +662,66 @@ const MealPlanScreen: React.FC = () => {
         )}
       </View>
       
-      {/* Instructions for users */}
-      <View style={styles.instructionsContainer}>
-        <Text style={styles.instructionsText}>
-          <MaterialCommunityIcons name="information-outline" size={16} color="#007bff" />{' '}
-          Select recipes you want to include in your weekly meal plan, then tap "Save Selected" to save them to your profile.
-        </Text>
-      </View>
-      
-      {renderBudgetSection()}
-      {renderMealTypeTabs()}
-      
-      {/* Selection Actions Bar */}
-      {mealPlan.length > 0 && (
-        <View style={styles.selectionBar}>
-          <Text style={styles.selectionText}>
-            {selectedRecipes.size} of {mealPlan.length} recipes selected
+      {/* Unified scrollable content */}
+      <ScrollView
+        style={styles.contentContainer}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Instructions for users */}
+        <View style={styles.instructionsContainer}>
+          <Text style={styles.instructionsText}>
+            <MaterialCommunityIcons name="information-outline" size={16} color="#007bff" />{' '}
+            Select recipes you want to include in your weekly meal plan, then tap "Save Selected" to save them to your profile.
           </Text>
-          <View style={styles.selectionActions}>
-            <TouchableOpacity
-              style={styles.selectionButton}
-              onPress={() => {
-                // Select all recipes in the current meal plan
-                const allIds = new Set(mealPlan.map(recipe => recipe.id));
-                setSelectedRecipes(allIds);
-              }}
-            >
-              <MaterialCommunityIcons name="select-all" size={16} color="#333" />
-              <Text style={styles.selectionButtonText}>Select All</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.selectionButton}
-              onPress={() => {
-                // Clear selection
-                setSelectedRecipes(new Set());
-              }}
-            >
-              <MaterialCommunityIcons name="close" size={16} color="#333" />
-              <Text style={styles.selectionButtonText}>Clear</Text>
-            </TouchableOpacity>
-          </View>
         </View>
-      )}
-      
-      <ScrollView style={styles.recipeList}>
-        {getRecipesByType(selectedTab).length > 0 ? (
-          getRecipesByType(selectedTab).map(renderRecipeCard)
-        ) : (
-          <Text style={styles.emptyState}>
-            {selectedTab === 'lunch_dinner' 
-              ? "No lunch or dinner recipes in your plan." 
-              : `No ${selectedTab} recipes in your plan.`}
-          </Text>
+
+        {renderBudgetSection()}
+        {renderMealTypeTabs()}
+
+        {/* Selection Actions Bar */}
+        {mealPlan.length > 0 && (
+          <View style={styles.selectionBar}>
+            <Text style={styles.selectionText}>
+              {selectedRecipes.size} {selectedRecipes.size === 1 ? 'recipe' : 'recipes'} selected
+            </Text>
+            <View style={styles.selectionActions}>
+              <TouchableOpacity
+                style={styles.selectionButton}
+                onPress={() => {
+                  // Select all recipes in the current meal plan
+                  const allIds = new Set(mealPlan.map(recipe => recipe.id));
+                  setSelectedRecipes(allIds);
+                }}
+              >
+                <MaterialCommunityIcons name="select-all" size={16} color="#333" />
+                <Text style={styles.selectionButtonText}>Select All</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.selectionButton}
+                onPress={() => {
+                  // Clear selection
+                  setSelectedRecipes(new Set());
+                }}
+              >
+                <MaterialCommunityIcons name="close" size={16} color="#333" />
+                <Text style={styles.selectionButtonText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
+
+        {/* Recipe List */}
+        <View style={styles.recipeList}>
+          {getRecipesByType(selectedTab).length > 0 ? (
+            getRecipesByType(selectedTab).map(renderRecipeCard)
+          ) : (
+            <Text style={styles.emptyState}>
+              {`No ${selectedTab} recipes in your plan.`}
+            </Text>
+          )}
+        </View>
       </ScrollView>
 
       {/* Add a button at the bottom of the screen to finish meal planning */}
@@ -731,6 +763,47 @@ const MealPlanScreen: React.FC = () => {
             >
               <Text style={styles.modalButtonText}>Go to Profile</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirmation Modal */}
+      <Modal
+        visible={pendingAction !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendingAction(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { width: '85%' }]}>
+            {pendingAction && (
+              <>
+                <Text style={styles.modalTitle}>
+                  {pendingAction.type === 'swap' && 'Swap Recipe'}
+                  {pendingAction.type === 'hide_temp' && 'Temporarily Hide Recipe'}
+                  {pendingAction.type === 'hide_perm' && 'Permanently Hide Recipe'}
+                </Text>
+                <Text style={{ color: '#4E4E4E', marginBottom: 20, textAlign: 'center' }}>
+                  {pendingAction.type === 'swap' && 'We will look for an alternative recipe of the same meal type to replace this one.'}
+                  {pendingAction.type === 'hide_temp' && 'This recipe will be hidden from recommendations for at least the next 10 meal-plan generations and replaced with another recipe now.'}
+                  {pendingAction.type === 'hide_perm' && 'This recipe will be hidden permanently from future recommendations and replaced with another recipe now.'}
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity
+                    style={[styles.blockPermButton, { flex: 1, backgroundColor: '#7A736A' }]}
+                    onPress={() => setPendingAction(null)}
+                  >
+                    <Text style={styles.swapButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.swapButton, { flex: 1 }]}
+                    onPress={executePendingAction}
+                  >
+                    <Text style={styles.swapButtonText}>Confirm</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -1086,6 +1159,31 @@ const styles = StyleSheet.create({
   modalButtonText: {
     color: '#FFFFFF',
     fontWeight: '500',
+  },
+  // Added styles for unified ScrollView
+  contentContainer: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 120, // ensures content isn't hidden behind the footer
+  },
+  blockTempButton: {
+    marginTop: 16,
+    backgroundColor: '#B57A42', // brownish
+    borderRadius: 4,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  blockPermButton: {
+    marginTop: 16,
+    backgroundColor: '#A14F4F', // reddish
+    borderRadius: 4,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

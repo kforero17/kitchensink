@@ -69,4 +69,120 @@ exports.recipeProxy = functions.https.onRequest(async (req, res) => {
     console.error('[recipeProxy] error:', err);
     return res.status(500).json({ error: 'Internal error' });
   }
+});
+
+const db = admin.firestore();
+
+/**
+ * getRecipes – lightweight public endpoint to stream Tasty recipes.
+ * Query params (all optional):
+ *   mealType          breakfast|lunch|dinner|snacks
+ *   diet              vegan,vegetarian,low carb (comma-sep)
+ *   intolerances      gluten,dairy (comma-sep)
+ *   cuisine           mexican,italian,… (comma-sep)
+ *   include           chicken,tomato  (comma-sep ingredients required to appear)
+ *   maxReadyTime      minutes (number)
+ */
+exports.getRecipes = functions.region('us-central1').https.onRequest(async (req, res) => {
+  try {
+    // CORS & caching headers
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cache-Control', 'public,max-age=900'); // 15 min CDN
+
+    if (req.method === 'OPTIONS') {
+      res.set('Access-Control-Allow-Methods', 'GET');
+      res.set('Access-Control-Allow-Headers', 'Content-Type');
+      return res.status(204).send('');
+    }
+
+    const {
+      mealType,
+      diet,
+      intolerances,
+      cuisine,
+      include,
+      maxReadyTime,
+      limit,
+    } = req.query;
+
+    let query = db.collection('recipes')
+      // Minimal fields + full instructions so the client can render steps.
+      .select('name', 'ingredients', 'tags', 'imageUrl', 'readyInMinutes', 'servings', 'popularityScore', 'instructions')
+      .orderBy('updatedAt', 'desc');
+
+    // Filters
+    if (mealType && typeof mealType === 'string') {
+      query = query.where('tags', 'array-contains', mealType.toLowerCase());
+    }
+    if (diet && typeof diet === 'string') {
+      diet.split(',').forEach(d => {
+        query = query.where('tags', 'array-contains', d.trim().toLowerCase());
+      });
+    }
+    if (intolerances && typeof intolerances === 'string') {
+      intolerances.split(',').forEach(t => {
+        query = query.where('tags', 'array-contains', t.trim().toLowerCase());
+      });
+    }
+    if (cuisine && typeof cuisine === 'string') {
+      cuisine.split(',').forEach(c => {
+        query = query.where('tags', 'array-contains', c.trim().toLowerCase());
+      });
+    }
+
+    const docLimit = limit ? parseInt(limit) : 1000;
+    query = query.limit(docLimit);
+
+    let snap;
+    try {
+      snap = await query.get();
+    } catch (err) {
+      console.error('[getRecipes] Firestore query failed – attempting fallback without orderBy', err);
+      try {
+        // Remove the orderBy to avoid composite-index errors and retry once.
+        // Include the full instructions array in the fallback projection so
+        // that the client UI can always render preparation steps even when
+        // we have to drop the ordering constraint to satisfy Firestore index
+        // limitations.
+        let fallbackQuery = db.collection('recipes')
+          .select(
+            'name',
+            'ingredients',
+            'tags',
+            'imageUrl',
+            'readyInMinutes',
+            'servings',
+            'popularityScore',
+            'instructions' // <-- added to ensure instructions are returned
+          )
+          .limit(docLimit);
+        snap = await fallbackQuery.get();
+      } catch (fallbackErr) {
+        console.error('[getRecipes] Fallback query also failed', fallbackErr);
+        return res.status(500).json({ error: 'Firestore query error', details: `${fallbackErr}` });
+      }
+    }
+
+    const recipes = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    // Optional post-filter for include ingredients (because Firestore cannot OR-contains).
+    let out = recipes;
+    if (include && typeof include === 'string') {
+      const incArr = include.toLowerCase().split(',');
+      out = recipes.filter(r => {
+        const ingNames = (r.ingredients || []).map(i => (i.name || i.item || '').toLowerCase());
+        return incArr.every(inc => ingNames.some(n => n.includes(inc)));
+      });
+    }
+
+    if (maxReadyTime && !isNaN(parseInt(maxReadyTime))) {
+      const m = parseInt(maxReadyTime);
+      out = out.filter(r => (r.readyInMinutes || 0) <= m);
+    }
+
+    return res.json({ recipes: out });
+  } catch (err) {
+    console.error('[getRecipes] error', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
 }); 

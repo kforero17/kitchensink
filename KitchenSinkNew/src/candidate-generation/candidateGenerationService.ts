@@ -1,7 +1,8 @@
 import { UnifiedRecipe } from '../shared/interfaces';
 import { mapTastyRecipeToUnified } from '../mappers/recipeMappers';
+import { fetchTastyRecipesViaApi } from '../services/tastyApiService';
 import { fetchUnifiedRecipesFromSpoonacular } from '../services/unifiedRecipeService';
-import firestore from '@react-native-firebase/firestore';
+import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { titleSimilarity, bigramJaccard } from '../utils/similarityUtils';
 import { computeCacheKey, getCachedValue, setCachedValue } from '../services/cachingService';
 import logger from '../utils/logger';
@@ -33,55 +34,77 @@ async function ensureAuthReady(): Promise<void> {
 }
 
 // =====  TastyAdapter  ===== //
-// How many Tasty documents to pull on each call. Adjust here to rebalance source mix.
-const TASTY_FETCH_LIMIT = 300;
+// How many Tasty documents to pull on each call.  
+// 0 (or a negative number) means *no limit* – fetch every recipe document.  
+// You can override this via the `TASTY_FETCH_LIMIT` env-var to quickly experiment
+// without code changes (e.g. TASTY_FETCH_LIMIT=500 node run-script …).
+const TASTY_FETCH_LIMIT = process.env.TASTY_FETCH_LIMIT ? Number(process.env.TASTY_FETCH_LIMIT) : 0;
+
+// Page size for cursor-based pagination (defaults to 500 if not provided)
+const TASTY_PAGE_SIZE = process.env.TASTY_PAGE_SIZE ? Number(process.env.TASTY_PAGE_SIZE) : 500;
 
 async function fetchTastyCandidates(userEmbedding: number[]): Promise<UnifiedRecipe[]> {
   try {
-    logger.debug('Fetching Tasty candidates from Firestore...');
-    
-    // TODO: Integrate Firestore vector search when enabled. For now, pick recent 60 recipes.
-    const snapshot = await firestore()
-      .collection('recipes')
-      .orderBy('updatedAt', 'desc')
-      .limit(TASTY_FETCH_LIMIT)
-      .get()
-      .catch(async (orderErr: any) => {
-        logger.warn('Ordering by updatedAt failed or field missing, falling back to createdAt', orderErr);
-        try {
-          return await firestore()
-            .collection('recipes')
-            .orderBy('createdAt', 'desc')
-            .limit(TASTY_FETCH_LIMIT)
-            .get();
-        } catch (createdErr) {
-          logger.warn('Ordering by createdAt also failed, fetching without order', createdErr);
-          return await firestore()
-            .collection('recipes')
-            .limit(TASTY_FETCH_LIMIT)
-            .get();
-        }
-      });
+    logger.debug(`Fetching Tasty candidates from Firestore using cursor paging (pageSize=${TASTY_PAGE_SIZE})…`);
 
-    if (snapshot.empty) {
+    const maxDocs = TASTY_FETCH_LIMIT > 0 ? TASTY_FETCH_LIMIT : Infinity;
+    const orderFields: (string | null)[] = ['updatedAt', 'createdAt', null];
+
+    const collected: FirebaseFirestoreTypes.DocumentSnapshot[] = [];
+    let lastDoc: FirebaseFirestoreTypes.DocumentSnapshot | undefined;
+    let fieldIdx = 0;
+
+    while (collected.length < maxDocs && fieldIdx < orderFields.length) {
+      const field = orderFields[fieldIdx];
+
+      // Build the query for this iteration
+      let query: FirebaseFirestoreTypes.Query = firestore().collection('recipes');
+      if (field) query = (query as any).orderBy(field as any, 'desc');
+      if (lastDoc) query = query.startAfter(lastDoc);
+      query = query.limit(TASTY_PAGE_SIZE);
+
+      let snapshot: FirebaseFirestoreTypes.QuerySnapshot;
+      try {
+        snapshot = await query.get();
+      } catch (err) {
+        logger.warn(`Query failed for order field "${field}" – switching fallback`, err);
+        // Reset cursor and move to next fallback field
+        lastDoc = undefined;
+        fieldIdx++;
+        continue;
+      }
+
+      // If we didn't get any docs on the very first attempt, move to next field.
+      if (snapshot.empty && collected.length === 0) {
+        fieldIdx++;
+        continue;
+      }
+
+      if (snapshot.empty) break; // No more pages for this ordering
+
+      collected.push(...snapshot.docs);
+
+      lastDoc = snapshot.docs[snapshot.docs.length - 1];
+
+      // If we fetched less than a full page, we reached the end for this ordering
+      if (snapshot.size < TASTY_PAGE_SIZE) break;
+      // Loop again for next page (same order field)
+    }
+
+    if (collected.length === 0) {
       logger.warn('No Tasty recipes found in Firestore collection');
       return [];
     }
 
-    // Include Firestore doc.id so downstream mappers have access
-    const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
-    logger.info(`[TASTY DEBUG] snapshot size=${snapshot.size}`);
-    if (snapshot.size > 0) {
-      const first = snapshot.docs[0];
-      logger.info('[TASTY DEBUG] first doc id:', first.id, 'fields:', Object.keys(first.data()));
-    }
-    logger.debug(`Found ${docs.length} Tasty recipes in Firestore`);
-    
-    const unified = docs.map(mapTastyRecipeToUnified);
-    logger.debug(`Successfully mapped ${unified.length} Tasty recipes to unified format`);
+    const sliced = collected.slice(0, maxDocs);
 
-    logger.info(`[TASTY PIPE] raw=${docs.length} unified=${unified.length}`);
-    
+    // Include Firestore doc.id so downstream mappers have access
+    const docs = sliced.map((d: FirebaseFirestoreTypes.DocumentSnapshot) => ({ id: d.id, ...d.data() } as any));
+    logger.info(`[TASTY DEBUG] fetched=${docs.length}`);
+
+    const unified = docs.map(mapTastyRecipeToUnified);
+    logger.debug(`Mapped ${unified.length} Tasty recipes to unified format`);
+
     return unified;
   } catch (error) {
     logger.error('Failed to fetch Tasty candidates from Firestore:', error);
@@ -164,14 +187,28 @@ export async function generateRecipeCandidates(opts: GenerateOptions): Promise<U
 
   let tastyCandidates: UnifiedRecipe[] = [];
   try {
-    tastyCandidates = await fetchTastyCandidates(opts.userEmbedding);
-    logger.debug(`Fetched ${tastyCandidates.length} candidates from Tasty/Firestore`);
-  } catch (err) {
-    logger.warn('Failed to fetch Tasty candidates – continuing with fallback', err);
+    logger.info('[ORDER TRACE] → TASTY API fetch begins');
+    tastyCandidates = await fetchTastyRecipesViaApi({
+      mealType: undefined, // we don't know mealType here; server will filter if param missing
+      diet: opts.diet,
+      intolerances: opts.intolerances,
+      cuisine: opts.cuisine,
+      includeIngredients: opts.pantryTopK,
+      maxReadyTime: opts.maxReadyTime,
+    });
+    logger.debug(`Fetched ${tastyCandidates.length} candidates via Tasty API`);
+  } catch (apiErr) {
+    logger.warn('Tasty API fetch failed, falling back to Firestore paging', apiErr);
+    try {
+      tastyCandidates = await fetchTastyCandidates(opts.userEmbedding);
+    } catch (fsErr) {
+      logger.error('Firestore fallback also failed', fsErr);
+    }
   }
 
   let spoonCandidates: UnifiedRecipe[] = [];
   try {
+    logger.info('[ORDER TRACE] → Spoonacular fetch begins');
     spoonCandidates = await fetchSpoonacularCandidates(
       {
         diet: opts.diet,

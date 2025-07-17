@@ -35,6 +35,13 @@ const getDevEnv = () => {
   };
 };
 
+// -----------------------------------------------------------------------------
+// Custom configuration
+// -----------------------------------------------------------------------------
+
+// Public Cloud Function endpoint for Tasty recipes.  Override via Expo extra or
+// classic .env if desired.
+const TASTY_FUNCTION_URL_FALLBACK = 'https://us-central1-kitchensink-c4872.cloudfunctions.net/getRecipes';
 // Combine environment variables with fallbacks
 export const ENV = {
   // API Configuration
@@ -62,6 +69,9 @@ export const ENV = {
   
   // Cache Configuration
   CACHE_EXPIRY: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
+  
+  // Tasty Cloud Function
+  TASTY_FUNCTION_URL: getEnvVariables().TASTY_FUNCTION_URL || TASTY_FUNCTION_URL_FALLBACK,
 };
 
 // Helper function to log environment state - useful for debugging
