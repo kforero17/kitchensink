@@ -4,6 +4,8 @@ import { CookingPreferences } from '../types/CookingPreferences';
 import { FoodPreferences } from '../types/FoodPreferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
 import { getRecipesWithCache, clearRecipeCache } from '../utils/recipeApiService';
+import { clearTastyApiCache } from './tastyApiService';
+import { clearSpoonacularApiCache } from './unifiedRecipeService';
 import { recipeDatabase } from '../data/recipeDatabase';
 import { mockRecipes } from '../data/mockRecipes';
 import { additionalMockRecipes, dessertMockRecipes } from '../data/mockRecipes';
@@ -95,6 +97,8 @@ export class ApiRecipeService {
         if (this.clearCache) {
           logger.debug('Clearing recipe cache before fetching');
           await clearRecipeCache();
+          clearTastyApiCache(); // Also clear Tasty API cache
+          clearSpoonacularApiCache(); // Also clear Spoonacular API cache
         }
         
         // Prepare API request with pantry items if available

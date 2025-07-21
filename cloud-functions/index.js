@@ -82,12 +82,17 @@ const db = admin.firestore();
  *   cuisine           mexican,italian,… (comma-sep)
  *   include           chicken,tomato  (comma-sep ingredients required to appear)
  *   maxReadyTime      minutes (number)
+ *   seed              random seed to shuffle results
  */
 exports.getRecipes = functions.region('us-central1').https.onRequest(async (req, res) => {
   try {
     // CORS & caching headers
     res.set('Access-Control-Allow-Origin', '*');
-    res.set('Cache-Control', 'public,max-age=900'); // 15 min CDN
+    
+    // Reduce cache time if seed is present (for variety)
+    const hasSeed = req.query.seed && typeof req.query.seed === 'string';
+    const cacheTime = hasSeed ? 'public,max-age=60' : 'public,max-age=900'; // 1 min vs 15 min
+    res.set('Cache-Control', cacheTime);
 
     if (req.method === 'OPTIONS') {
       res.set('Access-Control-Allow-Methods', 'GET');
@@ -103,6 +108,7 @@ exports.getRecipes = functions.region('us-central1').https.onRequest(async (req,
       include,
       maxReadyTime,
       limit,
+      seed,
     } = req.query;
 
     let query = db.collection('recipes')
@@ -130,7 +136,7 @@ exports.getRecipes = functions.region('us-central1').https.onRequest(async (req,
       });
     }
 
-    const docLimit = limit ? parseInt(limit) : 1000;
+    const docLimit = limit ? parseInt(limit) : 250;
     query = query.limit(docLimit);
 
     let snap;
@@ -178,6 +184,37 @@ exports.getRecipes = functions.region('us-central1').https.onRequest(async (req,
     if (maxReadyTime && !isNaN(parseInt(maxReadyTime))) {
       const m = parseInt(maxReadyTime);
       out = out.filter(r => (r.readyInMinutes || 0) <= m);
+    }
+
+    // Shuffle results if seed is provided
+    if (seed && out.length > 0) {
+      // Create a simple seeded random function
+      const seedHash = seed.split('').reduce((a, b) => {
+        a = ((a << 5) - a) + b.charCodeAt(0);
+        return a & a;
+      }, 0);
+      
+      // Fisher-Yates shuffle with seeded random
+      const shuffled = [...out];
+      let currentIndex = shuffled.length;
+      let temporaryValue, randomIndex;
+      
+      // Simple seeded random number generator
+      let randomSeed = Math.abs(seedHash);
+      const seededRandom = () => {
+        randomSeed = (randomSeed * 9301 + 49297) % 233280;
+        return randomSeed / 233280;
+      };
+      
+      while (currentIndex !== 0) {
+        randomIndex = Math.floor(seededRandom() * currentIndex);
+        currentIndex -= 1;
+        temporaryValue = shuffled[currentIndex];
+        shuffled[currentIndex] = shuffled[randomIndex];
+        shuffled[randomIndex] = temporaryValue;
+      }
+      
+      out = shuffled;
     }
 
     return res.json({ recipes: out });

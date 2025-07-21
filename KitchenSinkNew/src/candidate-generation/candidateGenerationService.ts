@@ -1,6 +1,7 @@
 import { UnifiedRecipe } from '../shared/interfaces';
 import { mapTastyRecipeToUnified } from '../mappers/recipeMappers';
-import { fetchTastyRecipesViaApi } from '../services/tastyApiService';
+import { fetchTastyRecipesViaApi, resetRecentlyFetchedIds } from '../services/tastyApiService';
+import { resetSpoonacularRecentlyFetchedIds } from '../services/unifiedRecipeService';
 import { fetchUnifiedRecipesFromSpoonacular } from '../services/unifiedRecipeService';
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { titleSimilarity, bigramJaccard } from '../utils/similarityUtils';
@@ -38,10 +39,10 @@ async function ensureAuthReady(): Promise<void> {
 // 0 (or a negative number) means *no limit* – fetch every recipe document.  
 // You can override this via the `TASTY_FETCH_LIMIT` env-var to quickly experiment
 // without code changes (e.g. TASTY_FETCH_LIMIT=500 node run-script …).
-const TASTY_FETCH_LIMIT = process.env.TASTY_FETCH_LIMIT ? Number(process.env.TASTY_FETCH_LIMIT) : 0;
+const TASTY_FETCH_LIMIT = process.env.TASTY_FETCH_LIMIT ? Number(process.env.TASTY_FETCH_LIMIT) : 250;
 
 // Page size for cursor-based pagination (defaults to 500 if not provided)
-const TASTY_PAGE_SIZE = process.env.TASTY_PAGE_SIZE ? Number(process.env.TASTY_PAGE_SIZE) : 500;
+const TASTY_PAGE_SIZE = process.env.TASTY_PAGE_SIZE ? Number(process.env.TASTY_PAGE_SIZE) : 250;
 
 async function fetchTastyCandidates(userEmbedding: number[]): Promise<UnifiedRecipe[]> {
   try {
@@ -132,7 +133,7 @@ async function fetchSpoonacularCandidates(params: SpoonacularAdapterParams, tast
     cuisine: params.cuisine,
     includeIngredients: params.includeIngredients?.join(',') ?? undefined,
     maxReadyTime: params.maxReadyTime,
-    number: 60,
+    number: 100, // Increased from 60 to get more variety
   });
 
   // Filter out near-duplicate titles vs Tasty
@@ -181,6 +182,11 @@ interface GenerateOptions {
 export async function generateRecipeCandidates(opts: GenerateOptions): Promise<UnifiedRecipe[]> {
   // Ensure we have Firebase auth before any Firestore interaction (Tasty fetch or cache).
   await ensureAuthReady();
+  
+  // Reset recently fetched IDs to ensure variety in new meal plan generation
+  resetRecentlyFetchedIds();
+  resetSpoonacularRecentlyFetchedIds();
+  
   // Fetch from both sources independently and tolerate failures so that
   // the recommendation pipeline can still proceed when one source is
   // unavailable (e.g. offline or API quota exceeded).
