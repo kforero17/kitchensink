@@ -304,6 +304,22 @@ const ProfileScreen: React.FC = () => {
     setShowNewMealPlanPrompt(false);
   };
 
+  // Confirmation dialog before generating a new meal plan from profile
+  const confirmGenerateNewMealPlan = () => {
+    Alert.alert(
+      'Generate New Meal Plan',
+      'Generating a new weekly meal plan will replace your current plan. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Generate',
+          style: 'destructive',
+          onPress: () => navigation.navigate('LoadingMealPlan'),
+        },
+      ],
+    );
+  };
+
   const renderRecipeItem = (recipe: RecipeDocument) => (
     <TouchableOpacity 
       key={recipe.id}
@@ -464,15 +480,13 @@ const ProfileScreen: React.FC = () => {
                 savedRecipes.length > 0 ? (
                   <>
                     {savedRecipes.map(recipe => renderRecipeItem(recipe))}
-                    {allRecipesCooked && (
-                      <TouchableOpacity
-                        style={styles.generateNewPlanButton}
-                        onPress={() => navigation.navigate('LoadingMealPlan')}
-                      >
-                        <MaterialCommunityIcons name="refresh" size={20} color="#FFFFFF" />
-                        <Text style={styles.generateNewPlanButtonText}>Generate New Meal Plan</Text>
-                      </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                      style={styles.generateNewPlanButton}
+                      onPress={confirmGenerateNewMealPlan}
+                    >
+                      <MaterialCommunityIcons name="refresh" size={20} color="#FFFFFF" />
+                      <Text style={styles.generateNewPlanButtonText}>Generate New Meal Plan</Text>
+                    </TouchableOpacity>
                   </>
                 ) : (
                   <View style={styles.emptyState}>
@@ -484,7 +498,7 @@ const ProfileScreen: React.FC = () => {
                     <Text style={styles.emptyStateText}>No weekly meal plan yet</Text>
                     <TouchableOpacity
                       style={styles.emptyStateButton}
-                      onPress={() => navigation.navigate('LoadingMealPlan')}
+                      onPress={confirmGenerateNewMealPlan}
                     >
                       <Text style={styles.emptyStateButtonText}>Generate Meal Plan</Text>
                     </TouchableOpacity>
@@ -547,7 +561,7 @@ const ProfileScreen: React.FC = () => {
                   <Text style={styles.emptyStateText}>No grocery lists yet</Text>
                   <TouchableOpacity 
                     style={styles.emptyStateButton}
-                    onPress={() => navigation.navigate('LoadingMealPlan')}
+                    onPress={confirmGenerateNewMealPlan}
                   >
                     <Text style={styles.emptyStateButtonText}>Create Grocery List</Text>
                   </TouchableOpacity>
