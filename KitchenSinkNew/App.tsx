@@ -44,7 +44,7 @@ const App = () => {
         }
         
         // Clear all preferences on app start
-        await clearAllPreferences();
+        // await clearAllPreferences();
         
         // Initialize proxy configuration
         await initializeProxyConfig();

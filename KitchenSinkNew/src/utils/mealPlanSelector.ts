@@ -1,6 +1,6 @@
 import { Recipe } from '../contexts/MealPlanContext';
 import { DietaryPreferences } from '../types/DietaryPreferences';
-import { CookingPreferences, MealType } from '../types/CookingPreferences';
+import { CookingPreferences, MealType, KitchenInstrument } from '../types/CookingPreferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
 import { FoodPreferences } from '../types/FoodPreferences';
 import { findMatchingIngredients, calculateIngredientSimilarity } from './ingredientMatching';
@@ -76,6 +76,38 @@ const CONSTRAINT_FALLBACK = {
 
 // Penalty for repeated use of same main ingredient
 const REPEATED_INGREDIENT_PENALTY = 5; // Points to deduct per repeated main ingredient
+
+// ---------------------------------------------
+// Instrument keyword mapping (simple heuristics)
+// ---------------------------------------------
+const INSTRUMENT_KEYWORDS: Record<KitchenInstrument, RegExp[]> = {
+  air_fryer: [/\bair[\s-]?fryer\b/i],
+  grill: [/\bgrill(ed|ing)?\b/i, /\bbbq\b/i, /\bbarbecue\b/i],
+  slow_cooker: [/\bslow[\s-]?cooker\b/i, /\bcrock[\s-]?pot\b/i],
+  pressure_cooker: [/\bpressure[\s-]?cooker\b/i, /\binstant[\s-]?pot\b/i],
+  toaster_oven: [/\btoaster[\s-]?oven\b/i],
+  microwave: [/\bmicrowave\b/i],
+  oven: [],        // Generic oven – usually available; left empty to skip filtering
+  stove_top: []    // Stove top – assumed universally available
+};
+
+function detectRequiredInstruments(recipe: Recipe): KitchenInstrument[] {
+  const name = (recipe.name || '').toLowerCase();
+  const required: KitchenInstrument[] = [];
+  (Object.keys(INSTRUMENT_KEYWORDS) as KitchenInstrument[]).forEach(instr => {
+    const patterns = INSTRUMENT_KEYWORDS[instr];
+    if (patterns && patterns.some(re => re.test(name))) {
+      required.push(instr);
+    }
+  });
+  return required;
+}
+
+function recipeRequiresUnavailableInstrument(recipe: Recipe, userInstruments: Set<KitchenInstrument>): boolean {
+  const needed = detectRequiredInstruments(recipe);
+  if (needed.length === 0) return false; // No special instrument detected
+  return needed.some(instr => !userInstruments.has(instr));
+}
 
 // Constants for scoring weights
 const SCORING_WEIGHTS = {
@@ -1258,6 +1290,14 @@ function prepareRecipeCandidates(
 ): RecipeWithScore[] {
   logger.debug(`Preparing candidates for meal type: ${mealType}`);
 
+  // Filter by kitchen instruments BEFORE expensive scoring
+  const userInstrumentSet = new Set(preferences.cooking.kitchenInstruments || []);
+
+  const instrumentFilteredRecipes = recipes.filter(r => !recipeRequiresUnavailableInstrument(r, userInstrumentSet));
+
+  // Log filtering impact
+  logger.debug(`[DEBUG] Instrument filter removed ${recipes.length - instrumentFilteredRecipes.length} recipes due to unavailable appliances`);
+
   // DEBUG: Log the total recipe pool and how many have the requested meal type tag
   logger.debug(`[DEBUG] Total recipe pool size: ${recipes.length}`);
   const recipesWithMealType = recipes.filter(r => r.tags.includes(mealType));
@@ -1288,7 +1328,7 @@ function prepareRecipeCandidates(
   }
 
   // First try strict matching where primary meal type (first tag) is the requested meal type
-  let strictMatches = recipes.filter(recipe => 
+  let strictMatches = instrumentFilteredRecipes.filter(recipe => 
     recipe.tags.length > 0 && 
     recipe.tags[0] === mealType &&
     meetsAllDietaryRequirements(recipe, preferences.dietary)
@@ -1298,7 +1338,7 @@ function prepareRecipeCandidates(
   logger.debug(`[DEBUG] After strict matching (primary tag = ${mealType}): ${strictMatches.length} recipes found`);
   
   // Always gather flexible matches (mealType appears anywhere in tags)
-  let flexibleMatches: Recipe[] = recipes.filter(recipe => 
+  let flexibleMatches: Recipe[] = instrumentFilteredRecipes.filter(recipe => 
     recipe.tags.includes(mealType) &&
     meetsAllDietaryRequirements(recipe, preferences.dietary)
   );

@@ -22,6 +22,8 @@ import {
   COOKING_DURATION_OPTIONS,
   COOKING_SKILL_OPTIONS,
   MEAL_TYPE_OPTIONS,
+  KITCHEN_INSTRUMENT_OPTIONS,
+  KitchenInstrument,
   CookingFrequency,
   CookingDuration,
   CookingSkillLevel,
@@ -45,6 +47,7 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
     servingSizePreference: 2,
     weeklyMealPrepCount: 3,
     householdSize: 2,
+    kitchenInstruments: [],
   });
 
   // Load existing preferences
@@ -85,6 +88,15 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
       mealTypes: prev.mealTypes.includes(mealType)
         ? prev.mealTypes.filter(type => type !== mealType)
         : [...prev.mealTypes, mealType],
+    }));
+  };
+
+  const handleInstrumentToggle = (instrument: KitchenInstrument) => {
+    setPreferences(prev => ({
+      ...prev,
+      kitchenInstruments: prev.kitchenInstruments && prev.kitchenInstruments.includes(instrument)
+        ? prev.kitchenInstruments.filter(inst => inst !== instrument)
+        : [...(prev.kitchenInstruments || []), instrument],
     }));
   };
 
@@ -129,6 +141,29 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
           name={option.icon || 'checkmark'}
           size={24}
           color={preferences.mealTypes.includes(option.value) ? '#D9A15B' : '#7A736A'}
+        />
+        <View style={styles.optionTextContainer}>
+          <Text style={styles.optionLabel}>{option.label}</Text>
+          <Text style={styles.optionDescription}>{option.description}</Text>
+        </View>
+      </TouchableOpacity>
+    ));
+  };
+
+  const renderInstrumentOptions = () => {
+    return KITCHEN_INSTRUMENT_OPTIONS.map(option => (
+      <TouchableOpacity
+        key={option.value}
+        style={[
+          styles.optionCard,
+          preferences.kitchenInstruments && preferences.kitchenInstruments.includes(option.value) && styles.selectedOption,
+        ]}
+        onPress={() => handleInstrumentToggle(option.value as KitchenInstrument)}
+      >
+        <Icon
+          name={option.icon || 'hardware-chip-outline'}
+          size={24}
+          color={preferences.kitchenInstruments && preferences.kitchenInstruments.includes(option.value) ? '#D9A15B' : '#7A736A'}
         />
         <View style={styles.optionTextContainer}>
           <Text style={styles.optionLabel}>{option.label}</Text>
@@ -204,6 +239,12 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
           <Text style={styles.sectionTitle}>Which meals do you want to cook?</Text>
           <Text style={styles.sectionSubtitle}>Select all that apply</Text>
           {renderMealTypeOptions()}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Available kitchen instruments</Text>
+          <Text style={styles.sectionSubtitle}>Select all appliances you can use</Text>
+          {renderInstrumentOptions()}
         </View>
 
         <View style={styles.section}>

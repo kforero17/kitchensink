@@ -6,6 +6,7 @@ export interface CookingPreferences {
   servingSizePreference: number;
   weeklyMealPrepCount: number;
   householdSize: number;
+  kitchenInstruments?: KitchenInstrument[];
 }
 
 export interface PreferenceOption<T> {
@@ -43,6 +44,69 @@ export type MealType =
   | 'dinner'
   | 'snacks'
   | 'dessert';
+
+// NEW: Supported kitchen instruments/appliances users can select
+export type KitchenInstrument =
+  | 'stove_top'
+  | 'oven'
+  | 'microwave'
+  | 'grill'
+  | 'air_fryer'
+  | 'slow_cooker'
+  | 'pressure_cooker'
+  | 'toaster_oven';
+
+// NEW: Options used for presenting instrument choices in the UI
+export const KITCHEN_INSTRUMENT_OPTIONS: PreferenceOption<KitchenInstrument>[] = [
+  {
+    value: 'stove_top',
+    label: 'Stove Top',
+    description: 'Traditional stove or cooktop available',
+    icon: 'flame',
+  },
+  {
+    value: 'oven',
+    label: 'Oven',
+    description: 'Conventional or convection oven available',
+    icon: 'pizza-outline',
+  },
+  {
+    value: 'microwave',
+    label: 'Microwave',
+    description: 'Microwave oven available',
+    icon: 'radio-outline',
+  },
+  {
+    value: 'grill',
+    label: 'Grill',
+    description: 'Outdoor or indoor grill available',
+    icon: 'barbell-outline',
+  },
+  {
+    value: 'air_fryer',
+    label: 'Air Fryer',
+    description: 'Air fryer appliance available',
+    icon: 'cloud-outline',
+  },
+  {
+    value: 'slow_cooker',
+    label: 'Slow Cooker',
+    description: 'Crock-Pot or similar slow cooker available',
+    icon: 'restaurant-outline',
+  },
+  {
+    value: 'pressure_cooker',
+    label: 'Pressure Cooker',
+    description: 'Instant Pot or other pressure cooker available',
+    icon: 'speedometer-outline',
+  },
+  {
+    value: 'toaster_oven',
+    label: 'Toaster Oven',
+    description: 'Countertop toaster oven available',
+    icon: 'flash-outline',
+  },
+];
 
 export const COOKING_FREQUENCY_OPTIONS: PreferenceOption<CookingFrequency>[] = [
   {

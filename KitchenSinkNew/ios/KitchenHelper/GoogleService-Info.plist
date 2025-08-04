@@ -13,7 +13,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.yourcompany.kitchensink</string>
+	<string>com.kitchensink.app</string>
 	<key>PROJECT_ID</key>
 	<string>kitchensink-c4872</string>
 	<key>STORAGE_BUCKET</key>
