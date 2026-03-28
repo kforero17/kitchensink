@@ -19,8 +19,16 @@ const DEFAULT_PROXY_CONFIG = {
   protocol: 'http',
 };
 
-// Current proxy configuration
-export let PROXY_CONFIG = {...DEFAULT_PROXY_CONFIG};
+// Current proxy configuration — use getProxyConfig() / updateProxyPort() instead of mutating directly
+const PROXY_CONFIG = {...DEFAULT_PROXY_CONFIG};
+
+export function getProxyConfig() {
+  return { ...PROXY_CONFIG } as Readonly<typeof DEFAULT_PROXY_CONFIG>;
+}
+
+export function updateProxyPort(port: number) {
+  PROXY_CONFIG.port = port;
+}
 
 // Try to read the port from the file that the proxy server creates
 export async function initializeProxyConfig(): Promise<void> {

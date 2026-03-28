@@ -24,11 +24,11 @@ const getEnvVariables = () => {
   }
 };
 
-// Get a simulated .env setup for testing in development
+// Default non-secret config values for development. The API key MUST come from
+// environment variables (.env / Expo extra) — never hardcode secrets here.
 const getDevEnv = () => {
   return {
-    // This is a placeholder key - you should replace this with your own key
-    SPOONACULAR_API_KEY: '1d78483223b4488e9c4dc462cffb4579',
+    SPOONACULAR_API_KEY: '',
     SPOONACULAR_BASE_URL: 'https://api.spoonacular.com',
     SPOONACULAR_INGREDIENTS_ENDPOINT: '/food/ingredients',
     SPOONACULAR_RECIPES_ENDPOINT: '/recipes',

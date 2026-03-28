@@ -139,20 +139,22 @@ class SafeAsyncStorage {
    */
   async setItem(key: string, value: string): Promise<void> {
     await this.waitForInitialization();
-    
-    // Always store in memory fallback
-    await this.emergencyBackup.setItem(key, value);
-    
+
     // Check if AsyncStorage is still available
     if (!this.verifyAsyncStorage() || !this.isAvailable) {
       debugLog('Using emergency backup for setItem:', key);
+      await this.emergencyBackup.setItem(key, value);
       return;
     }
-    
+
     try {
       await AsyncStorage.setItem(key, value);
+      // Sync to memory backup only after successful persistent write
+      await this.emergencyBackup.setItem(key, value);
     } catch (error) {
       debugLog('setItem error for key:', key, error);
+      // Fall back to memory storage on failure
+      await this.emergencyBackup.setItem(key, value);
     }
   }
 

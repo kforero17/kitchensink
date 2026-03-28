@@ -658,7 +658,11 @@ class FirestoreService {
         };
       });
       
-      // Filter by tags if provided (client-side filtering since Firestore doesn't support array contains any directly)
+      // Filter by tags if provided
+      // Note: Firestore supports array-contains-any for up to 10 values.
+      // We already built the query above, so apply tag filtering server-side
+      // when possible in a future refactor. For now keep client-side filtering
+      // but only when tags were requested.
       if (options?.tags && options.tags.length > 0) {
         recipes = recipes.filter(recipe => {
           return recipe.tags.some(tag => options.tags!.includes(tag));
