@@ -8,8 +8,16 @@ const INGREDIENT_VARIATIONS: Record<string, string[]> = {
   'onion': ['onions', 'red onion', 'white onion', 'yellow onion'],
   'potato': ['potatoes', 'sweet potato', 'sweet potatoes', 'russet potato'],
   'carrot': ['carrots', 'baby carrots'],
-  'pepper': ['peppers', 'bell pepper', 'bell peppers', 'red pepper', 'green pepper'],
-  // Add more variations as needed
+  'pepper': ['peppers', 'bell pepper', 'bell peppers', 'red pepper', 'green pepper', 'jalapeño', 'jalapeno'],
+  'beef': ['ground beef', 'steak'],
+  'chicken': ['chicken breast', 'chicken thigh', 'chicken thighs'],
+  'cheese': ['cheddar cheese', 'mozzarella cheese', 'parmesan cheese'],
+  'cream cheese': ['cream cheese spread'],
+  'green onion': ['scallion', 'scallions'],
+  'cream': ['heavy cream', 'whipping cream'],
+  'sour cream': ['sour cream dip'],
+  'sugar': ['brown sugar', 'powdered sugar'],
+  'garlic': ['garlic clove', 'garlic cloves'],
 };
 
 // Create a reverse lookup for variations

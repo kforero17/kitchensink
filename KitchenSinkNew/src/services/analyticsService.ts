@@ -30,3 +30,9 @@ export function logPantryModeUsed(params: { pantryOnlyMode: boolean; pantryItemC
     logger.error('[analytics] pantry_mode_used failed', err),
   );
 }
+
+export function logSmartGroceryListGenerated(params: { totalItems: number; removedByPantry: number; aisleCount: number }): void {
+  analytics().logEvent('smart_grocery_list_generated', params).catch(err =>
+    logger.error('[analytics] smart_grocery_list_generated failed', err),
+  );
+}

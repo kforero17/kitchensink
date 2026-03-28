@@ -1,68 +1,102 @@
-# Pantry-Aware Recommendations — Implementation Spec
+# Smart Grocery List — Implementation Spec
 
 ## Problem Statement
-Meal plans don't prioritize ingredients the user already has, especially those about to expire. Users waste food because the app doesn't actively suggest recipes that use up expiring pantry items. We need a "Use What You Have" mode that filters and ranks recipes to minimize waste.
+The grocery list includes everything from recipes without considering what the user already has. Users buy duplicates, waste money, and clutter their list. We need the grocery list to subtract pantry items, consolidate quantities, and group by store aisle so it only shows what's actually needed.
 
 ## Current State
-- `featureEngineering.ts` computes `expiryUrgency` feature (1.0 at ≤3 days, linear decay to 0 at 7 days)
-- `rankRecipes.ts` has `expiryUrgency` weight at 0.15
-- `recommendationMealPlanService.ts` passes `pantryIngredients` (name strings only) to ranking but does NOT pass `pantryItems` with expiration dates — so expiryUrgency always computes to 0
-- No "pantry-only" candidate filtering exists
-- `usePantryItems` preference exists (defaults to true) but only controls whether pantry names are passed to ranking
+- GroceryListScreen already consolidates duplicate ingredients and converts units
+- Categorization exists (8 categories with keyword matching)
+- ingredientMatching.ts has `normalizeIngredientName()` and `ingredientsMatch()` (similarity ≥ 0.8)
+- pantryService has `getPantryItems()` returning items with name, quantity, unit, category
+- GroceryListScreen does NOT reference pantry at all
+- No aisle/section ordering exists
 
 ## Approach
 
-### Change 1: Wire pantry expiration data into ranking
-**File:** `src/services/recommendationMealPlanService.ts`
-- When loading pantry items, build `PantryIngredientInfo[]` with both `name` and `expirationDate`
-- Pass this as `pantryItems` in the `RankRecipesOptions` alongside existing `pantryIngredients`
-- This activates the already-implemented expiryUrgency computation in featureEngineering.ts
+### Change 1: Create smartGroceryList utility
+**New file:** `src/utils/smartGroceryList.ts`
 
-### Change 2: Add "Use What You Have" mode with pantry-only filtering
-**File:** `src/ranking/rankRecipes.ts`
-- Add `pantryOnlyMode?: boolean` to `RankRecipesOptions`
-- Add `pantryMatchThreshold?: number` (default 0.6 = 60% of recipe ingredients must be in pantry)
-- When `pantryOnlyMode` is true:
-  - Pre-filter recipes: only keep those where `pantry` feature >= threshold
-  - Use boosted weights: `{ sim: 0.20, pantry: 0.30, popularity: 0.05, novelty: 0.05, sourceBias: 0.05, expiryUrgency: 0.35 }`
-  - This dramatically prioritizes using what's expiring
+Core logic extracted into a pure utility (testable, no React dependencies):
 
-### Change 3: Add preference for pantry-only mode
-**File:** `src/utils/preferences.ts`
-- Add `PANTRY_ONLY_MODE` storage key
-- Add `getPantryOnlyMode(): Promise<boolean>` and `savePantryOnlyMode(value: boolean): Promise<void>`
+```typescript
+interface SmartGroceryItem {
+  name: string;
+  measurement: string;
+  category: string;
+  aisle: number;          // sort order for store layout
+  recipeIds: string[];    // which recipes need this
+  recipeNames: string[];
+  recommendedPackage: string;
+  inPantry: boolean;      // true if fully covered by pantry
+  pantryNote?: string;    // e.g., "Have 1 cup, need 2 cups"
+}
 
-### Change 4: Add UI toggle for "Use What You Have" mode
-**File:** `src/screens/CookingHabitsScreen.tsx`
-- Add a toggle switch labeled "Use What You Have" with subtitle "Prioritize recipes using your pantry items, especially expiring ones"
-- Wire to `savePantryOnlyMode()` / `getPantryOnlyMode()`
-- This is the natural place since it's part of the meal plan generation preferences flow
+function buildSmartGroceryList(
+  recipeIngredients: GroceryItem[],
+  pantryItems: PantryItem[],
+): SmartGroceryItem[]
+```
 
-### Change 5: Pass mode through meal plan generation flow
-**File:** `src/screens/LoadingMealPlanScreen.tsx`
-- Load `pantryOnlyMode` preference alongside other preferences
-- Pass it through to `fetchRecommendedRecipes()`
+Steps inside:
+1. **Consolidate** — group recipe ingredients by normalized name, sum quantities within compatible unit groups (reuse existing unit conversion logic from GroceryListScreen)
+2. **Subtract pantry** — for each consolidated item, find matching pantry items using `ingredientsMatch()`. If pantry has enough quantity in a compatible unit, mark `inPantry: true`. If partial, adjust measurement and add `pantryNote`.
+3. **Assign aisle** — map category to aisle number for store-layout sorting
+4. **Sort** — by aisle number, then alphabetically within aisle
 
-**File:** `src/services/recommendationMealPlanService.ts`
-- Accept `pantryOnlyMode` parameter
-- Pass it to `rankRecipes()` options
-- When in pantry-only mode, increase `pantryTopK` from 5 to all pantry ingredients (remove the limit)
+### Change 2: Aisle mapping
+**In same file:** `src/utils/smartGroceryList.ts`
 
-### Change 6: Analytics event
+```typescript
+const AISLE_ORDER: Record<string, number> = {
+  'Produce': 1,
+  'Meat & Seafood': 2,
+  'Dairy & Eggs': 3,
+  'Frozen': 4,
+  'Grains & Bakery': 5,
+  'Pantry': 6,
+  'Beverages': 7,
+  'Snacks & Sweets': 8,
+  'Other': 9,
+};
+```
+
+### Change 3: Integrate into GroceryListScreen
+**File:** `src/screens/GroceryListScreen.tsx`
+- Import `buildSmartGroceryList` and `SmartGroceryItem`
+- After existing ingredient consolidation logic, call `buildSmartGroceryList()` with consolidated ingredients + pantry items
+- Fetch pantry items using `getPantryItems(user.uid)` (already have auth context)
+- Replace flat list rendering with aisle-grouped sections
+- Items fully in pantry shown dimmed with "Already have" badge (or filtered out entirely)
+- Items partially in pantry show a note like "Have 2, need 1 more"
+- Add aisle section headers in the UI
+
+### Change 4: Improve ingredient normalization
+**File:** `src/utils/ingredientMatching.ts`
+- Expand `INGREDIENT_VARIATIONS` map with more common variations needed for pantry-grocery matching:
+  - "ground beef" → "beef", "chicken breast" → "chicken", "cheddar cheese" → "cheese"
+  - "green onion" / "scallion" → "green onion"
+  - "bell pepper" / "green pepper" / "red pepper" → "pepper"
+  - Common plurals not yet covered
+
+### Change 5: Analytics
 **File:** `src/services/analyticsService.ts`
-- Add `logPantryModeUsed(params: { pantryOnlyMode: boolean; pantryItemCount: number; expiringCount: number })` event
+- Add `logSmartGroceryListGenerated(params: { totalItems: number; removedByPantry: number; aisleCount: number })`
 
 ## Files to Modify (in order)
-1. `src/utils/preferences.ts` — add pantry-only mode preference
-2. `src/ranking/rankRecipes.ts` — add pantryOnlyMode option, boosted weights, pre-filter
-3. `src/services/recommendationMealPlanService.ts` — wire pantry expiration data + pantry-only mode
-4. `src/screens/CookingHabitsScreen.tsx` — add "Use What You Have" toggle
-5. `src/screens/LoadingMealPlanScreen.tsx` — load and pass pantryOnlyMode
-6. `src/services/analyticsService.ts` — add pantry mode analytics event
+1. `src/utils/ingredientMatching.ts` — expand variation dictionary
+2. `src/utils/smartGroceryList.ts` — **NEW** — core smart list logic
+3. `src/screens/GroceryListScreen.tsx` — integrate smart list + aisle UI
+4. `src/services/analyticsService.ts` — add analytics event
+5. `src/tests/smartGroceryList.test.ts` — **NEW** — unit tests
 
-## No New Files
-All changes are additions to existing files.
+## Design Decisions
+- Expired pantry items (status='expired') are excluded from subtraction
+- Partial quantities: if pantry has 1 cup and recipe needs 3 cups, grocery shows "2 cups (have 1 cup)"
+- Items fully covered by pantry are shown dimmed (not hidden) so user can verify
+- Use existing `ingredientsMatch()` (Jaccard ≥ 0.8) for pantry matching rather than substring — more resilient
+- Aisle ordering follows typical US grocery store layout (produce first, pantry staples later)
+- The consolidation logic already in GroceryListScreen (parseMeasurement, standardizeQuantity, etc.) should be reused, not duplicated
 
 ## Risks
-- If user has very few pantry items, pantry-only mode might return too few recipes — mitigate with fallback to normal mode if <3 recipes match
-- Expiration date data is optional — expiryUrgency gracefully handles missing dates (returns 0)
+- Unit mismatch between pantry and grocery items (pantry stores "units" vs grocery "cups") — mitigate by only subtracting when units are in the same group
+- False positive ingredient matches (e.g., "pepper" matching "bell pepper" AND "black pepper") — acceptable for MVP, can refine later

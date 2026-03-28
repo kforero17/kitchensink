@@ -12,7 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { groceryListService } from '../services/groceryListService';
 import { firestoreService } from '../services/firebaseService';
-import { addGroceryItemsToPantryFirestore } from '../services/pantryService';
+import { addGroceryItemsToPantryFirestore, getPantryItems } from '../services/pantryService';
 import {
   GroceryItem,
   GroceryListDocument,
@@ -22,7 +22,9 @@ import {
   RecipeDocument
 } from '../types/FirestoreSchema';
 import firestore from '@react-native-firebase/firestore';
-import { logGroceryListCreated } from '../services/analyticsService';
+import { logGroceryListCreated, logSmartGroceryListGenerated } from '../services/analyticsService';
+import { buildSmartGroceryList, getSmartListSummary, SmartGroceryItem } from '../utils/smartGroceryList';
+import { normalizeIngredientName } from '../utils/ingredientMatching';
 
 type GroceryListScreenRouteProp = RouteProp<RootStackParamList, 'GroceryList'>;
 type GroceryListScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GroceryList'>;
@@ -370,6 +372,10 @@ const GroceryListScreen: React.FC = () => {
   const [savingInProgress, setSavingInProgress] = useState(false);
   const [listName, setListName] = useState('My Grocery List');
   
+  // Smart grocery list state
+  const [smartItems, setSmartItems] = useState<SmartGroceryItem[]>([]);
+  const [pantrySubtracted, setPantrySubtracted] = useState(0);
+
   // New state for selected items and tracking if we're from profile
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const isFromProfile = route.params?.existingListId !== undefined;
@@ -605,6 +611,49 @@ const GroceryListScreen: React.FC = () => {
     loadData();
   }, [selectedRecipes, existingListId]);
   
+  // Build smart grocery list when categorized ingredients change
+  useEffect(() => {
+    const buildSmartList = async () => {
+      const allItems = Object.values(categorizedIngredients).flat();
+      if (allItems.length === 0) {
+        setSmartItems([]);
+        setPantrySubtracted(0);
+        return;
+      }
+
+      // Convert local Ingredient[] to GroceryItem-compatible objects for the builder
+      const groceryItemsForBuilder = allItems.map(item => ({
+        name: item.name,
+        measurement: item.measurement,
+        category: item.category || 'Other',
+        recipeId: item.recipeId,
+        recipeName: item.recipeName,
+        recommendedPackage: item.recommendedPackage,
+      }));
+
+      let pantryItems: Awaited<ReturnType<typeof getPantryItems>> = [];
+      if (user?.uid) {
+        try {
+          pantryItems = await getPantryItems(user.uid);
+        } catch (err) {
+          console.error('Failed to fetch pantry items for smart list:', err);
+        }
+      }
+
+      const built = buildSmartGroceryList(groceryItemsForBuilder, pantryItems);
+      setSmartItems(built);
+
+      const summary = getSmartListSummary(built);
+      setPantrySubtracted(summary.removedByPantry);
+
+      if (built.length > 0) {
+        logSmartGroceryListGenerated(summary);
+      }
+    };
+
+    buildSmartList();
+  }, [categorizedIngredients, user]);
+
   useEffect(() => {
     const loadSavedLists = async () => {
       try {
@@ -807,8 +856,54 @@ const GroceryListScreen: React.FC = () => {
     );
   };
   
+  // Emoji prefixes for category section headers
+  const CATEGORY_EMOJI: Record<string, string> = {
+    'Produce': '\uD83E\uDD6C',
+    'Meat & Seafood': '\uD83E\uDD69',
+    'Dairy & Eggs': '\uD83E\uDDC0',
+    'Frozen': '\uD83E\uDDCA',
+    'Grains & Bakery': '\uD83C\uDF5E',
+    'Pantry': '\uD83E\uDED9',
+    'Beverages': '\uD83E\uDD64',
+    'Snacks & Sweets': '\uD83C\uDF6B',
+    'Other': '\uD83D\uDCE6',
+  };
+
+  // Look up whether a specific ingredient is flagged as in-pantry by the smart list
+  const getSmartItem = (ingredientName: string): SmartGroceryItem | undefined =>
+    smartItems.find(si =>
+      normalizeIngredientName(si.name) === normalizeIngredientName(ingredientName)
+    );
+
+  // Render a single ingredient item — enhanced with pantry badge
+  const renderSmartIngredientItem = ({ item }: { item: Ingredient }) => {
+    const isRemoved = isIngredientRemoved(item.name);
+    const smart = getSmartItem(item.name);
+    const isPantryItem = smart?.inPantry ?? false;
+
+    return (
+      <View style={isPantryItem ? { opacity: 0.5 } : undefined}>
+        <SwipeableIngredient
+          item={item}
+          isRemoved={isRemoved}
+          onRemove={() => handleRemoveIngredient(item.name)}
+          onToggleSelect={() => handleToggleSelectItem(item.name)}
+        />
+        {isPantryItem && (
+          <View style={styles.pantryBadgeRow}>
+            <Text style={styles.pantryBadgeText}>{'\u2713'} Already have</Text>
+            {smart?.pantryNote ? (
+              <Text style={styles.pantryNoteText}>{smart.pantryNote}</Text>
+            ) : null}
+          </View>
+        )}
+      </View>
+    );
+  };
+
   // Render a category section
   const renderCategorySection = (category: string, items: Ingredient[]) => {
+    const emoji = CATEGORY_EMOJI[category] || CATEGORY_EMOJI['Other'];
     // Only show categories that have active ingredients
     const activeItems = items.filter(item => !isIngredientRemoved(item.name));
     if (activeItems.length === 0 && items.length > 0) {
@@ -816,23 +911,23 @@ const GroceryListScreen: React.FC = () => {
       return (
         <View key={category} style={styles.categorySection}>
           <View style={styles.categoryHeader}>
-            <Text style={styles.categoryTitle}>{category}</Text>
+            <Text style={styles.categoryTitle}>{emoji} {category}</Text>
           </View>
           <Text style={styles.allRemovedText}>All items in this category already available</Text>
         </View>
       );
     }
-    
+
     return (
       <View key={category} style={styles.categorySection}>
         <View style={styles.categoryHeader}>
-          <Text style={styles.categoryTitle}>{category}</Text>
+          <Text style={styles.categoryTitle}>{emoji} {category}</Text>
         </View>
         {items && items.length > 0 ? (
           <View>
             {items.map((item, index) => (
               <View key={`${item.name}-${index}`}>
-                {renderIngredientItem({ item })}
+                {renderSmartIngredientItem({ item })}
               </View>
             ))}
           </View>
@@ -1184,6 +1279,14 @@ const GroceryListScreen: React.FC = () => {
         )}
       </View>
       
+      {pantrySubtracted > 0 && (
+        <View style={styles.smartBanner}>
+          <Text style={styles.smartBannerText}>
+            {pantrySubtracted} item{pantrySubtracted !== 1 ? 's' : ''} already in your pantry
+          </Text>
+        </View>
+      )}
+
       <ScrollView style={styles.content}>
         {loading ? (
           <ActivityIndicator size="large" color="#D9A15B" style={styles.loader} />
@@ -1730,6 +1833,38 @@ const styles = StyleSheet.create({
   checkedText: {
     color: '#999',
     textDecorationLine: 'line-through',
+  },
+  smartBanner: {
+    backgroundColor: '#E8F5E9',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#C8E6C9',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  smartBannerText: {
+    fontSize: 14,
+    color: '#2E7D32',
+    fontWeight: '500',
+    flex: 1,
+  },
+  pantryBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingBottom: 6,
+  },
+  pantryBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4CAF50',
+    marginRight: 8,
+  },
+  pantryNoteText: {
+    fontSize: 12,
+    color: '#7A736A',
+    fontStyle: 'italic',
   },
 });
 
