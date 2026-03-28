@@ -7,23 +7,27 @@ export interface RankingWeights {
   pantry: number;
   popularity: number;
   novelty: number;
-  sourceBias: number; // weight applied to bias value
+  sourceBias: number;
+  expiryUrgency: number;
 }
 
 /**
  * Default weighting tuned for:
- *  – Higher emphasis on ingredient / preference alignment (`sim`, `pantry`)
+ *  – Highest emphasis on ingredient / preference alignment (`sim`)
+ *  – Strong emphasis on pantry overlap (`pantry`)
+ *  – Expiry urgency encourages using ingredients before they spoil
  *  – Moderate emphasis on variety / freshness (`novelty`)
  *  – Popularity still matters but less dominant
- *  – Small bias term reserved for source fine-tuning (caller can override)
+ *  – Small bias term reserved for source fine-tuning
  *  Weights sum to 1.0 for clarity.
  */
 const DEFAULT_WEIGHTS: RankingWeights = {
-  sim: 0.45,       // ingredient & title similarity to user tokens
-  pantry: 0.30,    // overlap with pantry ingredients
+  sim: 0.35,
+  pantry: 0.25,
   popularity: 0.10,
-  novelty: 0.10,   // encourages variety / unseen items
+  novelty: 0.10,
   sourceBias: 0.05,
+  expiryUrgency: 0.15,
 };
 
 export interface RankRecipesOptions extends FeatureContext {
@@ -45,7 +49,8 @@ export function rankRecipes(recipes: UnifiedRecipe[], opts: RankRecipesOptions):
       feats.pantry * weights.pantry +
       feats.popularity * weights.popularity +
       feats.novelty * weights.novelty +
-      feats.sourceBias * weights.sourceBias;
+      feats.sourceBias * weights.sourceBias +
+      feats.expiryUrgency * weights.expiryUrgency;
     return { recipe: rec, features: feats, score };
   });
 
