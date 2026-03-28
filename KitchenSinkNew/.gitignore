@@ -37,3 +37,6 @@ yarn-error.*
 # Environment variables
 .env
 .env.*
+
+# Test files with credential placeholders
+firebase-auth-test.js

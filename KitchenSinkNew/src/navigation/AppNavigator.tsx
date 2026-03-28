@@ -14,7 +14,7 @@ import MealPlanScreen from '../screens/MealPlanScreen';
 import GroceryListScreen from '../screens/GroceryListScreen';
 import GroceryListHistoryScreen from '../screens/GroceryListHistoryScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import DebugScreen from '../screens/DebugScreen';
+
 import TestPickerScreen from '../screens/TestPickerScreen';
 import RecipeDetailScreen from '../screens/RecipeDetailScreen';
 import RecipeHistoryScreen from '../screens/RecipeHistoryScreen';
@@ -93,11 +93,7 @@ const AppNavigator = () => {
         <Stack.Screen name="GroceryList" component={GroceryListScreen} />
         <Stack.Screen name="GroceryListHistory" component={GroceryListHistoryScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen 
-          name="Debug" 
-          component={DebugScreen} 
-          options={{ headerShown: true, title: 'Network Debug' }}
-        />
+
         <Stack.Screen name="TestPicker" component={TestPickerScreen} />
         <Stack.Screen name="RecipeHistory" component={RecipeHistoryScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Pantry" component={PantryScreen} />

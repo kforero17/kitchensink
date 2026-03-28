@@ -89,34 +89,4 @@ export function ingredientsMatch(ing1: string, ing2: string): boolean {
   return similarity >= 0.8; // Consider it a match if similarity is high enough
 }
 
-/**
- * Calculates the Levenshtein distance between two strings
- */
-function levenshteinDistance(str1: string, str2: string): number {
-  const matrix: number[][] = [];
-
-  // Initialize matrix
-  for (let i = 0; i <= str1.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= str2.length; j++) {
-    matrix[0][j] = j;
-  }
-
-  // Fill in the matrix
-  for (let i = 1; i <= str1.length; i++) {
-    for (let j = 1; j <= str2.length; j++) {
-      if (str1[i - 1] === str2[j - 1]) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1, // substitution
-          matrix[i][j - 1] + 1,     // insertion
-          matrix[i - 1][j] + 1      // deletion
-        );
-      }
-    }
-  }
-
-  return matrix[str1.length][str2.length];
-} 
+ 
