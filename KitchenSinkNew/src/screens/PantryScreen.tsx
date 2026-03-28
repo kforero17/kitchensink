@@ -21,6 +21,7 @@ import { PantryItem } from '../types/PantryItem';
 import { getPantryItems, addPantryItem, deletePantryItem, updatePantryItem } from '../services/pantryService'; // Uncomment getPantryItems, addPantryItem, and deletePantryItem
 import { theme } from '../styles/theme';
 import logger from '../utils/logger';
+import { logPantryItemAdded } from '../services/analyticsService';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import * as Network from 'expo-network'; // Uncomment Network
 import { resilientStorage } from '../utils/ResilientAsyncStorage';
@@ -311,6 +312,7 @@ const PantryScreen: React.FC = () => {
           if (resilientStorage && typeof resilientStorage.setItem === 'function') {
             await resilientStorage.setItem('pantryItems', JSON.stringify(updatedItems));
           }
+          logPantryItemAdded({ itemName: name, category });
           logger.debug(`[PantryScreen] Successfully added item with ID: ${itemId} to Firestore and cache`);
         } else {
           Alert.alert('Error', 'Failed to add item to the pantry.');

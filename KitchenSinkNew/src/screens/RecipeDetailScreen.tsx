@@ -8,6 +8,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import PantryIngredientMatch from '../components/PantryIngredientMatch';
 import { recipeFeedbackService, RecipeFeedback } from '../services/recipeFeedbackService';
 import { LinearGradient } from 'expo-linear-gradient';
+import { logRecipeViewed } from '../services/analyticsService';
 
 type RecipeDetailRouteProp = RouteProp<RootStackParamList, 'RecipeDetail'>;
 type RecipeDetailNavigationProp = NativeStackNavigationProp<RootStackParamList, 'RecipeDetail'>;
@@ -20,6 +21,7 @@ const RecipeDetailScreen: React.FC = () => {
   // Add debugging to inspect recipe structure
   useEffect(() => {
     if (recipe) {
+      logRecipeViewed({ recipeId: recipe.id, recipeName: recipe.name, source: recipe.source });
       console.log('Recipe in RecipeDetailScreen:', {
         name: recipe.name,
         instructionsType: recipe.instructions ? typeof recipe.instructions : 'undefined',

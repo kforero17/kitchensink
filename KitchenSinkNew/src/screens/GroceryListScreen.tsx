@@ -22,6 +22,7 @@ import {
   RecipeDocument
 } from '../types/FirestoreSchema';
 import firestore from '@react-native-firebase/firestore';
+import { logGroceryListCreated } from '../services/analyticsService';
 
 type GroceryListScreenRouteProp = RouteProp<RootStackParamList, 'GroceryList'>;
 type GroceryListScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GroceryList'>;
@@ -924,6 +925,7 @@ const GroceryListScreen: React.FC = () => {
         
         if (listId) {
           console.log('GroceryListScreen: Grocery list created successfully with ID:', listId);
+          logGroceryListCreated({ listName, itemCount: groceryItemsToSave.length });
           setHasCompletedOnboarding(true);
           Alert.alert(
             'Success',

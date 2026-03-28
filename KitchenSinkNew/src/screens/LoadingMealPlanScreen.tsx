@@ -13,6 +13,7 @@ import {
   getBudgetPreferences
 } from '../utils/preferences';
 import { fetchRecommendedRecipes } from '../services/recommendationMealPlanService';
+import { logMealPlanGenerated } from '../services/analyticsService';
 import { getPreferenceValue } from '../utils/preferences';
 import logger from '../utils/logger';
 import { MealType } from '../types/CookingPreferences';
@@ -224,7 +225,10 @@ const LoadingMealPlanScreen: React.FC = () => {
         
         // Success! Set the meal plan and navigate to next screen
         setMealPlan(processedRecipes);
-        
+
+        const mealTypes = [...new Set(processedRecipes.flatMap(r => r.tags.filter((t: string) => ['breakfast', 'lunch', 'dinner', 'snacks'].includes(t))))];
+        logMealPlanGenerated({ recipeCount: processedRecipes.length, mealTypes });
+
         // Log a sample of processed recipes with their imageUrls
         if (processedRecipes.length > 0) {
           logger.debug('[LoadingMealPlanScreen] Sample recipes being set to context:',
