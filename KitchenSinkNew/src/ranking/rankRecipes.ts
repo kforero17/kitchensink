@@ -30,8 +30,19 @@ const DEFAULT_WEIGHTS: RankingWeights = {
   expiryUrgency: 0.15,
 };
 
+const PANTRY_ONLY_WEIGHTS: RankingWeights = {
+  sim: 0.20,
+  pantry: 0.30,
+  popularity: 0.05,
+  novelty: 0.05,
+  sourceBias: 0.05,
+  expiryUrgency: 0.35,
+};
+
 export interface RankRecipesOptions extends FeatureContext {
   weights?: Partial<RankingWeights>;
+  pantryOnlyMode?: boolean;
+  pantryMatchThreshold?: number;
 }
 
 export interface ScoredRecipe {
@@ -41,7 +52,8 @@ export interface ScoredRecipe {
 }
 
 export function rankRecipes(recipes: UnifiedRecipe[], opts: RankRecipesOptions): ScoredRecipe[] {
-  const weights: RankingWeights = { ...DEFAULT_WEIGHTS, ...opts.weights } as RankingWeights;
+  const baseWeights = opts.pantryOnlyMode ? PANTRY_ONLY_WEIGHTS : DEFAULT_WEIGHTS;
+  const weights: RankingWeights = { ...baseWeights, ...opts.weights } as RankingWeights;
 
   const scored: ScoredRecipe[] = recipes.map(rec => {
     const feats = computeFeatures(rec, opts);
@@ -54,7 +66,15 @@ export function rankRecipes(recipes: UnifiedRecipe[], opts: RankRecipesOptions):
     return { recipe: rec, features: feats, score };
   });
 
-  // Sort descending by score
+  if (opts.pantryOnlyMode) {
+    const threshold = opts.pantryMatchThreshold ?? 0.6;
+    const filtered = scored.filter(s => s.features.pantry >= threshold);
+    if (filtered.length >= 3) {
+      filtered.sort((a, b) => b.score - a.score);
+      return filtered;
+    }
+  }
+
   scored.sort((a, b) => b.score - a.score);
   return scored;
 }

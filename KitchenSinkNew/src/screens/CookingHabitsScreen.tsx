@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -29,7 +30,7 @@ import {
   CookingSkillLevel,
   MealType,
 } from '../types/CookingPreferences';
-import { saveCookingPreferences, getCookingPreferences } from '../utils/preferences';
+import { saveCookingPreferences, getCookingPreferences, getPantryOnlyMode, savePantryOnlyMode } from '../utils/preferences';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CookingHabits'>;
 type CookingHabitsRouteProp = RouteProp<RootStackParamList, 'CookingHabits'>;
@@ -38,7 +39,8 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
   const route = useRoute<CookingHabitsRouteProp>();
   const isFromProfile = route.params?.fromProfile === true;
   const [isLoading, setIsLoading] = useState(true);
-  
+  const [pantryOnlyMode, setPantryOnlyMode] = useState(false);
+
   const [preferences, setPreferences] = useState<CookingPreferences>({
     cookingFrequency: 'few_times_week',
     preferredCookingDuration: 'under_30_min',
@@ -61,6 +63,8 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
       if (savedPrefs) {
         setPreferences(savedPrefs);
       }
+      const savedPantryMode = await getPantryOnlyMode();
+      setPantryOnlyMode(savedPantryMode);
     } catch (error) {
       Alert.alert(
         'Error',
@@ -342,6 +346,25 @@ export const CookingHabitsScreen: React.FC<Props> = ({ navigation }: Props) => {
             </TouchableOpacity>
           </View>
         </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Use What You Have</Text>
+          <Text style={styles.sectionSubtitle}>
+            Prioritize recipes using your pantry items, especially expiring ones
+          </Text>
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleLabel}>Pantry-first recipes</Text>
+            <Switch
+              value={pantryOnlyMode}
+              onValueChange={(val) => {
+                setPantryOnlyMode(val);
+                savePantryOnlyMode(val);
+              }}
+              trackColor={{ false: '#E6DED3', true: '#D9A15B' }}
+              thumbColor={pantryOnlyMode ? '#fff' : '#f4f3f4'}
+            />
+          </View>
+        </View>
       </ScrollView>
 
       <View style={styles.footer}>
@@ -470,6 +493,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#EFE7DD',
+    borderRadius: 12,
+    padding: 16,
+  },
+  toggleLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4E4E4E',
   },
   loadingContainer: {
     flex: 1,

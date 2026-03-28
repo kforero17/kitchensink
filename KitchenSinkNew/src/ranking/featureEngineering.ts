@@ -59,12 +59,14 @@ function cosineSimilarity(tokensA: string[], tokensB: string[]): number {
 }
 
 function computeIngredientExpiryUrgency(ingredientName: string, pantryItems: PantryIngredientInfo[]): number {
-  const lower = ingredientName.toLowerCase();
+  const ingTokens = tokenize(ingredientName);
   let maxUrgency = 0;
 
   for (const item of pantryItems) {
     if (!item.expirationDate) continue;
-    if (item.name.toLowerCase() !== lower) continue;
+    const itemTokens = tokenize(item.name);
+    const hasOverlap = ingTokens.some(t => itemTokens.includes(t));
+    if (!hasOverlap) continue;
 
     const now = new Date();
     now.setHours(0, 0, 0, 0);
@@ -94,12 +96,12 @@ export function computeFeatures(recipe: UnifiedRecipe, ctx: FeatureContext): Fea
   const sim = cosineSimilarity(recipeTokens, ctx.userTokens);
 
   // 2. pantry_overlap – proportion of recipe ingredients present in pantry
-  const pantrySet = new Set(ctx.pantryIngredients.map(p => p.toLowerCase()));
+  const pantryTokens = new Set(
+    ctx.pantryIngredients.flatMap(p => tokenize(p))
+  );
   const overlapCount = recipe.ingredients.filter(ing => {
-    if (!ing || !ing.name || typeof ing.name !== 'string') {
-      return false;
-    }
-    return pantrySet.has(ing.name.toLowerCase());
+    if (!ing?.name) return false;
+    return tokenize(ing.name).some(t => pantryTokens.has(t));
   }).length;
   const pantry = recipe.ingredients.length === 0 ? 0 : overlapCount / recipe.ingredients.length;
 

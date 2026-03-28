@@ -14,7 +14,7 @@ import {
 } from '../utils/preferences';
 import { fetchRecommendedRecipes } from '../services/recommendationMealPlanService';
 import { logMealPlanGenerated } from '../services/analyticsService';
-import { getPreferenceValue } from '../utils/preferences';
+import { getPreferenceValue, getPantryOnlyMode } from '../utils/preferences';
 import logger from '../utils/logger';
 import { MealType } from '../types/CookingPreferences';
 import { apiRecipeService } from '../services/apiRecipeService';
@@ -57,8 +57,8 @@ const LoadingMealPlanScreen: React.FC = () => {
         const cookingPrefs = await getCookingPreferences();
         const budgetPrefs = await getBudgetPreferences();
         
-        // Check if user has enabled using pantry items in recipe generation
         const usePantryItems = await getPreferenceValue('usePantryItems', true);
+        const pantryOnlyMode = await getPantryOnlyMode();
         
         if (!dietaryPrefs || !foodPrefs || !cookingPrefs || !budgetPrefs) {
           throw new Error('One or more preferences not found');
@@ -130,6 +130,7 @@ const LoadingMealPlanScreen: React.FC = () => {
           cooking: cookingPrefs,
           budget: budgetPrefs,
           usePantryItems,
+          pantryOnlyMode,
         });
         
         logger.debug(`API returned ${recipes.length} total recipes`);

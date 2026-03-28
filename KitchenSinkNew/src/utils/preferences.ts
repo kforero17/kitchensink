@@ -13,6 +13,7 @@ export const STORAGE_KEYS = {
   COOKING_PREFERENCES: 'cooking_preferences',
   BUDGET_PREFERENCES: 'budget_preferences',
   USE_PANTRY_ITEMS: 'use_pantry_items',
+  PANTRY_ONLY_MODE: 'pantry_only_mode',
   APP_SETTINGS: 'app_settings'
 } as const;
 
@@ -236,6 +237,14 @@ export async function getBudgetPreferences(): Promise<BudgetPreferences | null> 
     logger.error('Error getting budget preferences:', error);
     return null;
   }
+}
+
+export async function getPantryOnlyMode(): Promise<boolean> {
+  return getPreferenceValue<boolean>('pantryOnlyMode', false);
+}
+
+export async function savePantryOnlyMode(value: boolean): Promise<boolean> {
+  return savePreferenceValue<boolean>('pantryOnlyMode', value);
 }
 
 /**

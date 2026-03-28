@@ -24,3 +24,9 @@ export function logGroceryListCreated(params: { listName: string; itemCount: num
     logger.error('[analytics] grocery_list_created failed', err),
   );
 }
+
+export function logPantryModeUsed(params: { pantryOnlyMode: boolean; pantryItemCount: number; expiringCount: number }): void {
+  analytics().logEvent('pantry_mode_used', params).catch(err =>
+    logger.error('[analytics] pantry_mode_used failed', err),
+  );
+}

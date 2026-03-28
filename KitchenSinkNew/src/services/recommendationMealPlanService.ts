@@ -5,7 +5,9 @@ import { DietaryPreferences } from '../types/DietaryPreferences';
 import { CookingPreferences } from '../types/CookingPreferences';
 import { FoodPreferences } from '../types/FoodPreferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
+import { PantryIngredientInfo } from '../ranking/featureEngineering';
 import { getPantryItems } from './pantryService';
+import { logPantryModeUsed } from './analyticsService';
 import auth from '@react-native-firebase/auth';
 import logger from '../utils/logger';
 
@@ -21,28 +23,39 @@ export async function fetchRecommendedRecipes(
     cooking: CookingPreferences;
     budget: BudgetPreferences;
     usePantryItems?: boolean;
+    pantryOnlyMode?: boolean;
   }
 ): Promise<import('../contexts/MealPlanContext').Recipe[]> {
   try {
-    // collect pantry top-K (max 5)
     let pantryTokensForInclude: string[] = [];
     let pantryTokensForRanking: string[] = [];
+    let pantryItemsInfo: PantryIngredientInfo[] = [];
     if (prefs.usePantryItems) {
       const uid = auth().currentUser?.uid;
       if (uid) {
         try {
           const items = await getPantryItems(uid);
+          pantryItemsInfo = items.map(i => ({
+            name: i.name,
+            expirationDate: i.expirationDate,
+          }));
+
           const tokens = items
             .map(i => i.name.split(' ')[0].toLowerCase())
             .filter(tok => tok.length >= 3 && !PANTRY_STOP_WORDS.has(tok));
 
-          // Deduplicate while preserving order
           const dedup: string[] = [];
           for (const tok of tokens) {
             if (!dedup.includes(tok)) dedup.push(tok);
           }
-          pantryTokensForInclude = dedup.slice(0, MAX_PANTRY_INCLUDE); // smaller list for API
-          pantryTokensForRanking = dedup.slice(0, 5); // up to 5 for ranking weight
+
+          if (prefs.pantryOnlyMode) {
+            pantryTokensForInclude = dedup;
+            pantryTokensForRanking = dedup;
+          } else {
+            pantryTokensForInclude = dedup.slice(0, MAX_PANTRY_INCLUDE);
+            pantryTokensForRanking = dedup.slice(0, 5);
+          }
         } catch (err) { logger.warn('Cannot fetch pantry items', err); }
       }
     }
@@ -59,11 +72,24 @@ export async function fetchRecommendedRecipes(
     const scored = rankRecipes(candidates, {
       userTokens: buildUserTokens(prefs),
       pantryIngredients: pantryTokensForRanking,
+      pantryItems: pantryItemsInfo,
       spoonacularBias: -1,
-      // Keep light bias against Spoonacular but let new default weights dominate
-      weights: {
-        sourceBias: 0.15,
-      },
+      pantryOnlyMode: prefs.pantryOnlyMode,
+      weights: prefs.pantryOnlyMode ? undefined : { sourceBias: 0.15 },
+    });
+
+    const threeDaysFromNow = new Date();
+    threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+    threeDaysFromNow.setHours(23, 59, 59, 999);
+    const expiringCount = pantryItemsInfo.filter(item => {
+      if (!item.expirationDate) return false;
+      const exp = new Date(item.expirationDate);
+      return exp <= threeDaysFromNow;
+    }).length;
+    logPantryModeUsed({
+      pantryOnlyMode: !!prefs.pantryOnlyMode,
+      pantryItemCount: pantryItemsInfo.length,
+      expiringCount,
     });
 
     const tastyScored = scored.filter(s => s.recipe.source === 'tasty');
