@@ -43,15 +43,41 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.tagline}>Simplify your meal planning</Text>
           </View>
 
-          <TouchableOpacity
-            onPress={handleGetStarted}
-            activeOpacity={0.85}
-            style={styles.buttonWrapper}
-          >
-            <View style={styles.button}>
-              <Text style={styles.buttonText}>Get Started</Text>
+          {user && hasCompletedOnboarding ? (
+            <View style={styles.returningUserContainer}>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('LoadingMealPlan')}
+                activeOpacity={0.85}
+                style={styles.buttonWrapper}
+              >
+                <View style={styles.button}>
+                  <Text style={styles.buttonText}>Generate New Meal Plan</Text>
+                </View>
+              </TouchableOpacity>
+              <Text style={styles.tipText}>
+                Your recommendations improve as you rate recipes
+              </Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Profile')}
+                activeOpacity={0.85}
+                style={styles.buttonWrapper}
+              >
+                <View style={styles.secondaryButton}>
+                  <Text style={styles.secondaryButtonText}>Go to Profile</Text>
+                </View>
+              </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              onPress={handleGetStarted}
+              activeOpacity={0.85}
+              style={styles.buttonWrapper}
+            >
+              <View style={styles.button}>
+                <Text style={styles.buttonText}>Get Started</Text>
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
       </ImageBackground>
     </View>
@@ -106,6 +132,31 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#fff',
+    fontSize: 20,
+    fontWeight: '500',
+  },
+  returningUserContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: Platform.OS === 'ios' ? 8 : 16,
+  },
+  tipText: {
+    color: '#454545',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 12,
+    paddingHorizontal: 16,
+  },
+  secondaryButton: {
+    paddingVertical: 18,
+    alignItems: 'center',
+    borderRadius: 32,
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: '#C4B5A4',
+  },
+  secondaryButtonText: {
+    color: '#C4B5A4',
     fontSize: 20,
     fontWeight: '500',
   },

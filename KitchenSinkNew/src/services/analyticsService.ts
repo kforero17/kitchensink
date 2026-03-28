@@ -36,3 +36,15 @@ export function logSmartGroceryListGenerated(params: { totalItems: number; remov
     logger.error('[analytics] smart_grocery_list_generated failed', err),
   );
 }
+
+export function logMealPlanAccepted(params: { selectedCount: number; totalCount: number }): void {
+  analytics().logEvent('meal_plan_accepted', params).catch(err =>
+    logger.error('[analytics] meal_plan_accepted failed', err),
+  );
+}
+
+export function logMealPlanRegenerated(): void {
+  analytics().logEvent('meal_plan_regenerated').catch(err =>
+    logger.error('[analytics] meal_plan_regenerated failed', err),
+  );
+}

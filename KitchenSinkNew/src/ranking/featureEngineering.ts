@@ -7,6 +7,7 @@ export interface FeatureVector {
   novelty: number;        // 1 if unseen else 0
   sourceBias: number;     // bias based on source
   expiryUrgency: number;  // max urgency across matched pantry ingredients [0,1]
+  feedback: number;       // user's prior rating/like/dislike signal with time decay [-1, 1]
   readyInMinutesNorm?: number; // optional extra feature
 }
 
@@ -21,6 +22,7 @@ export interface FeatureContext {
   pantryItems?: PantryIngredientInfo[]; // pantry items with expiration info
   seenRecipeIds?: Set<string>;       // recipes user has already seen / interacted with
   spoonacularBias?: number;          // default -0.05, range -0.1..0.1
+  feedbackMap?: Map<string, { score: number; decayedScore: number }>;
 }
 
 // ---------- helpers ---------- //
@@ -125,8 +127,12 @@ export function computeFeatures(recipe: UnifiedRecipe, ctx: FeatureContext): Fea
     }
   }
 
-  // 7. readyInMinutes_norm (optional) – shorter recipes higher score
+  // 7. feedback – user's prior rating/like/dislike signal with time decay
+  const feedbackSignal = ctx.feedbackMap?.get(recipe.id);
+  const feedback = feedbackSignal?.decayedScore ?? 0;
+
+  // 8. readyInMinutes_norm (optional) – shorter recipes higher score
   const readyInMinutesNorm = recipe.readyInMinutes ? Math.max(0, Math.min(1, (120 - recipe.readyInMinutes) / 120)) : undefined;
 
-  return { sim, pantry, popularity, novelty, sourceBias, expiryUrgency, readyInMinutesNorm };
+  return { sim, pantry, popularity, novelty, sourceBias, expiryUrgency, feedback, readyInMinutesNorm };
 } 

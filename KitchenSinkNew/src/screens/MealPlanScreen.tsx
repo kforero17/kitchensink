@@ -15,6 +15,9 @@ import logger from '../utils/logger';
 import { apiRecipeService } from '../services/apiRecipeService';
 import PantryIngredientMatch from '../components/PantryIngredientMatch';
 import { firestoreService } from '../services/firebaseService';
+import { recipeFeedbackService } from '../services/recipeFeedbackService';
+import { logMealPlanAccepted, logMealPlanRegenerated } from '../services/analyticsService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Update MealType to include a combined lunch_dinner type
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
@@ -59,6 +62,7 @@ const MealPlanScreen: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showPostMealPlanModal, setShowPostMealPlanModal] = useState(false);
+  const [showFeedbackTip, setShowFeedbackTip] = useState(false);
   
   // Load budget preferences when component mounts
   useEffect(() => {
@@ -70,6 +74,35 @@ const MealPlanScreen: React.FC = () => {
     };
     loadBudget();
   }, []);
+
+  // Check whether to show the feedback tip banner
+  useEffect(() => {
+    const checkFeedbackTip = async () => {
+      try {
+        const shown = await AsyncStorage.getItem('@feedback_tip_shown');
+        if (!shown) {
+          setShowFeedbackTip(true);
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    };
+    checkFeedbackTip();
+  }, []);
+
+  const dismissFeedbackTip = async () => {
+    setShowFeedbackTip(false);
+    try {
+      await AsyncStorage.setItem('@feedback_tip_shown', 'true');
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  const handleRegenerate = () => {
+    logMealPlanRegenerated();
+    navigation.navigate('LoadingMealPlan');
+  };
 
   // Set initial tab - if we have lunch/dinner recipes, default to that tab
   useEffect(() => {
@@ -580,7 +613,15 @@ const MealPlanScreen: React.FC = () => {
       }
       
       console.log('Successfully saved selected recipes to profile');
-      
+
+      // Record implicit positive feedback for selected recipes
+      for (const recipe of selectedRecipesArray) {
+        recipeFeedbackService.saveFeedback(recipe.id, {
+          isCooked: false, isLiked: true, isDisliked: false, rating: 0,
+        }).catch(() => {}); // fire-and-forget
+      }
+      logMealPlanAccepted({ selectedCount: selectedRecipesArray.length, totalCount: mealPlan.length });
+
       // Show success message but don't navigate away - let the user continue with meal planning
       Alert.alert(
         "Recipes Saved",
@@ -627,7 +668,16 @@ const MealPlanScreen: React.FC = () => {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Your Meal Plan</Text>
-        
+
+        {/* Regenerate Button */}
+        <TouchableOpacity
+          style={styles.regenerateButton}
+          onPress={handleRegenerate}
+        >
+          <MaterialCommunityIcons name="refresh" size={18} color="#B57A42" />
+          <Text style={styles.regenerateButtonText}>Regenerate</Text>
+        </TouchableOpacity>
+
         {/* Add Grocery List Button */}
         {mealPlan.length > 0 && (
           <TouchableOpacity 
@@ -678,6 +728,18 @@ const MealPlanScreen: React.FC = () => {
 
         {renderBudgetSection()}
         {renderMealTypeTabs()}
+
+        {/* Feedback tip banner */}
+        {showFeedbackTip && (
+          <View style={styles.feedbackTipContainer}>
+            <Text style={styles.feedbackTipText}>
+              Like or dislike recipes to improve future recommendations
+            </Text>
+            <TouchableOpacity onPress={dismissFeedbackTip} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <MaterialCommunityIcons name="close" size={18} color="#7A736A" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Selection Actions Bar */}
         {mealPlan.length > 0 && (
@@ -1184,6 +1246,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  regenerateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#B57A42',
+    borderRadius: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  regenerateButtonText: {
+    color: '#B57A42',
+    fontWeight: '500',
+    fontSize: 13,
+    marginLeft: 4,
+  },
+  feedbackTipContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 12,
+    backgroundColor: '#FFF8E1',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  feedbackTipText: {
+    flex: 1,
+    color: '#7A736A',
+    fontSize: 13,
   },
 });
 

@@ -7,6 +7,8 @@ import { FoodPreferences } from '../types/FoodPreferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
 import { PantryIngredientInfo } from '../ranking/featureEngineering';
 import { getPantryItems } from './pantryService';
+import { recipeFeedbackService } from './recipeFeedbackService';
+import { buildFeedbackMap, buildSeenRecipeIds } from '../ranking/feedbackSignal';
 import { logPantryModeUsed } from './analyticsService';
 import auth from '@react-native-firebase/auth';
 import logger from '../utils/logger';
@@ -60,6 +62,19 @@ export async function fetchRecommendedRecipes(
       }
     }
 
+    // Fetch user feedback history for personalised ranking
+    let feedbackMap: Map<string, { score: number; decayedScore: number }> | undefined;
+    let seenRecipeIds: Set<string> | undefined;
+    try {
+      const history = await recipeFeedbackService.getUserFeedbackHistory(100);
+      if (history.length > 0) {
+        feedbackMap = buildFeedbackMap(history);
+        seenRecipeIds = buildSeenRecipeIds(history);
+      }
+    } catch (err) {
+      // Feedback is non-critical — continue without it
+    }
+
     const candidates = await generateRecipeCandidates({
       userEmbedding: [],
       diet: buildDietParam(prefs.dietary),
@@ -76,6 +91,8 @@ export async function fetchRecommendedRecipes(
       spoonacularBias: -1,
       pantryOnlyMode: prefs.pantryOnlyMode,
       weights: prefs.pantryOnlyMode ? undefined : { sourceBias: 0.15 },
+      feedbackMap,
+      seenRecipeIds,
     });
 
     const threeDaysFromNow = new Date();
