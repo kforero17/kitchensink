@@ -14,6 +14,8 @@ import ErrorBoundary from './src/components/ErrorBoundary';
 import { resilientStorage } from './src/utils/ResilientAsyncStorage';
 import { STORAGE_KEYS } from './src/constants/storage';
 import { groceryListService } from './src/services/groceryListService';
+import './src/tasks/pantryStatusTask'; // register TaskManager task at module scope
+import { registerPantryStatusTask } from './src/tasks/pantryStatusTask';
 
 const App = () => {
   useEffect(() => {
@@ -119,6 +121,11 @@ const App = () => {
         logger.error('Failed to initialize groceryListService', err);
       });
       
+      // Register daily pantry status background task
+      await registerPantryStatusTask().catch((err: Error) => {
+        logger.error('Failed to register pantry status task', err);
+      });
+
       logger.debug('[App] Services initialization complete');
     } catch (err: unknown) {
       logger.error('Error initializing services', err);

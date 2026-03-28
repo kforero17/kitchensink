@@ -8,7 +8,10 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  Platform,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../styles/theme';
 import { PantryItem } from '../types/PantryItem';
 
@@ -27,12 +30,20 @@ const CATEGORIES = [
   'Other',
 ];
 
+function formatDate(date: Date): string {
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function toISODateString(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
 type Props = {
   visible: boolean;
   onClose: () => void;
-  onAdd?: (name: string, quantity: number, unit: string, category: string) => void;
+  onAdd?: (name: string, quantity: number, unit: string, category: string, expirationDate?: string) => void;
   itemToEdit?: PantryItem | null;
-  onSaveEdit?: (id: string, name: string, quantity: number, unit: string, category: string) => void;
+  onSaveEdit?: (id: string, name: string, quantity: number, unit: string, category: string, expirationDate?: string) => void;
   modalTitle?: string;
 };
 
@@ -48,8 +59,19 @@ export const AddPantryItemModal: React.FC<Props> = ({
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('');
   const [category, setCategory] = useState('');
+  const [expirationDate, setExpirationDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const isEditMode = !!itemToEdit;
+
+  const resetForm = () => {
+    setName('');
+    setQuantity('');
+    setUnit('');
+    setCategory('');
+    setExpirationDate(null);
+    setShowDatePicker(false);
+  };
 
   useEffect(() => {
     if (visible && itemToEdit) {
@@ -57,13 +79,16 @@ export const AddPantryItemModal: React.FC<Props> = ({
       setQuantity(String(itemToEdit.quantity));
       setUnit(itemToEdit.unit);
       setCategory(itemToEdit.category);
+      setExpirationDate(itemToEdit.expirationDate ? new Date(itemToEdit.expirationDate) : null);
     } else if (!visible) {
-      setName('');
-      setQuantity('');
-      setUnit('');
-      setCategory('');
+      resetForm();
     }
   }, [visible, itemToEdit]);
+
+  const handleDateChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (Platform.OS === 'android') setShowDatePicker(false);
+    if (selectedDate) setExpirationDate(selectedDate);
+  };
 
   const handleSubmit = () => {
     if (!name.trim()) {
@@ -84,22 +109,21 @@ export const AddPantryItemModal: React.FC<Props> = ({
       return;
     }
 
+    const expDateStr = expirationDate ? toISODateString(expirationDate) : undefined;
+
     if (isEditMode && onSaveEdit && itemToEdit) {
-      onSaveEdit(itemToEdit.id, name.trim(), quantityNum, unit.trim(), category);
+      onSaveEdit(itemToEdit.id, name.trim(), quantityNum, unit.trim(), category, expDateStr);
     } else if (!isEditMode && onAdd) {
-      onAdd(name.trim(), quantityNum, unit.trim(), category);
+      onAdd(name.trim(), quantityNum, unit.trim(), category, expDateStr);
     }
-    
+
     onClose();
   };
 
   const handleModalClose = () => {
-    setName('');
-    setQuantity('');
-    setUnit('');
-    setCategory('');
+    resetForm();
     onClose();
-  }
+  };
 
   return (
     <Modal
@@ -137,6 +161,33 @@ export const AddPantryItemModal: React.FC<Props> = ({
             onChangeText={setUnit}
             placeholder="e.g., liters"
           />
+
+          <Text style={styles.label}>Expiration Date (optional)</Text>
+          <View style={styles.dateRow}>
+            <TouchableOpacity
+              style={styles.dateButton}
+              onPress={() => setShowDatePicker(true)}
+            >
+              <Ionicons name="calendar-outline" size={18} color={theme.colors.primary} />
+              <Text style={styles.dateButtonText}>
+                {expirationDate ? formatDate(expirationDate) : 'Select date'}
+              </Text>
+            </TouchableOpacity>
+            {expirationDate && (
+              <TouchableOpacity onPress={() => setExpirationDate(null)} style={styles.clearDateButton}>
+                <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+          {showDatePicker && (
+            <DateTimePicker
+              value={expirationDate || new Date()}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              minimumDate={new Date()}
+              onChange={handleDateChange}
+            />
+          )}
 
           <Text style={styles.label}>Category</Text>
           <ScrollView style={styles.categoryContainer}>
@@ -218,6 +269,29 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
     marginBottom: 16,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.cardBackground,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+  },
+  dateButtonText: {
+    fontSize: 16,
+    color: theme.colors.text,
+  },
+  clearDateButton: {
+    marginLeft: 8,
+    padding: 4,
   },
   categoryContainer: {
     maxHeight: 200,

@@ -5,6 +5,26 @@ import { PantryItem } from '../types/PantryItem';
 import { theme } from '../styles/theme';
 import logger from '../utils/logger';
 
+type ExpiryInfo = {
+  label: string;
+  color: string;
+};
+
+function getExpiryInfo(expirationDate: string | undefined): ExpiryInfo | null {
+  if (!expirationDate) return null;
+
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const expiry = new Date(expirationDate);
+  expiry.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) return { label: 'Expired', color: theme.colors.error };
+  if (diffDays === 0) return { label: 'Expires today', color: theme.colors.error };
+  if (diffDays <= 3) return { label: `${diffDays}d left`, color: theme.colors.warning };
+  return { label: `${diffDays}d left`, color: theme.colors.success };
+}
+
 type Props = {
   item: PantryItem;
   onDelete: (id: string) => void;
@@ -22,15 +42,24 @@ export const PantryItemCard: React.FC<Props> = ({ item, onDelete }) => {
     );
   }
 
+  const expiry = getExpiryInfo(item.expirationDate);
+
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.name}>{item.name}</Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.name}>{item.name}</Text>
+          {expiry && (
+            <View style={[styles.expiryBadge, { backgroundColor: expiry.color + '1A' }]}>
+              <Text style={[styles.expiryText, { color: expiry.color }]}>{expiry.label}</Text>
+            </View>
+          )}
+        </View>
         <Text style={styles.quantity}>
           {item.quantity} {item.unit}
         </Text>
       </View>
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.deleteButton}
         onPress={() => onDelete(item.id)}
       >
@@ -58,15 +87,29 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   name: {
     fontSize: 16,
     fontWeight: '600',
     color: theme.colors.text,
-    marginBottom: 4,
   },
   quantity: {
     fontSize: 14,
     color: theme.colors.textSecondary,
+  },
+  expiryBadge: {
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  expiryText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   deleteButton: {
     padding: 8,

@@ -2,10 +2,11 @@ import { firestoreService } from './firebaseService';
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
-import { 
+import {
   FIRESTORE_PATHS
 } from '../types/FirestoreSchema';
 import { PantryItem } from '../types/PantryItem';
+import { computeStatusUpdates } from '../utils/pantryStatus';
 import logger from '../utils/logger';
 
 export const getPantryItems = async (uid: string): Promise<PantryItem[]> => {
@@ -24,6 +25,8 @@ export const getPantryItems = async (uid: string): Promise<PantryItem[]> => {
         quantity: typeof data.quantity === 'number' ? data.quantity : 0,
         unit: typeof data.unit === 'string' ? data.unit : 'units',
         category: typeof data.category === 'string' ? data.category : 'Other',
+        ...(data.expirationDate ? { expirationDate: data.expirationDate } : {}),
+        ...(data.status ? { status: data.status } : {}),
       };
     });
     return items;
@@ -169,4 +172,32 @@ export const addGroceryItemsToPantryFirestore = async (
   }
 
   return successCount;
+};
+
+export const refreshPantryStatuses = async (uid: string): Promise<number> => {
+  if (!uid) return 0;
+
+  try {
+    const items = await getPantryItems(uid);
+    const updates = computeStatusUpdates(items);
+
+    if (updates.length === 0) return 0;
+
+    const pantryRef = firestore()
+      .collection(FIRESTORE_PATHS.USERS)
+      .doc(uid)
+      .collection(FIRESTORE_PATHS.PANTRY_ITEMS);
+
+    const batch = firestore().batch();
+    for (const { id, status } of updates) {
+      batch.update(pantryRef.doc(id), { status });
+    }
+    await batch.commit();
+
+    logger.debug(`[pantryService] Refreshed status for ${updates.length} items`);
+    return updates.length;
+  } catch (error) {
+    logger.error('[pantryService] Error refreshing pantry statuses', error);
+    return 0;
+  }
 }; 
