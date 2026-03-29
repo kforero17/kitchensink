@@ -22,7 +22,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Mix well and refrigerate overnight',
         'Top with fresh berries before serving'
       ],
+      imageUrl: '',
       tags: ['breakfast', 'vegetarian', 'healthy', 'make-ahead'],
+
       estimatedCost: 3.5
     },
     {
@@ -47,7 +49,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Place eggs on top of avocado toast',
         'Season with salt, pepper, and red pepper flakes'
       ],
+      imageUrl: '',
       tags: ['breakfast', 'vegetarian', 'protein', 'quick'],
+
       estimatedCost: 4.0
     },
     {
@@ -72,7 +76,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Add spinach and feta when eggs start to set',
         'Fold omelette and cook until done'
       ],
+      imageUrl: '',
       tags: ['breakfast', 'vegetarian', 'gluten-free', 'high-protein'],
+
       estimatedCost: 3.0
     },
     {
@@ -98,7 +104,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Pour 1/4 cup batter for each pancake',
         'Cook until bubbles form, then flip'
       ],
+      imageUrl: '',
       tags: ['breakfast', 'vegetarian', 'family-friendly'],
+
       estimatedCost: 2.5
     },
     {
@@ -121,7 +129,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Pour into bowl',
         'Top with berries and granola'
       ],
+      imageUrl: '',
       tags: ['breakfast', 'vegetarian', 'gluten-free'],
+
     },
   ],
   lunch: [
@@ -148,7 +158,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Mix quinoa and vegetables',
         'Dress with lemon juice and fresh parsley'
       ],
+      imageUrl: '',
       tags: ['lunch', 'vegetarian', 'vegan', 'gluten-free', 'meal-prep'],
+
       estimatedCost: 5.0
     },
     {
@@ -174,7 +186,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Assemble wraps with all ingredients',
         'Roll tightly and cut in half'
       ],
+      imageUrl: '',
       tags: ['lunch', 'high-protein', 'quick'],
+
       estimatedCost: 6.0
     },
     {
@@ -201,7 +215,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Assemble bowl with all ingredients',
         'Top with tzatziki sauce'
       ],
+      imageUrl: '',
       tags: ['lunch', 'vegetarian', 'mediterranean', 'no-cook'],
+
       estimatedCost: 4.5
     },
     {
@@ -227,7 +243,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Toast bread slices',
         'Assemble sandwiches with lettuce and tuna mixture'
       ],
+      imageUrl: '',
       tags: ['lunch', 'high-protein', 'quick', 'seafood'],
+
       estimatedCost: 5.0
     },
     {
@@ -251,7 +269,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Stir-fry vegetables',
         'Add sauce'
       ],
+      imageUrl: '',
       tags: ['lunch', 'vegan', 'gluten-free', 'dairy-free'],
+
     },
   ],
   dinner: [
@@ -279,7 +299,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Roast vegetables for 10 minutes, then add salmon',
         'Bake everything for 15 more minutes'
       ],
+      imageUrl: '',
       tags: ['dinner', 'seafood', 'gluten-free', 'high-protein'],
+
       estimatedCost: 12.0
     },
     {
@@ -309,7 +331,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Add tofu back in with sauce',
         'Cook for 2 more minutes'
       ],
+      imageUrl: '',
       tags: ['dinner', 'vegetarian', 'vegan', 'gluten-free'],
+
       estimatedCost: 8.0
     },
     {
@@ -337,7 +361,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Cook spaghetti according to package directions',
         'Serve sauce over pasta with grated cheese'
       ],
+      imageUrl: '',
       tags: ['dinner', 'italian', 'family-friendly'],
+
       estimatedCost: 10.0
     },
     {
@@ -368,7 +394,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Cook rice separately',
         'Serve curry over rice, garnished with cilantro'
       ],
+      imageUrl: '',
       tags: ['dinner', 'indian', 'gluten-free'],
+
       estimatedCost: 12.0
     },
     {
@@ -392,7 +420,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Add liquid gradually',
         'Finish with cheese'
       ],
+      imageUrl: '',
       tags: ['dinner', 'vegetarian', 'gluten-free'],
+
     },
   ],
   snacks: [
@@ -413,7 +443,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Mix all ingredients',
         'Store in airtight container'
       ],
+      imageUrl: '',
       tags: ['snacks', 'vegetarian', 'gluten-free', 'no-cook'],
+
       estimatedCost: 2.50
     },
     {
@@ -435,7 +467,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Cut vegetables',
         'Serve with hummus'
       ],
+      imageUrl: '',
       tags: ['snacks', 'vegetarian', 'gluten-free', 'dairy-free', 'vegan'],
+
     },
     {
       id: 's3',
@@ -457,7 +491,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Chill for 30 minutes',
         'Serve with pita chips'
       ],
+      imageUrl: '',
       tags: ['snacks', 'vegetarian'],
+
     },
     {
       id: 's4',
@@ -477,7 +513,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Serve with peanut butter',
         'Sprinkle with cinnamon'
       ],
+      imageUrl: '',
       tags: ['snacks', 'vegetarian', 'gluten-free'],
+
     },
     {
       id: 's5',
@@ -497,7 +535,9 @@ export const mockRecipes: Record<string, Recipe[]> = {
         'Assemble ingredients on skewers',
         'Drizzle with balsamic glaze'
       ],
+      imageUrl: '',
       tags: ['snacks', 'vegetarian', 'gluten-free'],
+
     },
   ],
 };
@@ -527,6 +567,7 @@ export const additionalMockRecipes: Recipe[] = [
       'Gradually add broth, stirring frequently',
       'Finish with parmesan'
     ],
+    imageUrl: '',
     tags: ['dinner', 'vegetarian', 'italian'],
     estimatedCost: 12.50
   },
@@ -553,6 +594,7 @@ export const additionalMockRecipes: Recipe[] = [
       'Toss with dressing',
       'Top with feta cheese'
     ],
+    imageUrl: '',
     tags: ['lunch', 'vegetarian', 'quick', 'no-cook'],
     estimatedCost: 9.75
   }
@@ -583,6 +625,7 @@ export const dessertMockRecipes: Recipe[] = [
       'Drop spoonfuls onto baking sheet',
       'Bake at 350°F for 10-12 minutes'
     ],
+    imageUrl: '',
     tags: ['dessert', 'baking', 'snacks'],
     estimatedCost: 7.50
   },
@@ -607,6 +650,7 @@ export const dessertMockRecipes: Recipe[] = [
       'Garnish with mint',
       'Serve immediately or chill'
     ],
+    imageUrl: '',
     tags: ['dessert', 'healthy', 'no-cook', 'quick'],
     estimatedCost: 8.25
   }

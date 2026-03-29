@@ -459,8 +459,14 @@ const MealPlanScreen: React.FC = () => {
     return (
       <View key={recipe.id} style={[styles.recipeCard, isSelected ? styles.selectedRecipeCard : null]}>
         <TouchableOpacity style={styles.recipeHeader} onPress={() => toggleRecipeDetails(recipe.id)}>
-          {recipe.imageUrl && (
+          {recipe.imageUrl ? (
             <Image source={{ uri: recipe.imageUrl }} style={styles.recipeImage} />
+          ) : (
+            <View style={styles.recipeImagePlaceholder}>
+              <Text style={styles.recipeImagePlaceholderText}>
+                {recipe.name ? recipe.name.charAt(0).toUpperCase() : '?'}
+              </Text>
+            </View>
           )}
           <View style={styles.recipeTitleRow}>
             <TouchableOpacity 
@@ -1175,6 +1181,21 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 8,
     borderTopRightRadius: 8,
     marginBottom: 8,
+  },
+  recipeImagePlaceholder: {
+    width: '100%',
+    height: recipeImageHeight,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    marginBottom: 8,
+    backgroundColor: '#E8F5E9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recipeImagePlaceholderText: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: '#66BB6A',
   },
   footer: {
     flexDirection: 'row',

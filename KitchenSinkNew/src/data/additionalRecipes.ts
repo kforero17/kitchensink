@@ -23,7 +23,9 @@ export const internationalRecipes: Recipe[] = [
       'Pour in coconut milk',
       'Simmer until vegetables are tender'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'indian', 'dinner', 'gluten-free'],
+    cuisines: ['indian'],
     estimatedCost: 12.00
   },
   // Mexican Cuisine
@@ -49,7 +51,9 @@ export const internationalRecipes: Recipe[] = [
       'Top with sauce and cheese',
       'Bake until bubbly'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'mexican', 'dinner'],
+    cuisines: ['mexican'],
     estimatedCost: 14.00
   }
 ];
@@ -75,7 +79,9 @@ export const quickMeals: Recipe[] = [
       'Drizzle with balsamic glaze',
       'Season with salt and pepper'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'quick', 'lunch', 'no-cook'],
+    cuisines: [],
     estimatedCost: 6.00
   },
   {
@@ -98,7 +104,9 @@ export const quickMeals: Recipe[] = [
       'Season with soy sauce',
       'Garnish with green onions'
     ],
+    imageUrl: '',
     tags: ['quick', 'dinner', 'asian', 'leftovers'],
+    cuisines: ['asian'],
     estimatedCost: 5.00
   }
 ];
@@ -124,7 +132,9 @@ export const vegetarianMeals: Recipe[] = [
       'Simmer until lentils are tender',
       'Season to taste'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'vegan', 'soup', 'dinner', 'gluten-free'],
+    cuisines: [],
     estimatedCost: 8.00
   },
   {
@@ -148,7 +158,9 @@ export const vegetarianMeals: Recipe[] = [
       'Top with cheese',
       'Bake until peppers are tender'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'dinner', 'gluten-free'],
+    cuisines: [],
     estimatedCost: 10.00
   }
 ];

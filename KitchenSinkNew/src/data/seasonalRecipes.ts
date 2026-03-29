@@ -21,7 +21,9 @@ export const summerRecipes: Recipe[] = [
       'Assemble salad',
       'Drizzle with honey vinaigrette'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'summer', 'salad', 'lunch'],
+    cuisines: [],
     estimatedCost: 12.00
   },
   {
@@ -44,7 +46,9 @@ export const summerRecipes: Recipe[] = [
       'Finish with lime juice',
       'Chill before serving'
     ],
+    imageUrl: '',
     tags: ['vegan', 'summer', 'soup', 'no-cook'],
+    cuisines: [],
     estimatedCost: 9.50
   }
 ];
@@ -71,7 +75,9 @@ export const fallRecipes: Recipe[] = [
       'Blend until smooth',
       'Add cream and seasonings'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'fall', 'soup', 'dinner'],
+    cuisines: [],
     estimatedCost: 11.00
   },
   {
@@ -94,7 +100,9 @@ export const fallRecipes: Recipe[] = [
       'Add apples and cinnamon',
       'Top with walnuts and syrup'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'fall', 'breakfast', 'healthy'],
+    cuisines: [],
     estimatedCost: 6.50
   }
 ];
@@ -121,7 +129,9 @@ export const winterRecipes: Recipe[] = [
       'Simmer until tender',
       'Season to taste'
     ],
+    imageUrl: '',
     tags: ['winter', 'dinner', 'slow-cook'],
+    cuisines: [],
     estimatedCost: 18.00
   },
   {
@@ -145,7 +155,9 @@ export const winterRecipes: Recipe[] = [
       'Add sugar and vanilla',
       'Top with whipped cream'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'winter', 'drinks', 'dessert'],
+    cuisines: [],
     estimatedCost: 7.50
   }
 ];
@@ -172,7 +184,9 @@ export const springRecipes: Recipe[] = [
       'Stir until creamy',
       'Fold in asparagus'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'spring', 'dinner', 'italian'],
+    cuisines: [],
     estimatedCost: 14.00
   },
   {
@@ -196,7 +210,9 @@ export const springRecipes: Recipe[] = [
       'Blend with mint',
       'Finish with cream'
     ],
+    imageUrl: '',
     tags: ['vegetarian', 'spring', 'soup', 'lunch'],
+    cuisines: [],
     estimatedCost: 10.50
   }
 ];
