@@ -1,50 +1,44 @@
-import analytics from '@react-native-firebase/analytics';
 import logger from '../utils/logger';
 
+function safeLogEvent(eventName: string, params?: Record<string, unknown>): void {
+  try {
+    const analytics = require('@react-native-firebase/analytics').default;
+    analytics().logEvent(eventName, params).catch((err: Error) =>
+      logger.error(`[analytics] ${eventName} failed`, err),
+    );
+  } catch {
+    // Native analytics module not available (e.g., Expo Go)
+  }
+}
+
 export function logMealPlanGenerated(params: { recipeCount: number; mealTypes: string[] }): void {
-  analytics().logEvent('meal_plan_generated', params).catch(err =>
-    logger.error('[analytics] meal_plan_generated failed', err),
-  );
+  safeLogEvent('meal_plan_generated', params);
 }
 
 export function logRecipeViewed(params: { recipeId: string; recipeName: string; source?: string }): void {
-  analytics().logEvent('recipe_viewed', params).catch(err =>
-    logger.error('[analytics] recipe_viewed failed', err),
-  );
+  safeLogEvent('recipe_viewed', params);
 }
 
 export function logPantryItemAdded(params: { itemName: string; category: string }): void {
-  analytics().logEvent('pantry_item_added', params).catch(err =>
-    logger.error('[analytics] pantry_item_added failed', err),
-  );
+  safeLogEvent('pantry_item_added', params);
 }
 
 export function logGroceryListCreated(params: { listName: string; itemCount: number }): void {
-  analytics().logEvent('grocery_list_created', params).catch(err =>
-    logger.error('[analytics] grocery_list_created failed', err),
-  );
+  safeLogEvent('grocery_list_created', params);
 }
 
 export function logPantryModeUsed(params: { pantryOnlyMode: boolean; pantryItemCount: number; expiringCount: number }): void {
-  analytics().logEvent('pantry_mode_used', params).catch(err =>
-    logger.error('[analytics] pantry_mode_used failed', err),
-  );
+  safeLogEvent('pantry_mode_used', params);
 }
 
 export function logSmartGroceryListGenerated(params: { totalItems: number; removedByPantry: number; aisleCount: number }): void {
-  analytics().logEvent('smart_grocery_list_generated', params).catch(err =>
-    logger.error('[analytics] smart_grocery_list_generated failed', err),
-  );
+  safeLogEvent('smart_grocery_list_generated', params);
 }
 
 export function logMealPlanAccepted(params: { selectedCount: number; totalCount: number }): void {
-  analytics().logEvent('meal_plan_accepted', params).catch(err =>
-    logger.error('[analytics] meal_plan_accepted failed', err),
-  );
+  safeLogEvent('meal_plan_accepted', params);
 }
 
 export function logMealPlanRegenerated(): void {
-  analytics().logEvent('meal_plan_regenerated').catch(err =>
-    logger.error('[analytics] meal_plan_regenerated failed', err),
-  );
+  safeLogEvent('meal_plan_regenerated');
 }

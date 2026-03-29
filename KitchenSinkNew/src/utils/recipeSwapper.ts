@@ -4,16 +4,15 @@ import { FoodPreferences } from '../types/FoodPreferences';
 import { CookingPreferences } from '../types/CookingPreferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
 import { findAlternativeRecipe } from './mealPlanSelector';
-import { 
-  getDietaryPreferences, 
-  getFoodPreferences, 
-  getCookingPreferences, 
-  getBudgetPreferences 
+import {
+  getDietaryPreferences,
+  getFoodPreferences,
+  getCookingPreferences,
+  getBudgetPreferences
 } from './preferences';
-import { apiRecipeService } from '../services/apiRecipeService';
+import { fetchRecommendedRecipes } from '../services/recommendationMealPlanService';
 import logger from './logger';
 import { recordRecipeSwap, getRecentSwappedRecipes } from './recipeHistory';
-import auth from '@react-native-firebase/auth';
 import { isCondimentRecipe } from './mealPlanSelector';
 
 /**
@@ -54,19 +53,14 @@ export async function swapRecipe(
       throw new Error('Failed to load user preferences');
     }
 
-    // Force clear cache to get fresh recipes
-    apiRecipeService.setClearCache(true);
-    
-    const uid = auth().currentUser?.uid ?? null;
-    
-    // Fetch new recipes from API
-    const recipes = await apiRecipeService.getRecipes({
+    // Fetch recipes via the recommendation pipeline (Tasty/Firebase only)
+    const recipes = await fetchRecommendedRecipes({
       dietary: dietaryPrefs,
       food: foodPrefs,
       cooking: cookingPrefs,
-      budget: budgetPrefs
-    }, uid);
-    
+      budget: budgetPrefs,
+    });
+
     // Exclude recently swapped recipes to avoid showing them again too soon
     const recentlySwapped = await getRecentSwappedRecipes();
     const filteredRecipes = recipes
@@ -138,34 +132,26 @@ export async function getAlternativeRecipes(
       return [...lunchAlternatives, ...dinnerAlternatives].slice(0, limit);
     }
     
-    // Get API service
-    const recipeService = apiRecipeService;
-    
     // Load user preferences
     const dietaryPrefs = await getDietaryPreferences();
     const foodPrefs = await getFoodPreferences();
     const cookingPrefs = await getCookingPreferences();
     const budgetPrefs = await getBudgetPreferences();
-    
+
     if (!dietaryPrefs || !foodPrefs || !cookingPrefs || !budgetPrefs) {
       throw new Error('Failed to load user preferences');
     }
-    
+
     // Get current recipe IDs to exclude them
     const currentIds = currentMealPlan.map(recipe => recipe.id);
-    
-    // Force clear cache to get fresh recipes
-    apiRecipeService.setClearCache(true);
-    
-    const uid = auth().currentUser?.uid ?? null;
-    
-    // Fetch recipes from API
-    const recipes = await apiRecipeService.getRecipes({
+
+    // Fetch recipes via the recommendation pipeline (Tasty/Firebase only)
+    const recipes = await fetchRecommendedRecipes({
       dietary: dietaryPrefs,
       food: foodPrefs,
       cooking: cookingPrefs,
-      budget: budgetPrefs
-    }, uid);
+      budget: budgetPrefs,
+    });
     
     // Filter eligible recipes of the requested meal type that aren't in the current meal plan
     const eligibleRecipes = recipes.filter(recipe => 

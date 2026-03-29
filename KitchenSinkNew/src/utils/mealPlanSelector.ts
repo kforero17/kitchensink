@@ -10,7 +10,6 @@ import { calculateVarietyPenalty, getRecipeHistory, RecipeHistoryItem, getRecent
 import { calculateIngredientOverlapScore, optimizeMealPlanForIngredientOverlap, calculateUniqueIngredientCount } from './ingredientOverlap';
 import { RecipeFeedback } from '../services/recipeFeedbackService';
 import logger from './logger';
-import { recipeDatabase } from '../data/recipeDatabase';
 
 // ---------------------------------------------
 // Helper: identify condiment recipes we want to exclude (e.g. dressings/sauces)
@@ -606,11 +605,10 @@ export function calculateExplorationBonus(
     if (recentRecipeIds.has(recipe.id)) return 0;
 
     // Calculate similarity scores with recent recipes
-    const similarityScores = recentHistory.map(h => {
-      const recentRecipe = recipeDatabase.find((r: Recipe) => r.id === h.recipeId);
-      if (!recentRecipe) return 0;
-      return calculateRecipeSimilarity(recipe, recentRecipe);
-    });
+    // NOTE: Recipe lookup removed (no static mock database). Similarity-based
+    // exploration bonus is skipped; the feature can be restored once a runtime
+    // recipe cache is available.
+    const similarityScores = recentHistory.map(() => 0);
 
     // Get average similarity score
     const avgSimilarity = similarityScores.reduce((a, b) => a + b, 0) / similarityScores.length;
@@ -652,13 +650,9 @@ export function calculateCuisineExplorationBonus(
     const recentHistory = history.slice(-10);
     
     // Get cuisines from recent history
+    // NOTE: Recipe lookup removed (no static mock database). Cuisine-based
+    // exploration bonus is skipped when recipe details are unavailable.
     const recentCuisines = new Set<string>();
-    recentHistory.forEach(h => {
-      const recentRecipe = recipeDatabase.find((r: Recipe) => r.id === h.recipeId);
-      if (recentRecipe?.cuisines) {
-        recentRecipe.cuisines.forEach(c => recentCuisines.add(c.toLowerCase()));
-      }
-    });
 
     // If recipe's cuisines are all in recent history, no bonus
     const recipeCuisines = recipe.cuisines.map(c => c.toLowerCase());

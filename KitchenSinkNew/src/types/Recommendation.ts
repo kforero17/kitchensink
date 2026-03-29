@@ -3,7 +3,7 @@ import { UnifiedRecipe } from '../shared/interfaces';
 export interface ScoreMeta {
   similarity: number;
   pantryMatch: number;
-  source: 'tasty' | 'spoonacular';
+  source: 'tasty';
   rank: number;
 }
 

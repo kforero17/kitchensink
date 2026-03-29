@@ -5,7 +5,6 @@ export interface FeatureVector {
   pantry: number;         // overlap of recipe ingredients with pantry [0,1]
   popularity: number;     // normalised popularityScore [0,1]
   novelty: number;        // 1 if unseen else 0
-  sourceBias: number;     // bias based on source
   expiryUrgency: number;  // max urgency across matched pantry ingredients [0,1]
   feedback: number;       // user's prior rating/like/dislike signal with time decay [-1, 1]
   readyInMinutesNorm?: number; // optional extra feature
@@ -21,7 +20,6 @@ export interface FeatureContext {
   pantryIngredients: string[];       // flattened list of pantry ingredient names
   pantryItems?: PantryIngredientInfo[]; // pantry items with expiration info
   seenRecipeIds?: Set<string>;       // recipes user has already seen / interacted with
-  spoonacularBias?: number;          // default -0.05, range -0.1..0.1
   feedbackMap?: Map<string, { score: number; decayedScore: number }>;
 }
 
@@ -114,10 +112,7 @@ export function computeFeatures(recipe: UnifiedRecipe, ctx: FeatureContext): Fea
   // 4. novelty – 1 if unseen else 0
   const novelty = ctx.seenRecipeIds && ctx.seenRecipeIds.has(recipe.id) ? 0 : 1;
 
-  // 5. source_bias – user‐tuneable bias (penalise/boost spoonacular)
-  const sourceBias = recipe.source === 'tasty' ? 0 : (ctx.spoonacularBias ?? -0.05);
-
-  // 6. expiry_urgency – max urgency across matched pantry ingredients
+  // 5. expiry_urgency – max urgency across matched pantry ingredients
   let expiryUrgency = 0;
   if (ctx.pantryItems && ctx.pantryItems.length > 0) {
     for (const ing of recipe.ingredients) {
@@ -127,12 +122,12 @@ export function computeFeatures(recipe: UnifiedRecipe, ctx: FeatureContext): Fea
     }
   }
 
-  // 7. feedback – user's prior rating/like/dislike signal with time decay
+  // 6. feedback – user's prior rating/like/dislike signal with time decay
   const feedbackSignal = ctx.feedbackMap?.get(recipe.id);
   const feedback = feedbackSignal?.decayedScore ?? 0;
 
-  // 8. readyInMinutes_norm (optional) – shorter recipes higher score
+  // 7. readyInMinutes_norm (optional) – shorter recipes higher score
   const readyInMinutesNorm = recipe.readyInMinutes ? Math.max(0, Math.min(1, (120 - recipe.readyInMinutes) / 120)) : undefined;
 
-  return { sim, pantry, popularity, novelty, sourceBias, expiryUrgency, feedback, readyInMinutesNorm };
+  return { sim, pantry, popularity, novelty, expiryUrgency, feedback, readyInMinutesNorm };
 } 

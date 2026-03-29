@@ -6,7 +6,6 @@ import { Platform, Linking } from 'react-native';
 import Constants from 'expo-constants';
 import { clearAllPreferences } from './src/utils/preferences';
 import logger from './src/utils/logger';
-import { initializeProxyConfig } from './src/utils/proxyConfig';
 import { AuthProvider } from './src/contexts/AuthContext';
 import firebase from '@react-native-firebase/app';
 import auth from '@react-native-firebase/auth';
@@ -47,9 +46,6 @@ const App = () => {
         
         // Clear all preferences on app start
         // await clearAllPreferences();
-        
-        // Initialize proxy configuration
-        await initializeProxyConfig();
         
         // Debug logging
         logger.debug('App Configuration:', {

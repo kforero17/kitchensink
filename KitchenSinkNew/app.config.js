@@ -27,8 +27,6 @@ module.exports = {
   plugins: [
     'expo-dev-client'
   ],
-  extra: {
-    spoonacularApiKey: process.env.SPOONACULAR_API_KEY
-  },
+  extra: {},
   newArchEnabled: false
 }; 

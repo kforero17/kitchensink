@@ -1,7 +1,7 @@
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { md5 } from '../utils/cryptoWrapper';
 
-const COLLECTION = 'spoonacularCandidateCache';
+const COLLECTION = 'recipeCandidateCache';
 // 48 hours TTL
 const TTL_MS = 48 * 60 * 60 * 1000;
 

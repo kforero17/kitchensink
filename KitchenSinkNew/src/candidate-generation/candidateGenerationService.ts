@@ -1,11 +1,8 @@
 import { UnifiedRecipe } from '../shared/interfaces';
 import { mapTastyRecipeToUnified } from '../mappers/recipeMappers';
 import { fetchTastyRecipesViaApi, resetRecentlyFetchedIds } from '../services/tastyApiService';
-import { resetSpoonacularRecentlyFetchedIds } from '../services/unifiedRecipeService';
-import { fetchUnifiedRecipesFromSpoonacular } from '../services/unifiedRecipeService';
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { titleSimilarity, bigramJaccard } from '../utils/similarityUtils';
-import { computeCacheKey, getCachedValue, setCachedValue } from '../services/cachingService';
 import logger from '../utils/logger';
 import auth from '@react-native-firebase/auth';
 // Utility to make sure we are authenticated before making Firestore reads.
@@ -113,39 +110,6 @@ async function fetchTastyCandidates(userEmbedding: number[]): Promise<UnifiedRec
   }
 }
 
-// =====  SpoonacularAdapter  ===== //
-interface SpoonacularAdapterParams {
-  diet?: string;
-  intolerances?: string;
-  cuisine?: string;
-  includeIngredients?: string[]; // top-K from pantry
-  maxReadyTime?: number;
-}
-
-async function fetchSpoonacularCandidates(params: SpoonacularAdapterParams, tastyTitles: string[]): Promise<UnifiedRecipe[]> {
-  const cacheKey = await computeCacheKey(params);
-  const cached = await getCachedValue<UnifiedRecipe[]>(cacheKey);
-  if (cached) return cached;
-
-  const results = await fetchUnifiedRecipesFromSpoonacular({
-    diet: params.diet,
-    intolerances: params.intolerances,
-    cuisine: params.cuisine,
-    includeIngredients: params.includeIngredients?.join(',') ?? undefined,
-    maxReadyTime: params.maxReadyTime,
-    number: 100, // Increased from 60 to get more variety
-  });
-
-  // Filter out near-duplicate titles vs Tasty
-  const filtered = results.filter(r => {
-    return !tastyTitles.some(tTitle => titleSimilarity(r.title, tTitle) > 0.9);
-  });
-
-  // Cache for 48h
-  await setCachedValue(cacheKey, filtered);
-  return filtered;
-}
-
 // =====  Aggregator  ===== //
 function deduplicate(candidates: UnifiedRecipe[]): UnifiedRecipe[] {
   const output: UnifiedRecipe[] = [];
@@ -185,11 +149,6 @@ export async function generateRecipeCandidates(opts: GenerateOptions): Promise<U
   
   // Reset recently fetched IDs to ensure variety in new meal plan generation
   resetRecentlyFetchedIds();
-  resetSpoonacularRecentlyFetchedIds();
-  
-  // Fetch from both sources independently and tolerate failures so that
-  // the recommendation pipeline can still proceed when one source is
-  // unavailable (e.g. offline or API quota exceeded).
 
   let tastyCandidates: UnifiedRecipe[] = [];
   try {
@@ -212,33 +171,12 @@ export async function generateRecipeCandidates(opts: GenerateOptions): Promise<U
     }
   }
 
-  let spoonCandidates: UnifiedRecipe[] = [];
-  try {
-    logger.info('[ORDER TRACE] → Spoonacular fetch begins');
-    spoonCandidates = await fetchSpoonacularCandidates(
-      {
-        diet: opts.diet,
-        intolerances: opts.intolerances,
-        cuisine: opts.cuisine,
-        includeIngredients: opts.pantryTopK,
-        maxReadyTime: opts.maxReadyTime,
-      },
-      tastyCandidates.map(r => r.title)
-    );
-    logger.debug(`Fetched ${spoonCandidates.length} candidates from Spoonacular`);
-  } catch (err) {
-    logger.warn('Failed to fetch Spoonacular candidates – continuing with available recipes', err);
+  const candidates = deduplicate(tastyCandidates);
+  logger.info(`[CANDIDATE MIX] tasty=${tastyCandidates.length}  afterDedup=${candidates.length}`);
+
+  if (candidates.length === 0) {
+    logger.warn('Candidate generation returned 0 recipes - Tasty API and Firestore fallback both failed');
   }
 
-  const combined = deduplicate([...tastyCandidates, ...spoonCandidates]);
-  logger.info(`[CANDIDATE MIX] tasty=${tastyCandidates.length}  spoonacular=${spoonCandidates.length}  combined=${combined.length}`);
-  logger.debug(`After deduplication: ${combined.length} total candidates`);
-
-  // Surface a warn log if still no candidates – helps diagnose upstream failures
-  if (combined.length === 0) {
-    logger.warn('Candidate generation returned 0 recipes - both Tasty/Firestore and Spoonacular failed');
-    logger.warn('Check Firestore connection and Spoonacular API availability');
-  }
-
-  return combined;
+  return candidates;
 } 

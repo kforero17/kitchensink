@@ -12,7 +12,6 @@ import { getBudgetPreferences } from '../utils/preferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
 import { swapRecipe } from '../utils/recipeSwapper';
 import logger from '../utils/logger';
-import { apiRecipeService } from '../services/apiRecipeService';
 import PantryIngredientMatch from '../components/PantryIngredientMatch';
 import { firestoreService } from '../services/firebaseService';
 import { recipeFeedbackService } from '../services/recipeFeedbackService';
@@ -246,10 +245,7 @@ const MealPlanScreen: React.FC = () => {
     try {
       // Load current budget preference for total calculation
       const budgetPrefs = await getBudgetPreferences();
-      
-      // Clear the cache to force a fresh fetch from API
-      apiRecipeService.setClearCache(true);
-      
+
       // Navigate to loading screen which will fetch fresh recipes
       navigation.navigate('LoadingMealPlan');
     } catch (error) {
