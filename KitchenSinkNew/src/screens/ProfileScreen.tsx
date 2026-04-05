@@ -569,6 +569,18 @@ const ProfileScreen: React.FC = () => {
               )}
             </ExpandableSection>
 
+            <TouchableOpacity
+              style={styles.settingsMenuItem}
+              onPress={() => navigation.navigate('WeeklyInsights')}
+            >
+              <MaterialCommunityIcons name="chart-bar" size={24} color="#7A736A" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingsMenuItemText}>Weekly Insights</Text>
+                <Text style={{ fontSize: 12, color: '#7A736A', marginLeft: 12 }}>Track your savings & nutrition</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color="#B57A42" />
+            </TouchableOpacity>
+
             <ExpandableSection
               title="History"
               isExpanded={expandedSections.history}
