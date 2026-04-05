@@ -19,6 +19,7 @@ import TestPickerScreen from '../screens/TestPickerScreen';
 import RecipeDetailScreen from '../screens/RecipeDetailScreen';
 import RecipeHistoryScreen from '../screens/RecipeHistoryScreen';
 import PantryScreen from '../screens/PantryScreen';
+import WeeklyInsightsScreen from '../screens/WeeklyInsightsScreen';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -45,6 +46,7 @@ export type RootStackParamList = {
   TestPicker: undefined;
   RecipeHistory: undefined;
   Pantry: undefined;
+  WeeklyInsights: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -97,6 +99,7 @@ const AppNavigator = () => {
         <Stack.Screen name="TestPicker" component={TestPickerScreen} />
         <Stack.Screen name="RecipeHistory" component={RecipeHistoryScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Pantry" component={PantryScreen} />
+        <Stack.Screen name="WeeklyInsights" component={WeeklyInsightsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

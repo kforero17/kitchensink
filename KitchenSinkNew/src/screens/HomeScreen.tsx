@@ -66,6 +66,16 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
                   <Text style={styles.secondaryButtonText}>Go to Profile</Text>
                 </View>
               </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('WeeklyInsights')}
+                activeOpacity={0.85}
+                style={styles.buttonWrapper}
+              >
+                <View style={styles.secondaryButton}>
+                  <Text style={styles.secondaryButtonText}>Weekly Insights</Text>
+                  <Text style={styles.tipText}>Track your savings & nutrition</Text>
+                </View>
+              </TouchableOpacity>
             </View>
           ) : (
             <TouchableOpacity

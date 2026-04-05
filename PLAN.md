@@ -1,12 +1,30 @@
-# Feedback Loop: Recipe Rating Integration into Ranking
+# Weekly Insights Dashboard
 
-Wire user feedback (likes/dislikes/ratings) into ranking with time decay, add meal plan accept/reject tracking, and polish the onboarding UX so recommendations improve as users engage.
+## Summary
 
-## Changes
-1. New `feedbackSignal.ts` — builds feedback map with exponential time decay (half-life ~62 days)
-2. Add `feedback` feature to FeatureVector [-1, 1] and 0.15 weight in ranking
-3. Wire feedback history + seenRecipeIds into recommendation service
-4. Implicit like on meal plan recipe selection, "Regenerate" button for rejection
-5. Returning user UX on HomeScreen, one-time feedback prompt on MealPlanScreen
-6. Analytics: meal_plan_accepted, meal_plan_regenerated events
-7. Unit tests for feedback signal computation and time decay
+Add a Weekly Insights Dashboard showing waste avoided ($), spending trends, nutrition summary, and streak tracking. Aggregates data from pantry + grocery history with simple charts via `react-native-chart-kit`. Includes share functionality.
+
+## New Files
+
+- `src/types/InsightsData.ts` — Data contract for insight cards
+- `src/services/insightsService.ts` — Aggregation logic from Firestore + AsyncStorage
+- `src/components/InsightCard.tsx` — Reusable card wrapper
+- `src/screens/WeeklyInsightsScreen.tsx` — Dashboard with 4 cards + share
+
+## Modified Files
+
+- `src/navigation/AppNavigator.tsx` — Add WeeklyInsights route
+- `src/screens/HomeScreen.tsx` — Add dashboard entry point
+- `src/services/analyticsService.ts` — Add insights_viewed/shared events
+- `package.json` — Add react-native-chart-kit + react-native-svg
+
+## Insight Cards
+
+1. **Waste Avoided** — $ saved by using pantry items before expiration (bar chart, 8 weeks)
+2. **Spending Trends** — Estimated weekly grocery spend (line chart, 8 weeks)
+3. **Nutrition Summary** — Macro breakdown from cooked recipes (pie chart)
+4. **Streak Tracking** — Consecutive weeks cooking (flame icon + counter)
+
+## Share
+
+Text summary via React Native `Share` API — same pattern as GroceryListScreen.
