@@ -4,24 +4,38 @@ import { UnifiedRecipe } from '../shared/interfaces';
 
 // --- Mock external dependencies --- //
 
-// Mock Firestore to return a single Tasty recipe document
-jest.mock('@react-native-firebase/firestore', () => {
-  const tastyDoc = {
-    id: 'abc123',
-    name: 'Spaghetti Bolognese',
-    imageUrl: '',
-    readyInMinutes: 30,
-    servings: 4,
-    ingredients: [
-      { name: 'Spaghetti', amount: 200, unit: 'g', originalString: '200 g spaghetti' },
-      { name: 'Ground beef', amount: 300, unit: 'g', originalString: '300 g beef' },
-    ],
-    tags: ['italian'],
-    updatedAt: Date.now(),
-  };
+const tastyDoc1 = {
+  id: 'abc123',
+  name: 'Spaghetti Bolognese',
+  imageUrl: '',
+  readyInMinutes: 30,
+  servings: 4,
+  ingredients: [
+    { name: 'Spaghetti', amount: 200, unit: 'g', originalString: '200 g spaghetti' },
+    { name: 'Ground beef', amount: 300, unit: 'g', originalString: '300 g beef' },
+  ],
+  tags: ['italian'],
+  updatedAt: Date.now(),
+};
 
+const tastyDoc2 = {
+  id: 'def456',
+  name: 'Chicken Curry',
+  imageUrl: '',
+  readyInMinutes: 40,
+  servings: 4,
+  ingredients: [
+    { name: 'Chicken', amount: 400, unit: 'g', originalString: '400 g chicken' },
+    { name: 'Curry powder', amount: 2, unit: 'tbsp', originalString: '2 tbsp curry powder' },
+  ],
+  tags: ['indian'],
+  updatedAt: Date.now(),
+};
+
+// Mock Firestore to return two Tasty recipe documents
+jest.mock('@react-native-firebase/firestore', () => {
   const getMock = jest.fn().mockResolvedValue({
-    docs: [{ data: () => tastyDoc }],
+    docs: [{ data: () => tastyDoc1 }, { data: () => tastyDoc2 }],
   });
 
   const limitMock = jest.fn(() => ({ get: getMock }));
@@ -40,50 +54,15 @@ jest.mock('../services/cachingService', () => ({
   setCachedValue: jest.fn().mockResolvedValue(undefined),
 }));
 
-// Mock Spoonacular fetch to return two recipes (one duplicate, one unique)
-jest.mock('../services/unifiedRecipeService', () => {
-  const duplicateRecipe: UnifiedRecipe = {
-    id: 'spn-1',
-    source: 'spoonacular',
-    title: 'Spaghetti Bolognese',
-    imageUrl: '',
-    readyInMinutes: 35,
-    servings: 4,
-    ingredients: [
-      { name: 'Spaghetti', amount: 200, unit: 'g' },
-      { name: 'Ground beef', amount: 300, unit: 'g' },
-    ],
-    tags: ['italian'],
-  } as any;
-
-  const uniqueRecipe: UnifiedRecipe = {
-    id: 'spn-2',
-    source: 'spoonacular',
-    title: 'Chicken Curry',
-    imageUrl: '',
-    readyInMinutes: 40,
-    servings: 4,
-    ingredients: [
-      { name: 'Chicken', amount: 400, unit: 'g' },
-      { name: 'Curry powder', amount: 2, unit: 'tbsp' },
-    ],
-    tags: ['indian'],
-  } as any;
-
-  return {
-    fetchUnifiedRecipesFromSpoonacular: jest.fn().mockResolvedValue([duplicateRecipe, uniqueRecipe]),
-  };
-});
-
 // After mocks are in place, import the module under test
 import { generateRecipeCandidates } from './candidateGenerationService';
 
 describe('generateRecipeCandidates', () => {
-  it('deduplicates near-duplicate recipes across sources', async () => {
+  it('returns Tasty recipes from Firestore', async () => {
     const results = await generateRecipeCandidates({ userEmbedding: [] });
 
-    // Expect only the Tasty recipe and the unique Spoonacular one to remain
     const ids = results.map(r => r.id).sort();
-    expect(ids).toEqual(['spn-2', 'tasty-abc123'].sort());
+    expect(ids).toEqual(['tasty-abc123', 'tasty-def456'].sort());
+    expect(results.every(r => r.source === 'tasty')).toBe(true);
   });
-}); 
+});

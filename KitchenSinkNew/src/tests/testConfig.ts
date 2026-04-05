@@ -11,9 +11,4 @@ const envVariables = Object.fromEntries(
     .map(line => line.split('=').map(part => part.trim()))
 );
 
-export const {
-  SPOONACULAR_API_KEY,
-  SPOONACULAR_BASE_URL,
-  SPOONACULAR_INGREDIENTS_ENDPOINT,
-  SPOONACULAR_RECIPES_ENDPOINT,
-} = envVariables; 
+export { envVariables };

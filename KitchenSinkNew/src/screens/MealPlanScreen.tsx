@@ -12,7 +12,6 @@ import { getBudgetPreferences } from '../utils/preferences';
 import { BudgetPreferences } from '../types/BudgetPreferences';
 import { swapRecipe } from '../utils/recipeSwapper';
 import logger from '../utils/logger';
-import { apiRecipeService } from '../services/apiRecipeService';
 import PantryIngredientMatch from '../components/PantryIngredientMatch';
 import { firestoreService } from '../services/firebaseService';
 import { recipeFeedbackService } from '../services/recipeFeedbackService';
@@ -246,10 +245,7 @@ const MealPlanScreen: React.FC = () => {
     try {
       // Load current budget preference for total calculation
       const budgetPrefs = await getBudgetPreferences();
-      
-      // Clear the cache to force a fresh fetch from API
-      apiRecipeService.setClearCache(true);
-      
+
       // Navigate to loading screen which will fetch fresh recipes
       navigation.navigate('LoadingMealPlan');
     } catch (error) {
@@ -459,8 +455,14 @@ const MealPlanScreen: React.FC = () => {
     return (
       <View key={recipe.id} style={[styles.recipeCard, isSelected ? styles.selectedRecipeCard : null]}>
         <TouchableOpacity style={styles.recipeHeader} onPress={() => toggleRecipeDetails(recipe.id)}>
-          {recipe.imageUrl && (
+          {recipe.imageUrl ? (
             <Image source={{ uri: recipe.imageUrl }} style={styles.recipeImage} />
+          ) : (
+            <View style={styles.recipeImagePlaceholder}>
+              <Text style={styles.recipeImagePlaceholderText}>
+                {recipe.name ? recipe.name.charAt(0).toUpperCase() : '?'}
+              </Text>
+            </View>
           )}
           <View style={styles.recipeTitleRow}>
             <TouchableOpacity 
@@ -1175,6 +1177,21 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 8,
     borderTopRightRadius: 8,
     marginBottom: 8,
+  },
+  recipeImagePlaceholder: {
+    width: '100%',
+    height: recipeImageHeight,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    marginBottom: 8,
+    backgroundColor: '#E8F5E9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recipeImagePlaceholderText: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: '#66BB6A',
   },
   footer: {
     flexDirection: 'row',

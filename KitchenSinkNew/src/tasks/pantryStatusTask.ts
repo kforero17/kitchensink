@@ -1,34 +1,44 @@
-import * as BackgroundFetch from 'expo-background-fetch';
-import * as TaskManager from 'expo-task-manager';
-import auth from '@react-native-firebase/auth';
-import { refreshPantryStatuses } from '../services/pantryService';
 import logger from '../utils/logger';
+
+let BackgroundFetch: typeof import('expo-background-fetch') | null = null;
+let TaskManager: typeof import('expo-task-manager') | null = null;
 
 const TASK_NAME = 'PANTRY_STATUS_REFRESH';
 
-TaskManager.defineTask(TASK_NAME, async () => {
-  try {
-    const user = auth().currentUser;
-    if (!user) return BackgroundFetch.BackgroundFetchResult.NoData;
+try {
+  BackgroundFetch = require('expo-background-fetch');
+  TaskManager = require('expo-task-manager');
 
-    const updated = await refreshPantryStatuses(user.uid);
-    logger.debug(`[pantryStatusTask] Background refresh updated ${updated} items`);
+  TaskManager.defineTask(TASK_NAME, async () => {
+    try {
+      const auth = require('@react-native-firebase/auth').default;
+      const { refreshPantryStatuses } = require('../services/pantryService');
+      const user = auth().currentUser;
+      if (!user) return BackgroundFetch!.BackgroundFetchResult.NoData;
 
-    return updated > 0
-      ? BackgroundFetch.BackgroundFetchResult.NewData
-      : BackgroundFetch.BackgroundFetchResult.NoData;
-  } catch (error) {
-    logger.error('[pantryStatusTask] Background task failed', error);
-    return BackgroundFetch.BackgroundFetchResult.Failed;
-  }
-});
+      const updated = await refreshPantryStatuses(user.uid);
+      logger.debug(`[pantryStatusTask] Background refresh updated ${updated} items`);
+
+      return updated > 0
+        ? BackgroundFetch!.BackgroundFetchResult.NewData
+        : BackgroundFetch!.BackgroundFetchResult.NoData;
+    } catch (error) {
+      logger.error('[pantryStatusTask] Background task failed', error);
+      return BackgroundFetch!.BackgroundFetchResult.Failed;
+    }
+  });
+} catch {
+  logger.debug('[pantryStatusTask] Native module unavailable — skipping background task');
+}
 
 export async function registerPantryStatusTask(): Promise<void> {
+  if (!TaskManager || !BackgroundFetch) return;
+
   const isRegistered = await TaskManager.isTaskRegisteredAsync(TASK_NAME);
   if (isRegistered) return;
 
   await BackgroundFetch.registerTaskAsync(TASK_NAME, {
-    minimumInterval: 24 * 60 * 60, // once per day (seconds)
+    minimumInterval: 24 * 60 * 60,
     stopOnTerminate: false,
     startOnBoot: true,
   });
@@ -37,6 +47,8 @@ export async function registerPantryStatusTask(): Promise<void> {
 }
 
 export async function unregisterPantryStatusTask(): Promise<void> {
+  if (!TaskManager || !BackgroundFetch) return;
+
   const isRegistered = await TaskManager.isTaskRegisteredAsync(TASK_NAME);
   if (!isRegistered) return;
 

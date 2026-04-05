@@ -1,12 +1,33 @@
-# Feedback Loop: Recipe Rating Integration into Ranking
+# Remove Spoonacular API and Mock Recipes from Meal Planning
 
-Wire user feedback (likes/dislikes/ratings) into ranking with time decay, add meal plan accept/reject tracking, and polish the onboarding UX so recommendations improve as users engage.
+Simplify recipe sourcing to use only Tasty recipes from Firebase Firestore, removing Spoonacular API integration and hardcoded mock recipe data.
 
 ## Changes
-1. New `feedbackSignal.ts` — builds feedback map with exponential time decay (half-life ~62 days)
-2. Add `feedback` feature to FeatureVector [-1, 1] and 0.15 weight in ranking
-3. Wire feedback history + seenRecipeIds into recommendation service
-4. Implicit like on meal plan recipe selection, "Regenerate" button for rejection
-5. Returning user UX on HomeScreen, one-time feedback prompt on MealPlanScreen
-6. Analytics: meal_plan_accepted, meal_plan_regenerated events
-7. Unit tests for feedback signal computation and time decay
+
+1. **candidateGenerationService.ts** — Removed Spoonacular adapter, kept Tasty API + Firestore fallback only
+2. **recommendationMealPlanService.ts** — Removed 50/50 source mixing, use all Tasty scored recipes directly
+3. **featureEngineering.ts / rankRecipes.ts** — Removed `sourceBias` and `spoonacularBias`, redistributed weights
+4. **apiRecipeService.ts** — Deleted entirely (no remaining consumers after screen/swapper cleanup)
+5. **shared/interfaces.ts / Recommendation.ts** — Simplified `source` type to `'tasty'` only
+6. **mappers/recipeMappers.ts** — Removed `mapSpoonacularRecipeToUnified()`
+7. **Screens** — Removed `apiRecipeService` usage from LoadingMealPlanScreen, MealPlanScreen
+8. **recipeSwapper.ts** — Switched from `apiRecipeService` to `fetchRecommendedRecipes`
+9. **mealPlanSelector.ts** — Removed `recipeDatabase` import, stubbed exploration bonus lookups
+10. **environment.ts / envUtils.ts** — Removed all Spoonacular env vars and config
+11. **DebugScreen.tsx** — Removed all Spoonacular connectivity tests and UI buttons
+12. **cachingService.ts** — Renamed Firestore collection from `spoonacularCandidateCache` to `recipeCandidateCache`
+13. **candidateGenerationService.test.ts** — Rewritten for Tasty-only candidate generation
+
+## Deleted Files (13 total)
+
+- `unifiedRecipeService.ts`, `spoonacular.ts`, `spoonacularApi.ts`, `recipeApiService.ts`
+- `mockRecipes.ts`, `recipeDatabase.ts`, `seasonalRecipes.ts`, `additionalRecipes.ts`
+- `apiRecipeService.ts`, `testEnv.ts`
+- `spoonacularApiService.test.ts`, `testSpoonacular.ts`, `mealPlanTest.ts`
+
+## Net Result
+
+- **-4,554 lines** removed, **+174 lines** added
+- Single recipe source: Tasty/Firebase only
+- Simpler ranking pipeline (no source bias feature)
+- No mock recipe fallback (empty array on failure)

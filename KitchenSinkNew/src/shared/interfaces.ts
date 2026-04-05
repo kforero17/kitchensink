@@ -13,23 +13,17 @@ export interface MacroBreakdown {
 }
 
 /**
- * Unified recipe shape that both first-party (Tasty) and third-party (Spoonacular)
- * recipes are mapped to before being consumed by the rest of the application.
- *
- * IMPORTANT:  🔒  No full instruction text from Spoonacular should ever be stored
- * to respect their Terms of Service.  Keep only the lightweight metadata listed
- * below.  The full Spoonacular payload can live only in volatile memory and must
- * never be persisted.
+ * Unified recipe shape consumed by the rest of the application.
+ * All recipes originate from Tasty / Firebase.
  */
 export interface UnifiedRecipe {
   /**
-   * Compound identifier scoped by source. Examples:
+   * Compound identifier scoped by source. Example:
    *   tasty-abc-123        – original Firestore recipe id
-   *   spn-716426           – spoonacular recipe id
    */
   id: string;
-  /** Where did the recipe originate from */
-  source: 'tasty' | 'spoonacular';
+  /** Recipe source (currently only Tasty/Firebase) */
+  source: 'tasty';
   /** Human-readable title */
   title: string;
   /** Publicly accessible hero image */
@@ -51,8 +45,4 @@ export interface UnifiedRecipe {
   nutrition?: MacroBreakdown;
   /** Popularity score normalised 0-1 (e.g. likes/ratings) */
   popularityScore?: number;
-  /**
-   * The unified contract must NEVER contain full instructions for Spoonacular
-   * recipes to stay compliant with their ToS.
-   */
 } 

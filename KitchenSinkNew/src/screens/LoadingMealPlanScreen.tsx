@@ -17,7 +17,6 @@ import { logMealPlanGenerated } from '../services/analyticsService';
 import { getPreferenceValue, getPantryOnlyMode } from '../utils/preferences';
 import logger from '../utils/logger';
 import { MealType } from '../types/CookingPreferences';
-import { apiRecipeService } from '../services/apiRecipeService';
 import auth from '@react-native-firebase/auth';
 
 type LoadingMealPlanScreenProps = NativeStackNavigationProp<RootStackParamList, 'LoadingMealPlan'>;
@@ -174,36 +173,6 @@ const LoadingMealPlanScreen: React.FC = () => {
           throw new Error('No recipes found. Try adjusting your preferences.');
         }
 
-        // ------------------------------------------------------------------
-        // Ensure we have at least the desired number of breakfast recipes
-        // ------------------------------------------------------------------
-        if (counts.breakfast > 0 && breakfastRecipes < counts.breakfast) {
-          const extraNeeded = counts.breakfast - breakfastRecipes;
-          logger.debug(`[DEBUG] Need ${extraNeeded} more breakfast recipes – fetching dedicated breakfast batch`);
-
-          try {
-            // Re-use apiRecipeService directly for a broad fetch then filter
-            const uid = auth().currentUser?.uid ?? null;
-            const apiRecipes = await apiRecipeService.getRecipes({
-              dietary: dietaryPrefs,
-              food: foodPrefs,
-              cooking: { ...cookingPrefs, mealTypes: ['breakfast'] },
-              budget: budgetPrefs,
-            }, uid);
-
-            const extraBreakfast = apiRecipes
-              .filter(r => r.tags.includes('breakfast'))
-              .filter(r => !recipes.some(existing => existing.id === r.id))
-              .slice(0, extraNeeded);
-
-            logger.debug(`[DEBUG] Fetched ${extraBreakfast.length} extra breakfast recipes`);
-
-            recipes.push(...extraBreakfast);
-          } catch (extraErr) {
-            logger.warn('[DEBUG] Extra breakfast fetch failed:', extraErr);
-          }
-        }
- 
         // Generate the meal plan
         setLoadingState('generating_plan');
         const result = await generateMealPlan(
@@ -227,8 +196,8 @@ const LoadingMealPlanScreen: React.FC = () => {
         // Success! Set the meal plan and navigate to next screen
         setMealPlan(processedRecipes);
 
-        const mealTypes = [...new Set(processedRecipes.flatMap(r => r.tags.filter((t: string) => ['breakfast', 'lunch', 'dinner', 'snacks'].includes(t))))];
-        logMealPlanGenerated({ recipeCount: processedRecipes.length, mealTypes });
+        const generatedMealTypes = [...new Set(processedRecipes.flatMap(r => r.tags.filter((t: string) => ['breakfast', 'lunch', 'dinner', 'snacks'].includes(t))))];
+        logMealPlanGenerated({ recipeCount: processedRecipes.length, mealTypes: generatedMealTypes });
 
         // Log a sample of processed recipes with their imageUrls
         if (processedRecipes.length > 0) {

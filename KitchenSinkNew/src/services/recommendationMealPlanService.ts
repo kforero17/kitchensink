@@ -88,9 +88,7 @@ export async function fetchRecommendedRecipes(
       userTokens: buildUserTokens(prefs),
       pantryIngredients: pantryTokensForRanking,
       pantryItems: pantryItemsInfo,
-      spoonacularBias: -1,
       pantryOnlyMode: prefs.pantryOnlyMode,
-      weights: prefs.pantryOnlyMode ? undefined : { sourceBias: 0.15 },
       feedbackMap,
       seenRecipeIds,
     });
@@ -109,28 +107,10 @@ export async function fetchRecommendedRecipes(
       expiringCount,
     });
 
-    const tastyScored = scored.filter(s => s.recipe.source === 'tasty');
-    const spoonScored = scored.filter(s => s.recipe.source === 'spoonacular');
+    logger.info(`[RANK] scored=${scored.length} recipes (Tasty-only)`);
 
-    logger.info(`[RANK] tastyScored=${tastyScored.length} spoonScored=${spoonScored.length}`);
-    // ---- Enforce ~50/50 source mix (or favour Tasty) ----
-    const desiredTotal = scored.length;
-    const half = Math.floor(desiredTotal / 2);
-
-    // Take up to half from Tasty, refill remainder with Spoonacular.
-    const finalScored: typeof scored = [];
-
-    finalScored.push(...tastyScored.slice(0, half));
-
-    // If we don't have enough Tasty to fill half, leave gap to be filled by spoon
-    const neededFromSpoon = desiredTotal - finalScored.length;
-    finalScored.push(...spoonScored.slice(0, neededFromSpoon));
-
-    // In case we had more than half tasty and want to favour them, we can append remaining tasty
-    if (finalScored.length < desiredTotal) {
-      const remaining = tastyScored.slice(half);
-      finalScored.push(...remaining.slice(0, desiredTotal - finalScored.length));
-    }
+    // Use all scored recipes directly (single source, no split needed)
+    const finalScored: typeof scored = [...scored];
 
     // ------------------------------------------------------------------
     // Ensure we have at least 4 recipes per primary meal type so the UI
