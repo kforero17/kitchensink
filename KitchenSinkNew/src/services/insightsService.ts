@@ -12,12 +12,12 @@ import {
   NutritionSummary,
   StreakData,
 } from '../types/InsightsData';
+import { STORAGE_KEYS } from '../constants/storage';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const RECIPE_HISTORY_KEY = 'recipe_history';
 const MEAL_PLAN_KEY = 'current_meal_plan';
 const WEEKS_TO_FETCH = 8;
 
@@ -270,11 +270,10 @@ async function fetchSpendingTrends(
 
   const thisWeekKey = weekKey(now);
   const totalSpend = weeklyTrend.reduce((sum, w) => sum + w.estimatedSpend, 0);
-  const weeksWithSpend = weeklyTrend.filter(w => w.estimatedSpend > 0).length;
 
   return {
     thisWeekSpend: weekSpendMap.get(thisWeekKey) ?? 0,
-    averageWeeklySpend: weeksWithSpend > 0 ? totalSpend / weeksWithSpend : 0,
+    averageWeeklySpend: weeklyTrend.length > 0 ? totalSpend / weeklyTrend.length : 0,
     weeklyTrend,
   };
 }
@@ -439,7 +438,7 @@ export async function fetchWeeklyInsights(): Promise<WeeklyInsightsData> {
     // Load recipe history from AsyncStorage.
     let recipeHistory: RecipeHistoryItem[] = [];
     try {
-      const historyData = await safeStorage.getItem(RECIPE_HISTORY_KEY);
+      const historyData = await safeStorage.getItem(STORAGE_KEYS.RECIPE_HISTORY);
       if (historyData) {
         const parsed = JSON.parse(historyData);
         if (Array.isArray(parsed)) {
@@ -456,9 +455,7 @@ export async function fetchWeeklyInsights(): Promise<WeeklyInsightsData> {
       const d = new Date(item.usedDate);
       return !isNaN(d.getTime()) && d >= thisWeekStart;
     });
-    const thisWeekRecipeIds = [
-      ...new Set(thisWeekRecipes.map(r => r.recipeId)),
-    ];
+    const thisWeekRecipeIds = thisWeekRecipes.map(r => r.recipeId);
 
     // Fire independent data fetches in parallel.
     const [wasteAvoided, spendingTrends, nutrition] = await Promise.all([

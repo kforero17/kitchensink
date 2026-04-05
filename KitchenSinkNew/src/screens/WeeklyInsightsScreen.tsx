@@ -89,8 +89,10 @@ const WeeklyInsightsScreen: React.FC<Props> = ({ navigation }) => {
       .join('\n');
 
     try {
-      await Share.share({ message, title: 'My Kitchen Insights' });
-      logInsightsShared();
+      const result = await Share.share({ message, title: 'My Kitchen Insights' });
+      if (Platform.OS === 'android' || result.action === Share.sharedAction) {
+        logInsightsShared();
+      }
     } catch {
       Alert.alert('Error', 'Failed to share insights.');
     }
@@ -126,11 +128,21 @@ const WeeklyInsightsScreen: React.FC<Props> = ({ navigation }) => {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.headerButton}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Ionicons name="arrow-back" size={24} color={TEXT_COLOR} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Weekly Insights</Text>
-        <TouchableOpacity onPress={handleShare} style={styles.headerButton}>
+        <TouchableOpacity
+          onPress={handleShare}
+          style={styles.headerButton}
+          accessibilityRole="button"
+          accessibilityLabel="Share weekly insights"
+        >
           <Ionicons name="share-outline" size={24} color={TEXT_COLOR} />
         </TouchableOpacity>
       </View>

@@ -2,7 +2,7 @@
 
 1. **Cost estimation uses category averages** — No per-item pricing exists. We'll use hardcoded category-based estimates (produce ~$3, dairy ~$4, meat ~$8, pantry staples ~$2, etc.). Good enough for directional insights.
 
-Good for now but we should incorporate accurate gorcery store pricing into the app somehow.
+Good for now but we should incorporate accurate grocery store pricing into the app somehow.
 
 2. **"Waste avoided" = items removed before expiration** — We infer an item was "used" if it was deleted from pantry while status was not 'expired'. Items that reached 'expired' status count as waste.
 
