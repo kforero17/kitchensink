@@ -48,3 +48,15 @@ export function logMealPlanRegenerated(): void {
     logger.error('[analytics] meal_plan_regenerated failed', err),
   );
 }
+
+export function logInsightsViewed(): void {
+  analytics().logEvent('insights_viewed').catch(err =>
+    logger.error('[analytics] insights_viewed failed', err),
+  );
+}
+
+export function logInsightsShared(): void {
+  analytics().logEvent('insights_shared').catch(err =>
+    logger.error('[analytics] insights_shared failed', err),
+  );
+}

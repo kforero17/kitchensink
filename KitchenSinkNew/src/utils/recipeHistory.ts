@@ -4,8 +4,8 @@ import logger from './logger';
 import auth from '@react-native-firebase/auth';
 import { firestoreService } from '../services/firebaseService';
 import { safeStorage } from './asyncStorageUtils';
+import { STORAGE_KEYS } from '../constants/storage';
 
-const RECIPE_HISTORY_KEY = 'recipe_history';
 const MAX_HISTORY_ITEMS = 100;
 
 // Key to track recently swapped recipes
@@ -26,7 +26,7 @@ export interface RecipeHistoryItem {
 export async function getRecipeHistory(): Promise<RecipeHistoryItem[]> {
   try {
     // Use safeStorage instead of AsyncStorage directly
-    const historyData = await safeStorage.getItem(RECIPE_HISTORY_KEY);
+    const historyData = await safeStorage.getItem(STORAGE_KEYS.RECIPE_HISTORY);
     if (!historyData) {
       return [];
     }
@@ -47,7 +47,7 @@ export async function recordRecipeUsage(
 ): Promise<boolean> {
   try {
     // Get current history using safeStorage
-    const historyData = await safeStorage.getItem(RECIPE_HISTORY_KEY);
+    const historyData = await safeStorage.getItem(STORAGE_KEYS.RECIPE_HISTORY);
     const history = historyData ? JSON.parse(historyData) as RecipeHistoryItem[] : [];
     
     // Create new history item
@@ -66,7 +66,7 @@ export async function recordRecipeUsage(
     }
     
     // Always save to safeStorage first
-    await safeStorage.setItem(RECIPE_HISTORY_KEY, JSON.stringify(updatedHistory));
+    await safeStorage.setItem(STORAGE_KEYS.RECIPE_HISTORY, JSON.stringify(updatedHistory));
     
     // If authenticated, also try to save to Firestore
     if (auth().currentUser) {

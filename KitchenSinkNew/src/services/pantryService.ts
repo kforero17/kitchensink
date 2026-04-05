@@ -43,7 +43,11 @@ export const addPantryItem = async (uid: string, item: Omit<PantryItem, 'id'>): 
       .collection(FIRESTORE_PATHS.USERS)
       .doc(uid)
       .collection(FIRESTORE_PATHS.PANTRY_ITEMS)
-      .add(item);
+      .add({
+        ...item,
+        createdAt: firestore.FieldValue.serverTimestamp(),
+        updatedAt: firestore.FieldValue.serverTimestamp(),
+      });
             
             return docRef.id;
     } catch (error) {
@@ -83,7 +87,7 @@ export const updatePantryItem = async (
       .doc(uid)
       .collection(FIRESTORE_PATHS.PANTRY_ITEMS)
       .doc(itemId)
-      .update(itemData);
+      .update({ ...itemData, updatedAt: firestore.FieldValue.serverTimestamp() });
     
     logger.debug(`[pantryService] Successfully updated pantry item: ${itemId} for user: ${uid}`);
     return true;
@@ -150,13 +154,15 @@ export const addGroceryItemsToPantryFirestore = async (
         if (existingItem) {
         const newQuantity = existingItem.quantity + quantity;
         const docRef = pantryRef.doc(existingItem.id);
-        writeBatch.update(docRef, { quantity: newQuantity });
+        writeBatch.update(docRef, { quantity: newQuantity, updatedAt: firestore.FieldValue.serverTimestamp() });
         successCount++;
         } else {
         const newItemData = {
             name: groceryItem.name,
           quantity: quantity,
           unit: unit,
+          createdAt: firestore.FieldValue.serverTimestamp(),
+          updatedAt: firestore.FieldValue.serverTimestamp(),
         };
         writeBatch.set(pantryRef.doc(), newItemData);
         successCount++;
