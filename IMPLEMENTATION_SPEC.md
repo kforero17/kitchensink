@@ -6,7 +6,7 @@ The app currently generates meal plans reactively — only when the user explici
 
 ## What Exists (Foundation)
 
-- **7-feature ranking pipeline** (`ranking/featureEngineering.ts`, `ranking/rankRecipes.ts`): `sim`, `pantry`, `popularity`, `novelty`, `sourceBias`, `expiryUrgency`, `feedback` — weighted linear scoring
+- **10-feature ranking pipeline** (`ranking/featureEngineering.ts`, `ranking/rankRecipes.ts`): `sim`, `pantry`, `popularity`, `novelty`, `sourceBias`, `expiryUrgency`, `feedback`, `temporalFit`, `seasonalFit`, `leftoverAware` — weighted linear scoring
 - **Recipe history** (`utils/recipeHistory.ts`): `RecipeHistoryItem { recipeId, usedDate, mealType }` — max 100 items in AsyncStorage
 - **Feedback signals** (`ranking/feedbackSignal.ts`): likes/dislikes/ratings with exponential time decay (90-day constant)
 - **Pantry tracking** with expiry urgency scoring
@@ -14,9 +14,9 @@ The app currently generates meal plans reactively — only when the user explici
 - **Static seasonal recipe data** (`data/seasonalRecipes.ts`)
 - **Variety penalty** (`calculateVarietyPenalty`): recency + frequency based
 
-## Architecture: Three New Ranking Features + Leftover Model + Prediction Service
+## Architecture: Extended Ranking Features + Leftover Model + Prediction Service
 
-The approach extends the existing ranking pipeline with 3 new features in `FeatureVector`, adds a leftover tracking model, and introduces a prediction service that combines all signals to anticipate user needs.
+The ranking pipeline includes 10 features in `FeatureVector`, a leftover tracking model, and a prediction service that combines all signals to anticipate user needs.
 
 ---
 
@@ -77,7 +77,7 @@ function computeSeasonalFit(recipe: UnifiedRecipe, profile: SeasonalProfile, cur
 ```
 
 - Determine season from `usedDate` month (Mar-May=spring, Jun-Aug=summer, Sep-Nov=fall, Dec-Feb=winter).
-- Build tag-level seasonal affinity: if user cooks "soup" tagged recipes 8x in winter vs 1x in summer, "soup" has high winter affinity.
+- Build tag-level seasonal affinity: if user cooks "soup"-tagged recipes 8x in winter vs 1x in summer, "soup" has high winter affinity.
 - For a candidate recipe, average the seasonal affinity of its tags for the current season.
 - Output: `seasonalFit: number` in [0, 1]. Higher = recipe's tags match what user historically cooks in this season.
 - Fallback: 0.5 if insufficient seasonal data.
@@ -130,9 +130,9 @@ Logic in `featureEngineering.ts`:
 ```typescript
 export interface FeatureVector {
   // ... existing 7 features ...
-  temporalFit: number;    // NEW: day-of-week pattern match [0, 1]
-  seasonalFit: number;    // NEW: seasonal preference match [0, 1]
-  leftoverAware: number;  // NEW: leftover complement/redundancy [-0.5, 1]
+  temporalFit: number;    // day-of-week pattern match [0, 1]
+  seasonalFit: number;    // seasonal preference match [0, 1]
+  leftoverAware: number;  // leftover complement/redundancy [-0.5, 1]
 }
 ```
 
@@ -203,11 +203,11 @@ async function predictTodaysMeals(
 ```typescript
 export interface FeatureContext {
   // ... existing fields ...
-  targetDay?: number;                     // NEW: day of week for temporal fit
-  temporalProfile?: TemporalProfile;      // NEW: from temporalPatterns.ts
-  seasonalProfile?: SeasonalProfile;      // NEW: from seasonalSignal.ts
-  currentSeason?: Season;                 // NEW: current season
-  activeLeftovers?: Leftover[];           // NEW: from leftoverService.ts
+  targetDay?: number;                     // day of week for temporal fit
+  temporalProfile?: TemporalProfile;      // from temporalPatterns.ts
+  seasonalProfile?: SeasonalProfile;      // from seasonalSignal.ts
+  currentSeason?: Season;                 // current season
+  activeLeftovers?: Leftover[];           // from leftoverService.ts
 }
 ```
 
@@ -245,7 +245,6 @@ export interface FeatureContext {
 | `src/ranking/seasonalSignal.ts` | Seasonal preference scoring |
 | `src/ranking/seasonalSignal.test.ts` | Tests for seasonal signal |
 | `src/types/Leftover.ts` | Leftover data model |
-| `src/services/leftoverService.ts` | Leftover CRUD + expiry management |
 | `src/services/leftoverService.test.ts` | Tests for leftover service |
 | `src/services/predictionService.ts` | Proactive meal prediction |
 | `src/services/predictionService.test.ts` | Tests for prediction service |
@@ -258,13 +257,14 @@ export interface FeatureContext {
 |------|---------|
 | `src/ranking/featureEngineering.ts` | Add `temporalFit`, `seasonalFit`, `leftoverAware` to `FeatureVector` and `FeatureContext`; compute them in `computeFeatures` |
 | `src/ranking/rankRecipes.ts` | Add 3 new weights to `RankingWeights`, re-tune default/pantry-only weight sets |
+| `src/services/leftoverService.ts` | Extend leftover CRUD + expiry management |
 | `src/services/recommendationMealPlanService.ts` | Build temporal/seasonal profiles, fetch leftovers, pass new context to ranker |
 | `src/screens/HomeScreen.tsx` | Add `TodaysPicks` component |
 | `src/screens/RecipeDetailScreen.tsx` | Add leftover prompt trigger after "mark as cooked" |
 | `src/screens/MealPlanScreen.tsx` | Add leftover prompt trigger after accepting meal plan |
 | `src/screens/PantryScreen.tsx` | Add "Leftovers" section |
 | `src/types/FirestoreSchema.ts` | Add `leftovers` subcollection type |
-| `src/constants/storage.ts` | Add `LEFTOVERS_KEY` constant |
+| `src/constants/storage.ts` | Add `STORAGE_KEYS.LEFTOVERS` constant |
 | `src/tests/ranking.test.ts` | Update existing ranking tests for new features |
 
 ## Implementation Order

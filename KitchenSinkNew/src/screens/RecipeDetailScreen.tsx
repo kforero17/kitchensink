@@ -10,6 +10,7 @@ import LeftoverPrompt from '../components/LeftoverPrompt';
 import { recipeFeedbackService, RecipeFeedback } from '../services/recipeFeedbackService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { logRecipeViewed } from '../services/analyticsService';
+import { extractMealType } from '../utils/mealTypeUtils';
 
 type RecipeDetailRouteProp = RouteProp<RootStackParamList, 'RecipeDetail'>;
 type RecipeDetailNavigationProp = NativeStackNavigationProp<RootStackParamList, 'RecipeDetail'>;
@@ -525,7 +526,7 @@ const RecipeDetailScreen: React.FC = () => {
           recipeId={recipe.id}
           recipeName={recipe.name || 'Unnamed Recipe'}
           totalServings={recipe.servings || 4}
-          mealType={recipe.tags?.[0] || 'dinner'}
+          mealType={extractMealType(recipe.tags)}
         />
       )}
     </SafeAreaView>

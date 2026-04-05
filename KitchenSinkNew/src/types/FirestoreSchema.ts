@@ -45,8 +45,8 @@ export interface UserPreferences {
   food: FoodPreferences;
   cooking: CookingPreferences;
   budget: BudgetPreferences;
-  createdAt: FirebaseFirestoreTypes.Timestamp;
-  updatedAt: FirebaseFirestoreTypes.Timestamp;
+  createdAt?: FirebaseFirestoreTypes.Timestamp;
+  updatedAt?: FirebaseFirestoreTypes.Timestamp;
 }
 
 // User document in Firestore

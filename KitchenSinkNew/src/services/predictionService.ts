@@ -90,15 +90,12 @@ export async function predictTodaysMeals(
   const predictions: PredictedMeal[] = [];
 
   for (const mealType of MEAL_TYPES) {
-    const topForMeal = findTopRecipeForMealType(scoredRecipes, mealType);
+    const topForMeal = findTopQualifiedRecipe(scoredRecipes, mealType, CONFIDENCE_THRESHOLD);
     if (!topForMeal) {
       continue;
     }
 
     const confidence = computeConfidence(topForMeal);
-    if (confidence < CONFIDENCE_THRESHOLD) {
-      continue;
-    }
 
     const reasons = generateReasons(
       topForMeal,
@@ -120,13 +117,14 @@ export async function predictTodaysMeals(
   return predictions;
 }
 
-function findTopRecipeForMealType(
+function findTopQualifiedRecipe(
   scoredRecipes: ScoredRecipe[],
   mealType: string,
+  minConfidence: number,
 ): ScoredRecipe | undefined {
   return scoredRecipes.find(sr => {
     const tags = sr.recipe.tags.map(t => t.toLowerCase());
-    return tags.includes(mealType);
+    return tags.includes(mealType) && computeConfidence(sr) >= minConfidence;
   });
 }
 
@@ -199,9 +197,15 @@ function findMatchingLeftover(
   recipe: UnifiedRecipe,
   activeLeftovers: Leftover[],
 ): Leftover | undefined {
-  const recipeTokens = new Set(
+  const recipeNameTokens = new Set(
     recipe.title.toLowerCase().split(/[^a-zA-Z0-9]+/).filter(Boolean),
   );
+  const recipeIngTokens = new Set(
+    recipe.ingredients.flatMap(ing =>
+      (ing?.name || '').toLowerCase().split(/[^a-zA-Z0-9]+/).filter(Boolean),
+    ),
+  );
+  const allRecipeTokens = new Set([...recipeNameTokens, ...recipeIngTokens]);
 
   for (const leftover of activeLeftovers) {
     const leftoverTokens = leftover.recipeName
@@ -209,7 +213,7 @@ function findMatchingLeftover(
       .split(/[^a-zA-Z0-9]+/)
       .filter(Boolean);
 
-    const hasOverlap = leftoverTokens.some(t => recipeTokens.has(t));
+    const hasOverlap = leftoverTokens.some(t => allRecipeTokens.has(t));
     if (hasOverlap) {
       return leftover;
     }

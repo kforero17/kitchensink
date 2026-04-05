@@ -13,7 +13,7 @@ the latter sounds fine
 
 4. **Notification integration**: Should "Today's Picks" trigger a push notification (e.g., morning notification with breakfast suggestion)? Or is the HomeScreen card sufficient for v1?
 
-Profile screen should house this,
+No push notifications in v1; HomeScreen card only. Profile screen houses notification preferences for future iterations.
 
 5. **History migration**: Existing users have up to 100 history items. Should we backfill seasonal data from Firestore recipe feedback (which has `feedbackDate`) to bootstrap the seasonal profile?
 

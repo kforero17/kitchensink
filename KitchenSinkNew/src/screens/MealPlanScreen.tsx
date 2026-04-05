@@ -19,6 +19,7 @@ import { recipeFeedbackService } from '../services/recipeFeedbackService';
 import { logMealPlanAccepted, logMealPlanRegenerated } from '../services/analyticsService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LeftoverPrompt from '../components/LeftoverPrompt';
+import { extractMealType } from '../utils/mealTypeUtils';
 
 // Update MealType to include a combined lunch_dinner type
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
@@ -891,7 +892,7 @@ const MealPlanScreen: React.FC = () => {
           recipeId={leftoverRecipe.id}
           recipeName={leftoverRecipe.name}
           totalServings={leftoverRecipe.servings || 4}
-          mealType={leftoverRecipe.tags?.[0] || 'dinner'}
+          mealType={extractMealType(leftoverRecipe.tags)}
         />
       )}
     </SafeAreaView>

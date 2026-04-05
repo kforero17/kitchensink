@@ -147,8 +147,6 @@ function makePrefs(): UserPreferences {
       amount: 100,
       frequency: 'weekly',
     },
-    createdAt: {} as never,
-    updatedAt: {} as never,
   };
 }
 
@@ -370,6 +368,95 @@ describe('predictTodaysMeals', () => {
     expect(dinnerPrediction).toBeDefined();
     expect(dinnerPrediction!.reasons).toEqual(
       expect.arrayContaining([expect.stringContaining('expiring soon')]),
+    );
+  });
+
+  it('should skip low-confidence recipe and pick next qualified candidate for same meal type', async () => {
+    const weakDinner = makeRecipe({ id: 'd1', title: 'Weak Dinner', tags: ['dinner'] });
+    const strongDinner = makeRecipe({ id: 'd2', title: 'Strong Dinner', tags: ['dinner'] });
+
+    // First dinner has very low features (below 0.3 threshold), second is above
+    const scored = [
+      makeScoredRecipe(weakDinner, {
+        sim: 0.1,
+        pantry: 0.05,
+        popularity: 0.1,
+        novelty: 0,
+        expiryUrgency: 0,
+        feedback: 0,
+        temporalFit: 0.1,
+        seasonalFit: 0.1,
+        leftoverAware: 0,
+      }, 0.8), // high rank score but low confidence
+      makeScoredRecipe(strongDinner, {
+        sim: 0.7,
+        pantry: 0.6,
+        popularity: 0.7,
+        novelty: 1,
+        expiryUrgency: 0,
+        feedback: 0,
+        temporalFit: 0.5,
+        seasonalFit: 0.5,
+        leftoverAware: 0,
+      }, 0.6),
+    ];
+
+    setupDefaultMocks(scored);
+
+    const results = await predictTodaysMeals(makePrefs());
+
+    const dinnerResults = results.filter(r => r.mealType === 'dinner');
+    expect(dinnerResults.length).toBe(1);
+    expect(dinnerResults[0].recipe.id).toBe('d2');
+  });
+
+  it('should match leftover via ingredient tokens not just title tokens', async () => {
+    // Recipe title has no overlap with leftover, but ingredient does
+    const dinnerRecipe = makeRecipe({
+      id: 'd1',
+      title: 'Fried Rice',
+      tags: ['dinner'],
+      ingredients: [
+        { name: 'chicken breast', amount: 1, unit: 'lb' },
+        { name: 'rice', amount: 2, unit: 'cups' },
+      ],
+    });
+
+    const leftover: Leftover = {
+      id: 'lo-1',
+      recipeId: 'prev-recipe',
+      recipeName: 'Grilled Chicken',
+      originalServings: 4,
+      remainingServings: 2,
+      cookedDate: '2026-04-04',
+      estimatedExpiryDate: '2026-04-07',
+      mealType: 'dinner',
+      status: 'available',
+    };
+
+    const scored = [
+      makeScoredRecipe(dinnerRecipe, {
+        sim: 0.7,
+        pantry: 0.5,
+        temporalFit: 0.3,
+        seasonalFit: 0.3,
+        leftoverAware: 0.6,
+      }, 0.6),
+    ];
+
+    mockGetRecipeHistory.mockResolvedValue([makeHistoryItem()]);
+    mockGetActiveLeftovers.mockResolvedValue([leftover]);
+    mockGetPantryItems.mockResolvedValue([]);
+    mockGenerateRecipeCandidates.mockResolvedValue([dinnerRecipe]);
+    mockRankRecipes.mockReturnValue(scored);
+    mockGetUserFeedbackHistory.mockResolvedValue([]);
+
+    const results = await predictTodaysMeals(makePrefs());
+
+    const dinnerPrediction = results.find(r => r.mealType === 'dinner');
+    expect(dinnerPrediction).toBeDefined();
+    expect(dinnerPrediction!.reasons).toEqual(
+      expect.arrayContaining([expect.stringContaining('leftover')]),
     );
   });
 

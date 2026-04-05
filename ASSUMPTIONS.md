@@ -32,4 +32,4 @@
 
 16. **MealType from first tag**: `recipe.tags[0]` is used as the meal type for leftover records, consistent with existing `getRecipesByType` filtering.
 
-17. **MealPlan leftover prompt**: Shows for the first selected recipe only (v1). Could iterate all recipes in future.
+17. **MealPlan leftover prompt**: Shows for the first selected recipe only (v1). Could iterate all recipes in the future.

@@ -20,6 +20,9 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 // Stub Firebase modules so the service module loads without native bindings
+const mockFirestoreSet = jest.fn().mockResolvedValue(undefined);
+const mockFirestoreUpdate = jest.fn().mockResolvedValue(undefined);
+
 jest.mock('@react-native-firebase/firestore', () => {
   const mockFirestore: Record<string, unknown> = {
     __esModule: true,
@@ -28,8 +31,8 @@ jest.mock('@react-native-firebase/firestore', () => {
         doc: () => ({
           collection: () => ({
             doc: () => ({
-              set: jest.fn().mockResolvedValue(undefined),
-              update: jest.fn().mockResolvedValue(undefined),
+              set: mockFirestoreSet,
+              update: mockFirestoreUpdate,
             }),
           }),
         }),
@@ -37,12 +40,17 @@ jest.mock('@react-native-firebase/firestore', () => {
     }),
   };
   mockFirestore.FirebaseFirestoreTypes = {};
+  (mockFirestore.default as Record<string, unknown>).FieldValue = {
+    serverTimestamp: () => 'mock-timestamp',
+  };
   return mockFirestore;
 });
 
+let mockCurrentUser: { uid: string } | null = null;
+
 jest.mock('@react-native-firebase/auth', () => ({
   __esModule: true,
-  default: () => ({ currentUser: null }),
+  default: () => ({ get currentUser() { return mockCurrentUser; } }),
 }));
 
 jest.mock('../utils/logger', () => ({
@@ -58,14 +66,21 @@ jest.mock('../utils/logger', () => ({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function daysFromNow(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() + n);
-  return d.toISOString().split('T')[0];
+  return formatLocalDate(d);
 }
 
 function todayISO(): string {
-  return new Date().toISOString().split('T')[0];
+  return formatLocalDate(new Date());
 }
 
 function makeLeftover(overrides: Partial<Leftover> = {}): Leftover {
@@ -92,6 +107,7 @@ function seedStorage(leftovers: Leftover[]): void {
 // ---------------------------------------------------------------------------
 beforeEach(() => {
   storageMap = {};
+  mockCurrentUser = null;
   jest.clearAllMocks();
 });
 
@@ -143,6 +159,44 @@ describe('recordLeftover', () => {
     expect(stored).toHaveLength(2);
     expect(stored[0].id).toBe('existing');
     expect(stored[1].recipeName).toBe('Rice');
+  });
+
+  it('returns null when originalServings is zero', async () => {
+    const result = await recordLeftover('r1', 'Tacos', 0, 0, 'dinner');
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null when originalServings is negative', async () => {
+    const result = await recordLeftover('r1', 'Tacos', -2, 0, 'dinner');
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null when portionsEaten is negative', async () => {
+    const result = await recordLeftover('r1', 'Tacos', 4, -1, 'dinner');
+
+    expect(result).toBeNull();
+  });
+
+  it('writes to Firestore when user is authenticated', async () => {
+    mockCurrentUser = { uid: 'test-user' };
+
+    await recordLeftover('r1', 'Tacos', 6, 2, 'dinner');
+
+    expect(mockFirestoreSet).toHaveBeenCalledTimes(1);
+    expect(mockFirestoreSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipeId: 'r1',
+        recipeName: 'Tacos',
+        originalServings: 6,
+        remainingServings: 4,
+        mealType: 'dinner',
+        status: 'available',
+        createdAt: 'mock-timestamp',
+        updatedAt: 'mock-timestamp',
+      }),
+    );
   });
 });
 
@@ -224,6 +278,26 @@ describe('consumeLeftover', () => {
 
     expect(stored[0].remainingServings).toBe(3);
   });
+
+  it('does nothing when portions is zero', async () => {
+    seedStorage([makeLeftover({ id: 'c1', remainingServings: 3 })]);
+
+    await consumeLeftover('c1', 0);
+
+    const stored = JSON.parse(storageMap['@leftovers']) as Leftover[];
+
+    expect(stored[0].remainingServings).toBe(3);
+  });
+
+  it('does nothing when portions is negative', async () => {
+    seedStorage([makeLeftover({ id: 'c1', remainingServings: 3 })]);
+
+    await consumeLeftover('c1', -2);
+
+    const stored = JSON.parse(storageMap['@leftovers']) as Leftover[];
+
+    expect(stored[0].remainingServings).toBe(3);
+  });
 });
 
 describe('expireStaleLeftovers', () => {
@@ -269,6 +343,8 @@ describe('expireStaleLeftovers', () => {
   it('handles empty storage gracefully', async () => {
     await expireStaleLeftovers();
 
-    expect(storageMap['@leftovers']).toBeUndefined();
+    const stored = JSON.parse(storageMap['@leftovers']) as Leftover[];
+
+    expect(stored).toEqual([]);
   });
 });

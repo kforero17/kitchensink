@@ -121,7 +121,7 @@ export const TodaysPicks: React.FC = () => {
         food,
         cooking,
         budget,
-      } as UserPreferences;
+      };
 
       const meals = await predictTodaysMeals(prefs);
       setPredictions(meals);

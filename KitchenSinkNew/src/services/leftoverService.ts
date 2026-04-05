@@ -12,14 +12,22 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function addDays(isoDate: string, days: number): string {
-  const date = new Date(isoDate);
+  const [year, month, day] = isoDate.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
   date.setDate(date.getDate() + days);
-  return date.toISOString().split('T')[0];
+  return formatLocalDate(date);
 }
 
 function todayISO(): string {
-  return new Date().toISOString().split('T')[0];
+  return formatLocalDate(new Date());
 }
 
 async function loadLeftovers(): Promise<Leftover[]> {
@@ -31,6 +39,21 @@ async function loadLeftovers(): Promise<Leftover[]> {
     logger.error('[leftoverService] Error loading leftovers from storage', error);
     return [];
   }
+}
+
+let mutationQueue = Promise.resolve();
+
+function withLeftoversMutation<T>(
+  fn: (leftovers: Leftover[]) => Promise<{ leftovers: Leftover[]; result: T }>,
+): Promise<T> {
+  const run = mutationQueue.then(async () => {
+    const leftovers = await loadLeftovers();
+    const { leftovers: updated, result } = await fn(leftovers);
+    await saveLeftovers(updated);
+    return result;
+  });
+  mutationQueue = run.then(() => undefined, () => undefined);
+  return run;
 }
 
 async function saveLeftovers(leftovers: Leftover[]): Promise<void> {
@@ -87,6 +110,9 @@ export async function recordLeftover(
   portionsEaten: number,
   mealType: string,
 ): Promise<Leftover | null> {
+  if (!Number.isFinite(originalServings) || originalServings <= 0) return null;
+  if (!Number.isFinite(portionsEaten) || portionsEaten < 0) return null;
+
   const remainingServings = originalServings - portionsEaten;
   if (remainingServings <= 0) return null;
 
@@ -103,14 +129,14 @@ export async function recordLeftover(
     status: 'available',
   };
 
-  const leftovers = await loadLeftovers();
-  leftovers.push(leftover);
-  await saveLeftovers(leftovers);
-
-  firestoreWrite(leftover);
-
-  logger.debug(`[leftoverService] Recorded leftover: ${recipeName} (${remainingServings} servings)`);
-  return leftover;
+  return withLeftoversMutation<Leftover>(async (leftovers) => {
+    leftovers.push(leftover);
+    return { leftovers, result: leftover };
+  }).then((result) => {
+    firestoreWrite(leftover);
+    logger.debug(`[leftoverService] Recorded leftover: ${recipeName} (${remainingServings} servings)`);
+    return result;
+  });
 }
 
 export async function getActiveLeftovers(): Promise<Leftover[]> {
@@ -121,47 +147,59 @@ export async function getActiveLeftovers(): Promise<Leftover[]> {
 }
 
 export async function consumeLeftover(leftoverId: string, portions: number): Promise<void> {
-  const leftovers = await loadLeftovers();
-  const leftover = leftovers.find(l => l.id === leftoverId);
-  if (!leftover) {
-    logger.warn(`[leftoverService] Leftover not found: ${leftoverId}`);
-    return;
-  }
+  if (!Number.isFinite(portions) || portions <= 0) return;
 
-  leftover.remainingServings = Math.max(0, leftover.remainingServings - portions);
-  if (leftover.remainingServings <= 0) {
-    leftover.status = 'used';
-  }
+  const updated = await withLeftoversMutation<Pick<Leftover, 'remainingServings' | 'status'> | null>(async (leftovers) => {
+    const leftover = leftovers.find(l => l.id === leftoverId);
+    if (!leftover) {
+      logger.warn(`[leftoverService] Leftover not found: ${leftoverId}`);
+      return { leftovers, result: null };
+    }
 
-  await saveLeftovers(leftovers);
+    leftover.remainingServings = Math.max(0, leftover.remainingServings - portions);
+    if (leftover.remainingServings <= 0) {
+      leftover.status = 'used';
+    }
 
-  firestoreUpdate(leftoverId, {
-    remainingServings: leftover.remainingServings,
-    status: leftover.status,
+    return {
+      leftovers,
+      result: { remainingServings: leftover.remainingServings, status: leftover.status },
+    };
   });
 
-  logger.debug(
-    `[leftoverService] Consumed ${portions} portions of ${leftoverId}, ` +
-    `remaining: ${leftover.remainingServings}, status: ${leftover.status}`,
-  );
+  if (updated) {
+    firestoreUpdate(leftoverId, {
+      remainingServings: updated.remainingServings,
+      status: updated.status,
+    });
+
+    logger.debug(
+      `[leftoverService] Consumed ${portions} portions of ${leftoverId}, ` +
+      `remaining: ${updated.remainingServings}, status: ${updated.status}`,
+    );
+  }
 }
 
 export async function expireStaleLeftovers(): Promise<void> {
-  const leftovers = await loadLeftovers();
-  const today = todayISO();
-  let changed = false;
+  const expiredIds = await withLeftoversMutation<string[]>(async (leftovers) => {
+    const today = todayISO();
+    const expired: string[] = [];
 
-  for (const leftover of leftovers) {
-    if (leftover.status === 'available' && leftover.estimatedExpiryDate < today) {
-      leftover.status = 'expired';
-      changed = true;
-
-      firestoreUpdate(leftover.id, { status: 'expired' });
+    for (const leftover of leftovers) {
+      if (leftover.status === 'available' && leftover.estimatedExpiryDate < today) {
+        leftover.status = 'expired';
+        expired.push(leftover.id);
+      }
     }
+
+    return { leftovers, result: expired };
+  });
+
+  for (const id of expiredIds) {
+    firestoreUpdate(id, { status: 'expired' });
   }
 
-  if (changed) {
-    await saveLeftovers(leftovers);
+  if (expiredIds.length > 0) {
     logger.debug('[leftoverService] Expired stale leftovers');
   }
 }
