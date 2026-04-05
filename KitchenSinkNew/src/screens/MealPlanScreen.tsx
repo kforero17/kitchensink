@@ -18,6 +18,7 @@ import { firestoreService } from '../services/firebaseService';
 import { recipeFeedbackService } from '../services/recipeFeedbackService';
 import { logMealPlanAccepted, logMealPlanRegenerated } from '../services/analyticsService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import LeftoverPrompt from '../components/LeftoverPrompt';
 
 // Update MealType to include a combined lunch_dinner type
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
@@ -63,6 +64,8 @@ const MealPlanScreen: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [showPostMealPlanModal, setShowPostMealPlanModal] = useState(false);
   const [showFeedbackTip, setShowFeedbackTip] = useState(false);
+  const [showLeftoverPrompt, setShowLeftoverPrompt] = useState(false);
+  const [leftoverRecipe, setLeftoverRecipe] = useState<Recipe | null>(null);
   
   // Load budget preferences when component mounts
   useEffect(() => {
@@ -622,6 +625,13 @@ const MealPlanScreen: React.FC = () => {
       }
       logMealPlanAccepted({ selectedCount: selectedRecipesArray.length, totalCount: mealPlan.length });
 
+      // Show leftover prompt for the first selected recipe (v1: one recipe at a time)
+      if (selectedRecipesArray.length > 0) {
+        const firstRecipe = selectedRecipesArray[0];
+        setLeftoverRecipe(firstRecipe);
+        setShowLeftoverPrompt(true);
+      }
+
       // Show success message but don't navigate away - let the user continue with meal planning
       Alert.alert(
         "Recipes Saved",
@@ -869,6 +879,21 @@ const MealPlanScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Leftover Prompt */}
+      {leftoverRecipe && (
+        <LeftoverPrompt
+          visible={showLeftoverPrompt}
+          onClose={() => {
+            setShowLeftoverPrompt(false);
+            setLeftoverRecipe(null);
+          }}
+          recipeId={leftoverRecipe.id}
+          recipeName={leftoverRecipe.name}
+          totalServings={leftoverRecipe.servings || 4}
+          mealType={leftoverRecipe.tags?.[0] || 'dinner'}
+        />
+      )}
     </SafeAreaView>
   );
 };

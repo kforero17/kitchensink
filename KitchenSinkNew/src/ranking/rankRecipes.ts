@@ -10,6 +10,9 @@ export interface RankingWeights {
   sourceBias: number;
   expiryUrgency: number;
   feedback: number;
+  temporalFit: number;
+  seasonalFit: number;
+  leftoverAware: number;
 }
 
 /**
@@ -23,23 +26,29 @@ export interface RankingWeights {
  *  Weights sum to 1.0 for clarity.
  */
 const DEFAULT_WEIGHTS: RankingWeights = {
-  sim: 0.30,
-  pantry: 0.20,
-  popularity: 0.08,
-  novelty: 0.10,
-  sourceBias: 0.05,
-  expiryUrgency: 0.12,
-  feedback: 0.15,
+  sim: 0.22,
+  pantry: 0.15,
+  popularity: 0.05,
+  novelty: 0.08,
+  sourceBias: 0.03,
+  expiryUrgency: 0.10,
+  feedback: 0.12,
+  temporalFit: 0.10,
+  seasonalFit: 0.08,
+  leftoverAware: 0.07,
 };
 
 const PANTRY_ONLY_WEIGHTS: RankingWeights = {
-  sim: 0.15,
-  pantry: 0.25,
-  popularity: 0.03,
-  novelty: 0.05,
-  sourceBias: 0.05,
-  expiryUrgency: 0.30,
-  feedback: 0.17,
+  sim: 0.10,
+  pantry: 0.20,
+  popularity: 0.02,
+  novelty: 0.03,
+  sourceBias: 0.03,
+  expiryUrgency: 0.25,
+  feedback: 0.12,
+  temporalFit: 0.08,
+  seasonalFit: 0.07,
+  leftoverAware: 0.10,
 };
 
 export interface RankRecipesOptions extends FeatureContext {
@@ -66,7 +75,10 @@ export function rankRecipes(recipes: UnifiedRecipe[], opts: RankRecipesOptions):
       feats.novelty * weights.novelty +
       feats.sourceBias * weights.sourceBias +
       feats.expiryUrgency * weights.expiryUrgency +
-      feats.feedback * weights.feedback;
+      feats.feedback * weights.feedback +
+      feats.temporalFit * weights.temporalFit +
+      feats.seasonalFit * weights.seasonalFit +
+      feats.leftoverAware * weights.leftoverAware;
     return { recipe: rec, features: feats, score };
   });
 

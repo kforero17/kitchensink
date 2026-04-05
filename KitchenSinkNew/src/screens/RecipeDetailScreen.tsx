@@ -6,6 +6,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import PantryIngredientMatch from '../components/PantryIngredientMatch';
+import LeftoverPrompt from '../components/LeftoverPrompt';
 import { recipeFeedbackService, RecipeFeedback } from '../services/recipeFeedbackService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { logRecipeViewed } from '../services/analyticsService';
@@ -114,6 +115,9 @@ const RecipeDetailScreen: React.FC = () => {
     }
   };
 
+  // Leftover prompt state
+  const [showLeftoverPrompt, setShowLeftoverPrompt] = useState(false);
+
   // Add state for feedback
   const [isCooked, setIsCooked] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
@@ -176,6 +180,10 @@ const RecipeDetailScreen: React.FC = () => {
     const newIsCooked = !isCooked;
     setIsCooked(newIsCooked);
     await saveFeedback({ isCooked: newIsCooked });
+
+    if (newIsCooked) {
+      setShowLeftoverPrompt(true);
+    }
   };
 
   const handleLikeToggle = async () => {
@@ -508,6 +516,17 @@ const RecipeDetailScreen: React.FC = () => {
             </View>
           </View>
         </View>
+      )}
+      {/* Leftover Prompt */}
+      {recipe && (
+        <LeftoverPrompt
+          visible={showLeftoverPrompt}
+          onClose={() => setShowLeftoverPrompt(false)}
+          recipeId={recipe.id}
+          recipeName={recipe.name || 'Unnamed Recipe'}
+          totalServings={recipe.servings || 4}
+          mealType={recipe.tags?.[0] || 'dinner'}
+        />
       )}
     </SafeAreaView>
   );
