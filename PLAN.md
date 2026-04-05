@@ -1,12 +1,17 @@
-# Feedback Loop: Recipe Rating Integration into Ranking
+# Predictive Meal Planning - Plan
 
-Wire user feedback (likes/dislikes/ratings) into ranking with time decay, add meal plan accept/reject tracking, and polish the onboarding UX so recommendations improve as users engage.
+Extends the ranking pipeline with temporal patterns, seasonal preferences, and leftover awareness to anticipate what users want to cook.
 
-## Changes
-1. New `feedbackSignal.ts` — builds feedback map with exponential time decay (half-life ~62 days)
-2. Add `feedback` feature to FeatureVector [-1, 1] and 0.15 weight in ranking
-3. Wire feedback history + seenRecipeIds into recommendation service
-4. Implicit like on meal plan recipe selection, "Regenerate" button for rejection
-5. Returning user UX on HomeScreen, one-time feedback prompt on MealPlanScreen
-6. Analytics: meal_plan_accepted, meal_plan_regenerated events
-7. Unit tests for feedback signal computation and time decay
+## Key Changes
+
+1. **Temporal Pattern Analyzer** — learns day-of-week cooking habits from history
+2. **Seasonal Preference Signal** — dynamically weights recipes by season based on actual usage (not static tags)
+3. **Leftover Tracking** — model + service + UI for tracking uneaten portions, with ranking integration
+4. **Prediction Service** — proactive "Today's Picks" combining all signals with confidence scoring
+5. **3 new ranking features** — `temporalFit`, `seasonalFit`, `leftoverAware` added to the existing 7-feature pipeline
+
+## See Also
+
+- `IMPLEMENTATION_SPEC.md` — full technical spec with interfaces, file lists, and implementation order
+- `ASSUMPTIONS.md` — design assumptions
+- `QUESTIONS.md` — open questions

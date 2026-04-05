@@ -11,6 +11,7 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useAuth } from '../contexts/AuthContext';
+import { TodaysPicks } from '../components/TodaysPicks';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -45,6 +46,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
           {user && hasCompletedOnboarding ? (
             <View style={styles.returningUserContainer}>
+              <TodaysPicks />
               <TouchableOpacity
                 onPress={() => navigation.navigate('LoadingMealPlan')}
                 activeOpacity={0.85}
