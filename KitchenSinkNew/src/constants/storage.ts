@@ -19,6 +19,9 @@ export const STORAGE_KEYS = {
   // Pantry keys
   PANTRY_ITEMS: '@pantry_items',
   
+  // Leftovers
+  LEFTOVERS: '@leftovers',
+
   // Debug/test keys
   TEST_KEY: '@test_key',
 };

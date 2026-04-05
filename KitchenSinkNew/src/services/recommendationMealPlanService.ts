@@ -10,6 +10,10 @@ import { getPantryItems } from './pantryService';
 import { recipeFeedbackService } from './recipeFeedbackService';
 import { buildFeedbackMap, buildSeenRecipeIds } from '../ranking/feedbackSignal';
 import { logPantryModeUsed } from './analyticsService';
+import { buildTemporalProfile } from '../ranking/temporalPatterns';
+import { getSeason, buildSeasonalProfile } from '../ranking/seasonalSignal';
+import { getActiveLeftovers } from './leftoverService';
+import { getRecipeHistory } from '../utils/recipeHistory';
 import auth from '@react-native-firebase/auth';
 import logger from '../utils/logger';
 
@@ -84,6 +88,35 @@ export async function fetchRecommendedRecipes(
       maxReadyTime: deriveMaxReadyTime(prefs.cooking),
     });
 
+    // Build predictive context (temporal, seasonal, leftover signals)
+    let temporalProfile: ReturnType<typeof buildTemporalProfile> | undefined;
+    let seasonalProfile: ReturnType<typeof buildSeasonalProfile> | undefined;
+    let targetDay: number | undefined;
+    let currentSeason: ReturnType<typeof getSeason> | undefined;
+    let activeLeftovers: Awaited<ReturnType<typeof getActiveLeftovers>> | undefined;
+
+    try {
+      const recipeHist = await getRecipeHistory();
+      temporalProfile = buildTemporalProfile(recipeHist);
+      targetDay = new Date().getDay();
+      currentSeason = getSeason(new Date());
+
+      // Build recipe tag lookup from candidate recipes for the seasonal profile
+      const recipeTagLookup = new Map<string, string[]>();
+      for (const recipe of candidates) {
+        recipeTagLookup.set(recipe.id, recipe.tags || []);
+      }
+      seasonalProfile = buildSeasonalProfile(recipeHist, recipeTagLookup);
+    } catch (err) {
+      logger.warn('Cannot build temporal/seasonal context', err);
+    }
+
+    try {
+      activeLeftovers = await getActiveLeftovers();
+    } catch (err) {
+      logger.warn('Cannot fetch active leftovers', err);
+    }
+
     const scored = rankRecipes(candidates, {
       userTokens: buildUserTokens(prefs),
       pantryIngredients: pantryTokensForRanking,
@@ -93,6 +126,11 @@ export async function fetchRecommendedRecipes(
       weights: prefs.pantryOnlyMode ? undefined : { sourceBias: 0.15 },
       feedbackMap,
       seenRecipeIds,
+      targetDay,
+      temporalProfile,
+      seasonalProfile,
+      currentSeason,
+      activeLeftovers,
     });
 
     const threeDaysFromNow = new Date();

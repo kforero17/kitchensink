@@ -22,6 +22,16 @@ import { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
  *        │     │     ├── category: string
  *        │     │     ├── expirationDate: timestamp
  *        │     │     └── notes: string
+ *        ├── leftovers (collection)
+ *        │     ├── leftoverId (document)
+ *        │     │     ├── recipeId: string
+ *        │     │     ├── recipeName: string
+ *        │     │     ├── originalServings: number
+ *        │     │     ├── remainingServings: number
+ *        │     │     ├── cookedDate: string
+ *        │     │     ├── estimatedExpiryDate: string
+ *        │     │     ├── mealType: string
+ *        │     │     └── status: string
  *        └── recipes (collection)
  *              ├── recipeId (document)
  *              │     ├── name: string
@@ -35,8 +45,8 @@ export interface UserPreferences {
   food: FoodPreferences;
   cooking: CookingPreferences;
   budget: BudgetPreferences;
-  createdAt: FirebaseFirestoreTypes.Timestamp;
-  updatedAt: FirebaseFirestoreTypes.Timestamp;
+  createdAt?: FirebaseFirestoreTypes.Timestamp;
+  updatedAt?: FirebaseFirestoreTypes.Timestamp;
 }
 
 // User document in Firestore
@@ -162,11 +172,27 @@ export interface RecipeDocument {
   updatedAt: FirebaseFirestoreTypes.Timestamp;
 }
 
+// Leftover document in Firestore
+export interface LeftoverDocument {
+  id: string;
+  recipeId: string;
+  recipeName: string;
+  originalServings: number;
+  remainingServings: number;
+  cookedDate: string;
+  estimatedExpiryDate: string;
+  mealType: string;
+  status: 'available' | 'used' | 'expired';
+  createdAt: FirebaseFirestoreTypes.Timestamp;
+  updatedAt: FirebaseFirestoreTypes.Timestamp;
+}
+
 // Paths to collections and documents in Firestore
 export const FIRESTORE_PATHS = {
   USERS: 'users',
   GROCERY_LISTS: 'groceryLists',
   RECIPES: 'recipes',
   PANTRY_ITEMS: 'pantryItems',
+  LEFTOVERS: 'leftovers',
   APP_SETTINGS: 'appSettings',
 }; 

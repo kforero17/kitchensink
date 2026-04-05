@@ -1,4 +1,7 @@
 import { UnifiedRecipe } from '../shared/interfaces';
+import { TemporalProfile, computeTemporalFit } from './temporalPatterns';
+import { Season, SeasonalProfile, computeSeasonalFit } from './seasonalSignal';
+import { Leftover } from '../types/Leftover';
 
 export interface FeatureVector {
   sim: number;            // cosine / token similarity to user profile
@@ -8,6 +11,9 @@ export interface FeatureVector {
   sourceBias: number;     // bias based on source
   expiryUrgency: number;  // max urgency across matched pantry ingredients [0,1]
   feedback: number;       // user's prior rating/like/dislike signal with time decay [-1, 1]
+  temporalFit: number;    // day-of-week pattern match [0, 1]
+  seasonalFit: number;    // seasonal preference match [0, 1]
+  leftoverAware: number;  // leftover complement/redundancy [-0.5, 1]
   readyInMinutesNorm?: number; // optional extra feature
 }
 
@@ -23,6 +29,11 @@ export interface FeatureContext {
   seenRecipeIds?: Set<string>;       // recipes user has already seen / interacted with
   spoonacularBias?: number;          // default -0.05, range -0.1..0.1
   feedbackMap?: Map<string, { score: number; decayedScore: number }>;
+  targetDay?: number;                     // day of week for temporal fit (0=Sun..6=Sat)
+  temporalProfile?: TemporalProfile;      // from temporalPatterns.ts
+  seasonalProfile?: SeasonalProfile;      // from seasonalSignal.ts
+  currentSeason?: Season;                 // from seasonalSignal.ts
+  activeLeftovers?: Leftover[];           // from leftoverService.ts
 }
 
 // ---------- helpers ---------- //
@@ -88,6 +99,42 @@ function computeIngredientExpiryUrgency(ingredientName: string, pantryItems: Pan
   return maxUrgency;
 }
 
+function computeLeftoverAwareScore(recipe: UnifiedRecipe, activeLeftovers: Leftover[]): number {
+  if (activeLeftovers.length === 0) return 0;
+
+  const recipeNameTokens = new Set(tokenize(recipe.title || ''));
+  const recipeIngTokens = new Set(
+    recipe.ingredients.flatMap(ing => tokenize(ing?.name || ''))
+  );
+  const allRecipeTokens = new Set([...recipeNameTokens, ...recipeIngTokens]);
+
+  let redundancyScore = 0;
+  let complementScore = 0;
+
+  for (const leftover of activeLeftovers) {
+    const leftoverTokens = new Set(tokenize(leftover.recipeName));
+    if (leftoverTokens.size === 0 || allRecipeTokens.size === 0) continue;
+
+    let overlapCount = 0;
+    for (const token of leftoverTokens) {
+      if (allRecipeTokens.has(token)) overlapCount++;
+    }
+
+    const overlapRatio = overlapCount / leftoverTokens.size;
+
+    if (overlapRatio >= 0.8) {
+      redundancyScore = Math.min(redundancyScore, -0.5 * overlapRatio);
+    } else if (overlapRatio >= 0.2) {
+      const cs = 0.3 + (overlapRatio - 0.2) * (0.7 / 0.6);
+      complementScore = Math.max(complementScore, cs);
+    }
+  }
+
+  // Redundancy takes precedence over complement
+  const score = redundancyScore < 0 ? redundancyScore : complementScore;
+  return Math.max(-0.5, Math.min(1, score));
+}
+
 // ---------- main ---------- //
 export function computeFeatures(recipe: UnifiedRecipe, ctx: FeatureContext): FeatureVector {
   // 1. sim_user_profile – tokens from title + ingredient names VS userTokens
@@ -131,8 +178,23 @@ export function computeFeatures(recipe: UnifiedRecipe, ctx: FeatureContext): Fea
   const feedbackSignal = ctx.feedbackMap?.get(recipe.id);
   const feedback = feedbackSignal?.decayedScore ?? 0;
 
-  // 8. readyInMinutes_norm (optional) – shorter recipes higher score
+  // 8. temporal_fit – day-of-week pattern match
+  const temporalFit = (ctx.temporalProfile && ctx.targetDay !== undefined)
+    ? computeTemporalFit(recipe.tags || [], ctx.temporalProfile, ctx.targetDay)
+    : 0.5;
+
+  // 9. seasonal_fit – seasonal preference match
+  const seasonalFit = (ctx.seasonalProfile && ctx.currentSeason)
+    ? computeSeasonalFit(recipe.tags || [], ctx.seasonalProfile, ctx.currentSeason)
+    : 0.5;
+
+  // 10. leftover_aware – complement/redundancy with active leftovers
+  const leftoverAware = ctx.activeLeftovers
+    ? computeLeftoverAwareScore(recipe, ctx.activeLeftovers)
+    : 0;
+
+  // 11. readyInMinutes_norm (optional) – shorter recipes higher score
   const readyInMinutesNorm = recipe.readyInMinutes ? Math.max(0, Math.min(1, (120 - recipe.readyInMinutes) / 120)) : undefined;
 
-  return { sim, pantry, popularity, novelty, sourceBias, expiryUrgency, feedback, readyInMinutesNorm };
+  return { sim, pantry, popularity, novelty, sourceBias, expiryUrgency, feedback, temporalFit, seasonalFit, leftoverAware, readyInMinutesNorm };
 } 

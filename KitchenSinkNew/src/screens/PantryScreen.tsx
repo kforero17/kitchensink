@@ -22,6 +22,8 @@ import { getPantryItems, addPantryItem, deletePantryItem, updatePantryItem } fro
 import { theme } from '../styles/theme';
 import logger from '../utils/logger';
 import { logPantryItemAdded } from '../services/analyticsService';
+import { getActiveLeftovers, consumeLeftover } from '../services/leftoverService';
+import { Leftover } from '../types/Leftover';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import * as Network from 'expo-network'; // Uncomment Network
 import { resilientStorage } from '../utils/ResilientAsyncStorage';
@@ -77,6 +79,7 @@ const PantryScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [leftovers, setLeftovers] = useState<Leftover[]>([]);
   const [storageServiceReady, setStorageServiceReady] = useState(false);
   const [multiSelectModeEnabled, setMultiSelectModeEnabled] = useState(false); // New state for multi-select mode
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]); // New state for selected item IDs
@@ -183,12 +186,32 @@ const PantryScreen: React.FC = () => {
     }
   }, [user?.uid, retryCount, isOnline, storageServiceReady]);
 
+  const loadLeftovers = useCallback(async () => {
+    try {
+      const active = await getActiveLeftovers();
+      setLeftovers(active);
+    } catch (e) {
+      logger.error('[PantryScreen] Error loading leftovers:', e);
+    }
+  }, []);
+
+  const handleConsumeLeftover = useCallback(async (leftoverId: string) => {
+    try {
+      await consumeLeftover(leftoverId, 1);
+      await loadLeftovers();
+    } catch (e) {
+      logger.error('[PantryScreen] Error consuming leftover:', e);
+      Alert.alert('Error', 'Failed to use leftover. Please try again.');
+    }
+  }, [loadLeftovers]);
+
   useEffect(() => {
     logger.debug('[PantryScreen MOUNT] resilientStorage status in useEffect:', resilientStorage);
     if (resilientStorage) {
       setStorageServiceReady(true);
     }
-  }, []);
+    loadLeftovers();
+  }, [loadLeftovers]);
 
   // Load items when user is available AND storage service is ready
   useEffect(() => {
@@ -540,6 +563,59 @@ const PantryScreen: React.FC = () => {
           </View>
         )}
         
+        {loading === false && error === null && leftovers.length > 0 && (
+          <View style={styles.leftoversSection}>
+            <View style={styles.leftoversSectionHeader}>
+              <Text style={styles.leftoversSectionTitle}>Leftovers</Text>
+              <View style={styles.leftoversBadge}>
+                <Text style={styles.leftoversBadgeText}>{leftovers.length}</Text>
+              </View>
+            </View>
+            <ScrollView horizontal={false} style={styles.leftoversListContent}>
+              {leftovers.map(leftover => {
+                const daysUntilExpiry = Math.ceil(
+                  (new Date(leftover.estimatedExpiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
+                );
+                let expiryLabel: string;
+                let expiryColor: string;
+                if (daysUntilExpiry < 0) {
+                  expiryLabel = 'Expired';
+                  expiryColor = theme.colors.error;
+                } else if (daysUntilExpiry === 0) {
+                  expiryLabel = 'Expires today';
+                  expiryColor = theme.colors.error;
+                } else if (daysUntilExpiry === 1) {
+                  expiryLabel = 'Expires in 1 day';
+                  expiryColor = '#E8A317';
+                } else {
+                  expiryLabel = `Expires in ${daysUntilExpiry} days`;
+                  expiryColor = '#4CAF50';
+                }
+
+                return (
+                  <View key={leftover.id} style={styles.leftoverItemContainer}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.leftoverRecipeName}>{leftover.recipeName}</Text>
+                      <Text style={styles.leftoverServings}>
+                        {leftover.remainingServings} {leftover.remainingServings === 1 ? 'serving' : 'servings'} left
+                      </Text>
+                      <Text style={[styles.leftoverExpiry, { color: expiryColor }]}>
+                        {expiryLabel}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.leftoverUseButton}
+                      onPress={() => handleConsumeLeftover(leftover.id)}
+                    >
+                      <Text style={styles.leftoverUseButtonText}>Use</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         {loading === false && error === null && items.length > 0 && (
           <ScrollView style={styles.listContent}>
             {items.map(item => {
@@ -762,6 +838,79 @@ const styles = StyleSheet.create({
     color: '#7A736A',
     textAlign: 'center',
     marginTop: 8,
+  },
+  leftoversSection: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  leftoversSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  leftoversSectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#4E4E4E',
+  },
+  leftoversBadge: {
+    backgroundColor: '#D9A15B',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+    paddingHorizontal: 6,
+  },
+  leftoversBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  leftoversListContent: {
+    maxHeight: 220,
+  },
+  leftoverItemContainer: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    marginVertical: 4,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  leftoverRecipeName: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#4E4E4E',
+  },
+  leftoverServings: {
+    fontSize: 14,
+    color: '#7A736A',
+    marginTop: 2,
+  },
+  leftoverExpiry: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  leftoverUseButton: {
+    backgroundColor: '#D9A15B',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginLeft: 12,
+  },
+  leftoverUseButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 
