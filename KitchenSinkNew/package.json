@@ -35,7 +35,10 @@
     "reset": "npm run clean && npm run setup",
     "debug:build": "node scripts/debug-build.js",
     "demo:mealplan": "node scripts/simpleMealPlanDemo.js",
-    "test:algorithm": "node scripts/testAlgorithmSimple.js"
+    "test:algorithm": "node scripts/testAlgorithmSimple.js",
+    "simulate": "cd simulation && npx tsx index.ts",
+    "simulate:test": "cd simulation && npx tsx index.ts --profiles 1 --days 7",
+    "simulate:emulator": "cd simulation && firebase emulators:start --import=seed-data/export"
   },
   "dependencies": {
     "@expo/metro-runtime": "~3.1.3",
