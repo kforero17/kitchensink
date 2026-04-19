@@ -1,52 +1,39 @@
-# Open Questions
+# Open Questions — Diversity Metric Rolling-Window Novelty
 
-## Weekly Insights Dashboard
+Living doc. Questions flagged during planning; append as implementation sub-agents surface more.
 
-1. **Pantry removal tracking** — Currently, deleting a pantry item just removes it from Firestore. Should we add a `pantryHistory` collection to log removals with reason (used/expired/discarded)? This would make "waste avoided" much more accurate but adds complexity.
+## Planning-phase
 
-Yes, this makes sense.
+1. **Lookback value — 7 fixed or configurable default?**
+   **Proposed:** default `7`, constructor-injectable. Report label reads the actual value (`Novelty (7d, mean)`).
+   *Blocking?* No. Proceed with default.
 
-2. **Entry point placement** — Should the Insights button go on the Home screen (more visible) or Profile screen (less cluttered home)? Current plan: Home screen.
+2. **Fallback when run shorter than lookback?**
+   **Proposed:** `perDay = []`, `mean = NaN`, report renders `"—"`. Alternative would be `mean = 0` or omit the row.
+   *Blocking?* No. NaN + "—" is the cleanest.
 
-Let's go with the profile screen.
+3. **Should the old `perWindow` field stay during a transition?**
+   **Proposed:** no — replace cleanly. Branch is pre-merge; no historical reports exist.
+   *Blocking?* No.
 
-3. **Weekly reset day** — Should the "week" start on Monday or Sunday? Current plan: Monday (ISO standard).
+4. **Report label rename — keep "Diversity" or switch to "Novelty"?**
+   **Proposed:** rename to `Novelty (7d, mean)`. The word "diversity" at this point is overloaded.
+   *Blocking?* No. If the user prefers the old label, trivial to revert.
 
-Monday is fine.
+5. **Is `DiversityTracker.record()` day-indexed?**
+   The planning exploration said records are appended in order and QualityTracker keeps all DaySnapshots. Whether the tracker gets an explicit day number or infers it from array index will need to be confirmed by the implement sub-agent. If there's a gap (missed days), we use the *stored day number* rather than array position.
+   *Blocking?* No — implement-phase sub-agent should verify.
 
-4. **Grocery cost accuracy** — Would users benefit from being able to enter actual grocery costs, or is the category-based estimate sufficient for now?
+6. **Do any other trackers or services consume `QualityMetrics.diversity.perWindow`?**
+   Not enumerated exhaustively during planning. Implement-phase must grep.
+   *Blocking?* No — caught at compile time.
 
-Give users the option to enter the grocery amount, the plan in the future would be to be able to enter receipts or connect to instacart/amazon.
+7. **Should per-day novelty values be exposed alongside mean/std?**
+   The `perDay` array is part of the emitted shape. Not currently rendered but available for downstream reports / dashboards later. If the user wants the simulation run to write a CSV of per-day novelty, that's a follow-up.
 
-5. **Week key calculation at year boundaries** — The ISO week calculation is an approximation. Streak counts could be off by 1 at year boundaries (Dec/Jan). Worth fixing with a proper ISO week library if streak accuracy matters.
+8. **Edge case: plan(D-N) exists but is empty.**
+   Proposed to skip that day (count as skipped). Alternative: treat today's plan as fully novel (since nothing to compare against).
+   *Blocking?* No. Skipping keeps the metric semantics tight.
 
-6. **Insights entry point** — Currently wired to HomeScreen per the spec, but user preference was ProfileScreen (noted above). May need to move.
-
-## Predictive Meal Planning
-
-7. **Leftover complementarity scoring**: How should we determine that "leftover rice" complements a "stir-fry" recipe? Token overlap between leftover recipe ingredients and candidate recipe ingredients? Or tag-based (both Asian cuisine)?
-The former
-
-8. **Collaborative filtering scope**: The task mentions "collaborative filtering on user history" — should we implement cross-user collaborative filtering (requires backend aggregation across users) or is single-user pattern learning sufficient for v1?
-
-single user is fine for now
-
-9. **Per-day meal plan slots**: Current meal plans are flat recipe lists. Should "Today's Picks" imply we need to assign recipes to specific days, or is "here are your top picks for today" sufficient?
-
-the latter sounds fine
-
-10. **Notification integration**: Should "Today's Picks" trigger a push notification (e.g., morning notification with breakfast suggestion)? Or is the HomeScreen card sufficient for v1?
-
-No push notifications in v1; HomeScreen card only. Profile screen houses notification preferences for future iterations.
-
-11. **History migration**: Existing users have up to 100 history items. Should we backfill seasonal data from Firestore recipe feedback (which has `feedbackDate`) to bootstrap the seasonal profile?
-
-yes.
-
-12. **Snack predictions**: Should `predictTodaysMeals` include snack as a meal type, or just breakfast/lunch/dinner? Currently breakfast/lunch/dinner only.
-
-13. **TodaysPicks dismiss persistence**: Should dismiss state persist across app restarts via AsyncStorage, or is per-session sufficient?
-
-14. **MealPlan alert ordering**: The leftover prompt and "Recipes Saved" alert both fire after saving — the alert may overlay the prompt on some devices. May need sequencing.
-
-15. **RecipeFeedbackService injection**: The prediction service imports it directly. Should it use dependency injection for testability?
+9. **Edge case: plan(D) and plan(D-N) have different sizes.**
+   Formula is `|A ∩ B| / |A|` — denominator is today's size only. If today has 5 recipes and week-ago had 7, still divides by 5. Correct.

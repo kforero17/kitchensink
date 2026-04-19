@@ -1,294 +1,165 @@
-# Predictive Meal Planning - Implementation Spec
+# Diversity Metric — Rolling-Window Novelty
 
-## Problem Statement
-
-The app currently generates meal plans reactively — only when the user explicitly requests one. It has no awareness of **when** users cook (day-of-week patterns), **what season** it is (dynamic, not static), **what leftovers** exist, or how to **anticipate** what users want before they ask. The goal is to make the app proactively predict and suggest meals by learning from cooking history, temporal patterns, seasonal preferences, and leftover awareness.
-
-## What Exists (Foundation)
-
-- **10-feature ranking pipeline** (`ranking/featureEngineering.ts`, `ranking/rankRecipes.ts`): `sim`, `pantry`, `popularity`, `novelty`, `sourceBias`, `expiryUrgency`, `feedback`, `temporalFit`, `seasonalFit`, `leftoverAware` — weighted linear scoring
-- **Recipe history** (`utils/recipeHistory.ts`): `RecipeHistoryItem { recipeId, usedDate, mealType }` — max 100 items in AsyncStorage
-- **Feedback signals** (`ranking/feedbackSignal.ts`): likes/dislikes/ratings with exponential time decay (90-day constant)
-- **Pantry tracking** with expiry urgency scoring
-- **Recommendation event logging** (`services/recoLoggingService.ts`): viewed, dismissed, addedToMealPlan, rejectedWithReason
-- **Static seasonal recipe data** (`data/seasonalRecipes.ts`)
-- **Variety penalty** (`calculateVarietyPenalty`): recency + frequency based
-
-## Architecture: Extended Ranking Features + Leftover Model + Prediction Service
-
-The ranking pipeline includes 10 features in `FeatureVector`, a leftover tracking model, and a prediction service that combines all signals to anticipate user needs.
+**Working branch:** `diversity-rolling-novelty` (forked off `simulation-harness`; the tracker code only exists on that branch).
 
 ---
 
-## Implementation Plan
+## 1. Problem Statement
 
-### 1. Temporal Pattern Analyzer (`src/ranking/temporalPatterns.ts`)
+`DiversityTracker.finalize()` (`KitchenSinkNew/simulation/quality/DiversityTracker.ts:68-101`) currently emits `uniqueCount / totalIds` over a 14-day window of collected plans. In practice every persona reports **mean = 1.0000, std = 0.0000** — the metric is saturated and carries no signal.
 
-**Purpose**: Learn day-of-week cooking patterns from history.
+Two shapes the bug could take, both equally uninformative:
 
-**Data source**: Existing `RecipeHistoryItem[]` — has `usedDate` (ISO) and `mealType`.
+1. **Single-plan degenerate case.** Each 7-slot meal plan is unique-by-construction (the planner never suggests the same recipe twice in one week), so if only one plan is in the window, the ratio is always 1.
+2. **Sparse-pool case.** Even across a 14-plan × 7-slot window (≤98 recipe IDs), the recommendation pool is large enough that collisions rarely happen, so the ratio stays pinned at 1.
 
-**Logic**:
-```typescript
-interface TemporalProfile {
-  // day 0=Sun..6=Sat, mealType → frequency count
-  dayMealFrequency: Map<number, Map<string, number>>;
-  // day → total recipes cooked
-  dayActivity: Map<number, number>;
-  totalWeeks: number;
-}
+Either way the metric answers a question we don't care about ("are recipes unique inside the window?") instead of the question we do care about ("does the planner give the user fresh plans week-over-week, or does it keep recycling the same few recipes?").
 
-function buildTemporalProfile(history: RecipeHistoryItem[]): TemporalProfile
+### Desired signal
+
+**Week-over-week novelty** — for each day *D* with sufficient history, what fraction of today's recipes did **not** appear in the plan from *D − N* days ago.
+
+```
+overlap(D)  = |plan(D) ∩ plan(D - N)| / |plan(D)|
+novelty(D)  = 1 - overlap(D)
 ```
 
-- Parse `usedDate` to extract `dayOfWeek` (0-6).
-- Build frequency table: how often does the user cook `breakfast` on Monday vs Saturday?
-- Normalize by `totalWeeks` to get probabilities.
+Aggregated across days → mean/std/min/max per persona. Default **N = 7** (a "week ago"), matching the user's example of comparing day-30 to day-23. Configurable.
 
-**Feature output**: `temporalFit: number` in [0, 1]:
-```typescript
-function computeTemporalFit(
-  recipe: UnifiedRecipe,
-  profile: TemporalProfile,
-  targetDay: number,    // day of week we're planning for
-): number
-```
-- Extract recipe's meal type from tags (breakfast/lunch/dinner/snacks).
-- Look up `dayMealFrequency[targetDay][mealType]` normalized probability.
-- Higher score = user historically cooks this meal type on this day.
-- Fallback: 0.5 if insufficient history (< 4 weeks).
-
-### 2. Seasonal Preference Signal (`src/ranking/seasonalSignal.ts`)
-
-**Purpose**: Dynamically weight recipes by season based on user's historical cooking patterns, not just static seasonal tags.
-
-**Logic**:
-```typescript
-type Season = 'spring' | 'summer' | 'fall' | 'winter';
-
-interface SeasonalProfile {
-  // tag → Map<season, cookCount> (e.g., "soup" cooked 8x in winter, 1x in summer)
-  tagSeasonal: Map<string, Map<Season, number>>;
-}
-
-function buildSeasonalProfile(history: RecipeHistoryItem[], recipeTagLookup: Map<string, string[]>): SeasonalProfile
-
-function computeSeasonalFit(recipe: UnifiedRecipe, profile: SeasonalProfile, currentSeason: Season): number
-```
-
-- Determine season from `usedDate` month (Mar-May=spring, Jun-Aug=summer, Sep-Nov=fall, Dec-Feb=winter).
-- Build tag-level seasonal affinity: if user cooks "soup"-tagged recipes 8x in winter vs 1x in summer, "soup" has high winter affinity.
-- For a candidate recipe, average the seasonal affinity of its tags for the current season.
-- Output: `seasonalFit: number` in [0, 1]. Higher = recipe's tags match what user historically cooks in this season.
-- Fallback: 0.5 if insufficient seasonal data.
-
-### 3. Leftover Tracking Model
-
-#### 3a. Data Model (`src/types/Leftover.ts`)
-```typescript
-interface Leftover {
-  id: string;
-  recipeId: string;
-  recipeName: string;
-  originalServings: number;
-  remainingServings: number;
-  cookedDate: string;          // ISO date
-  estimatedExpiryDate: string; // ISO date (cookedDate + 3 days default)
-  mealType: string;
-  status: 'available' | 'used' | 'expired';
-}
-```
-
-#### 3b. Leftover Service (`src/services/leftoverService.ts`)
-
-- CRUD operations on AsyncStorage key `leftovers` (dual-write to Firestore `users/{uid}/leftovers` if authenticated).
-- `recordLeftover(recipeId, recipeName, originalServings, portionsEaten, mealType)`: creates a leftover entry with `remainingServings = originalServings - portionsEaten`.
-- `getActiveLeftovers()`: returns leftovers where `status === 'available'` and not past expiry.
-- `consumeLeftover(leftoverId, portions)`: decrements `remainingServings`, marks `used` if 0.
-- `expireStaleLeftovers()`: marks leftovers past `estimatedExpiryDate` as `expired`.
-
-#### 3c. Leftover Ranking Feature
-
-Add to `FeatureVector`:
-```typescript
-leftoverAware: number; // [-0.5, 1]
-```
-
-Logic in `featureEngineering.ts`:
-- If active leftovers exist, **penalize** recipes that would create redundant leftovers (same cuisine/protein overlap with existing leftovers).
-- **Boost** recipes that complement existing leftovers (e.g., leftover rice → stir-fry recipe).
-- Score = ingredient complementarity with active leftovers minus redundancy penalty.
-
-#### 3d. UI Integration
-
-- After accepting a meal plan or marking a recipe as "cooked", show a bottom sheet: "How many servings did you eat? (out of X)". Remaining → leftover.
-- `PantryScreen` gets a "Leftovers" section showing active leftovers with expiry countdown.
-
-### 4. Extend FeatureVector and Weights
-
-**`featureEngineering.ts`** changes:
-```typescript
-export interface FeatureVector {
-  // ... existing 7 features ...
-  temporalFit: number;    // day-of-week pattern match [0, 1]
-  seasonalFit: number;    // seasonal preference match [0, 1]
-  leftoverAware: number;  // leftover complement/redundancy [-0.5, 1]
-}
-```
-
-**`rankRecipes.ts`** changes:
-```typescript
-export interface RankingWeights {
-  // ... existing 7 weights ...
-  temporalFit: number;
-  seasonalFit: number;
-  leftoverAware: number;
-}
-
-// Re-tuned default weights (sum = 1.0):
-const DEFAULT_WEIGHTS: RankingWeights = {
-  sim: 0.22,
-  pantry: 0.15,
-  popularity: 0.05,
-  novelty: 0.08,
-  sourceBias: 0.03,
-  expiryUrgency: 0.10,
-  feedback: 0.12,
-  temporalFit: 0.10,
-  seasonalFit: 0.08,
-  leftoverAware: 0.07,
-};
-
-const PANTRY_ONLY_WEIGHTS: RankingWeights = {
-  sim: 0.10,
-  pantry: 0.20,
-  popularity: 0.02,
-  novelty: 0.03,
-  sourceBias: 0.03,
-  expiryUrgency: 0.25,
-  feedback: 0.12,
-  temporalFit: 0.08,
-  seasonalFit: 0.07,
-  leftoverAware: 0.10,
-};
-```
-
-### 5. Prediction Service (`src/services/predictionService.ts`)
-
-**Purpose**: Anticipate what the user wants — proactive "Today's suggestion" rather than waiting for explicit meal plan generation.
-
-**Logic**:
-```typescript
-interface PredictedMeal {
-  recipe: UnifiedRecipe;
-  mealType: string;
-  confidence: number;       // 0-1, how confident we are
-  reasons: string[];         // human-readable explanations
-}
-
-async function predictTodaysMeals(
-  prefs: UserPreferences,
-  targetDate?: Date,
-): Promise<PredictedMeal[]>
-```
-
-- Combines all signals: temporal patterns (what does user cook on this day?), seasonal affinity (what's in season?), active leftovers (suggest using them up), pantry expiry urgency, and feedback history.
-- Runs the full ranking pipeline with `targetDay` set to today's day-of-week.
-- Picks top recipe per meal type (breakfast, lunch, dinner) with confidence score.
-- Confidence = weighted average of the top recipe's feature scores. Below 0.3 → don't suggest (insufficient data).
-- Returns human-readable `reasons`: "You often cook pasta on Wednesdays", "Uses leftover chicken from Monday", "Tomatoes expiring tomorrow".
-
-### 6. Extend FeatureContext
-
-```typescript
-export interface FeatureContext {
-  // ... existing fields ...
-  targetDay?: number;                     // day of week for temporal fit
-  temporalProfile?: TemporalProfile;      // from temporalPatterns.ts
-  seasonalProfile?: SeasonalProfile;      // from seasonalSignal.ts
-  currentSeason?: Season;                 // current season
-  activeLeftovers?: Leftover[];           // from leftoverService.ts
-}
-```
-
-### 7. Wire Into Recommendation Service
-
-**`recommendationMealPlanService.ts`** changes:
-- Before calling `rankRecipes`, build `TemporalProfile` from recipe history.
-- Build `SeasonalProfile` from recipe history + recipe tag lookup.
-- Fetch active leftovers.
-- Pass all new context fields to `rankRecipes` via `FeatureContext`.
-
-### 8. "Today's Picks" UI Component
-
-- New component `src/components/TodaysPicks.tsx`: card on `HomeScreen` showing predicted meals for today.
-- Shows 1-3 predicted meals with confidence indicators and reason chips.
-- Tap → `RecipeDetailScreen`. "Add to plan" → adds to current meal plan.
-- Only shows when confidence > 0.3 (enough history data).
-- Dismissible. Dismiss events logged to `recoLoggingService`.
-
-### 9. Leftover Prompt UI
-
-- New component `src/components/LeftoverPrompt.tsx`: bottom sheet shown after marking a recipe as cooked.
-- Slider or +/- buttons for "portions eaten" out of total servings.
-- Creates leftover entry if remaining > 0.
-- Shown contextually from `RecipeDetailScreen` or `MealPlanScreen`.
+Expected spread across personas:
+- Planner that recycles the same 7 recipes → novelty ≈ 0
+- Planner that produces a fully fresh week every week → novelty ≈ 1
+- Realistic personas → somewhere in between
 
 ---
 
-## Files to Create
+## 2. Codebase Context (discovered)
 
-| File | Purpose |
-|------|---------|
-| `src/ranking/temporalPatterns.ts` | Day-of-week pattern analysis |
-| `src/ranking/temporalPatterns.test.ts` | Tests for temporal patterns |
-| `src/ranking/seasonalSignal.ts` | Seasonal preference scoring |
-| `src/ranking/seasonalSignal.test.ts` | Tests for seasonal signal |
-| `src/types/Leftover.ts` | Leftover data model |
-| `src/services/leftoverService.test.ts` | Tests for leftover service |
-| `src/services/predictionService.ts` | Proactive meal prediction |
-| `src/services/predictionService.test.ts` | Tests for prediction service |
-| `src/components/TodaysPicks.tsx` | Home screen prediction cards |
-| `src/components/LeftoverPrompt.tsx` | Post-cook leftover entry UI |
+| Concern | Finding |
+| --- | --- |
+| Metric code | `KitchenSinkNew/simulation/quality/DiversityTracker.ts` — `DiversityTracker` class, `finalize()` at `:68-101` |
+| Per-plan recipe data | `plan.recipeIds: string[]` on the window entries fed to `finalize()` (fed via `record()`, `:49-66`) |
+| Report aggregation | `KitchenSinkNew/simulation/reports/SummaryReportGenerator.ts:184-231` — `appendQualityTrends()` reads `m.diversity.mean`, calls `this.stdDev(values)` at `:211`, renders at `:226-228` |
+| DaySnapshot storage | `QualityTracker` keeps every `DaySnapshot` in `private snapshots: DaySnapshot[] = []` — historical plans are already retained, no new data-capture plumbing needed |
+| Plan structure | `DayState.currentMealPlan: UnifiedRecipe[]` in `simulation/profiles/types.ts:99-106`; `UnifiedRecipe.id` is the stable recipe key |
+| Tests | `KitchenSinkNew/simulation/__tests__/quality/trackers.test.ts` — Jest. `DiversityTracker` block at `:99-201`. Key tests at `:121-137` (single-plan ⇒ 1.0) and `:139-164` (two overlapping plans ⇒ 0.75). Both will need to be replaced. |
+| Jest config | `KitchenSinkNew/jest.config.js` |
 
-## Files to Modify
+---
 
-| File | Changes |
-|------|---------|
-| `src/ranking/featureEngineering.ts` | Add `temporalFit`, `seasonalFit`, `leftoverAware` to `FeatureVector` and `FeatureContext`; compute them in `computeFeatures` |
-| `src/ranking/rankRecipes.ts` | Add 3 new weights to `RankingWeights`, re-tune default/pantry-only weight sets |
-| `src/services/leftoverService.ts` | Extend leftover CRUD + expiry management |
-| `src/services/recommendationMealPlanService.ts` | Build temporal/seasonal profiles, fetch leftovers, pass new context to ranker |
-| `src/screens/HomeScreen.tsx` | Add `TodaysPicks` component |
-| `src/screens/RecipeDetailScreen.tsx` | Add leftover prompt trigger after "mark as cooked" |
-| `src/screens/MealPlanScreen.tsx` | Add leftover prompt trigger after accepting meal plan |
-| `src/screens/PantryScreen.tsx` | Add "Leftovers" section |
-| `src/types/FirestoreSchema.ts` | Add `leftovers` subcollection type |
-| `src/constants/storage.ts` | Add `STORAGE_KEYS.LEFTOVERS` constant |
-| `src/tests/ranking.test.ts` | Update existing ranking tests for new features |
+## 3. Approach
 
-## Implementation Order
+Replace the within-window uniqueness ratio with a **day-over-day novelty** computation over the tracker's own retained per-day plans. No new data needs to flow in.
 
-1. **Temporal patterns** (pure logic, no deps) — `temporalPatterns.ts` + tests
-2. **Seasonal signal** (pure logic, no deps) — `seasonalSignal.ts` + tests
-3. **Leftover model + service** — `Leftover.ts`, `leftoverService.ts` + tests
-4. **Extend ranking pipeline** — modify `featureEngineering.ts`, `rankRecipes.ts`, update existing tests
-5. **Prediction service** — `predictionService.ts` + tests (depends on 1-4)
-6. **Wire into recommendation service** — modify `recommendationMealPlanService.ts`
-7. **UI: TodaysPicks** — component + HomeScreen integration
-8. **UI: LeftoverPrompt** — component + screen integrations
-9. **UI: Pantry leftovers section** — PantryScreen modification
+### 3.1 Algorithm (plain prose)
 
-## Risks
+For each recorded day *D* in order:
+1. If we don't have a plan from day *D − N*, skip.
+2. If `plan(D)` is empty or `plan(D − N)` is empty, skip.
+3. Compute `overlap = |plan(D).recipeIds ∩ plan(D − N).recipeIds| / |plan(D).recipeIds|`.
+4. Append `1 - overlap` to `perDay`.
 
-- **Cold start**: New users have no history. Mitigation: all new features fall back to 0.5 (neutral) with < 4 weeks of data. Prediction confidence threshold (0.3) prevents bad suggestions.
-- **History cap at 100**: May limit seasonal analysis (need ~1 year). Mitigation: bump `MAX_HISTORY_ITEMS` to 365 for temporal/seasonal analysis, or store a separate aggregated profile.
-- **Leftover accuracy**: Users may not consistently log portions. Mitigation: make the prompt optional and non-blocking. Default to "ate all servings" if dismissed.
-- **Weight re-tuning**: Adding 3 features changes the balance. Mitigation: weights sum to 1.0, existing features get proportionally reduced. Monitor via weekly ranking logs.
+Aggregate: `mean`, `std`, `min`, `max` across `perDay`. If `perDay` is empty (run shorter than N days), emit the no-data sentinel shape (see §3.3).
 
-## Test Strategy
+### 3.2 Configurable lookback
 
-- **Unit tests** for all pure functions: `buildTemporalProfile`, `computeTemporalFit`, `buildSeasonalProfile`, `computeSeasonalFit`, leftover awareness scoring.
-- **Ranking integration tests**: verify new features influence final scores correctly (extend existing `ranking.test.ts`).
-- **Prediction service tests**: mock history + pantry + leftovers → verify predicted meals and confidence thresholds.
-- **No mocking of data models**. Use factory helpers (`makeRecipe()`, `makeHistoryItem()`) following existing test patterns.
+- New public field on `DiversityTracker`: `lookbackDays: number` (default `7`).
+- Constructor-injectable so tests can exercise N=1, N=3, etc.
+- Record the chosen `lookbackDays` on the emitted metric so the report can label it (e.g. "Novelty (7d)").
+
+### 3.3 Output shape
+
+Replaces the current `perWindow` output. All call sites (see §5) must be updated.
+
+```ts
+export interface DiversityMetrics {
+  perDay: number[];        // novelty per day with valid lookback, in day order
+  mean: number;            // mean over perDay; NaN if perDay empty
+  std: number;             // population std over perDay; NaN if fewer than 2 samples
+  min: number;             // NaN if perDay empty
+  max: number;             // NaN if perDay empty
+  lookbackDays: number;    // echo of config, e.g. 7
+  skippedDays: number;     // days we had no lookback match (for report footnote)
+}
+```
+
+> Rename `perWindow` → `perDay`. Keep `mean` so the report renderer needs no restructuring beyond NaN handling.
+
+### 3.4 Semantic flip — DO NOT SILENTLY INVERT
+
+The old metric was "higher = more diverse". The new metric is **"higher = more novel week-over-week"** — same directional intuition (bigger = better variety), so the metric row stays in the same column set. Rename the label to `Novelty (7d, mean)` to make the basis explicit.
+
+---
+
+## 4. Files to Modify
+
+| File | Change |
+| --- | --- |
+| `KitchenSinkNew/simulation/quality/DiversityTracker.ts` | Rewrite `finalize()`; add `lookbackDays` field + constructor arg (default 7); drop the window-based collection logic; operate on the ordered per-day history it already collects in `record()`. |
+| `KitchenSinkNew/simulation/quality/types.ts` *(if metric shape defined there)* | Update `DiversityMetrics` interface per §3.3. If the shape lives inside `DiversityTracker.ts`, update there. |
+| `KitchenSinkNew/simulation/__tests__/quality/trackers.test.ts` | Delete the two legacy DiversityTracker tests at `:121-137` and `:139-164`. Replace with novelty cases (see §6). |
+| `KitchenSinkNew/simulation/reports/SummaryReportGenerator.ts` | Update the "Diversity (mean)" label to "Novelty (Nd, mean)" where N reads from the first persona's `diversity.lookbackDays`. Handle `NaN` from empty `perDay` (render as `"—"`). Keep std/min/max wiring. |
+| Any other consumers of `QualityMetrics.diversity.*` | **Implement-phase sub-agent** must grep for `diversity.perWindow` and `diversity.mean` references across `KitchenSinkNew/simulation/` and update them. Likely zero hits outside the report layer, but verify. |
+
+## 5. New Files
+
+None. All existing files carry the fix.
+
+## 6. Test Strategy
+
+Replace the two existing DiversityTracker tests with three targeted novelty cases, plus two edge cases:
+
+### 6.1 Repeating planner ⇒ novelty ≈ 0
+
+Build 14 days of snapshots where every day's plan is the identical 7 recipe IDs. `finalize(lookbackDays: 7)` should produce `perDay` of length 7 (days 7..13), every entry equal to 0, `mean === 0`.
+
+### 6.2 Fully fresh planner ⇒ novelty ≈ 1
+
+Build 14 days, each day's 7 recipe IDs disjoint from every other day. `perDay` length 7, every entry 1, `mean === 1`.
+
+### 6.3 Half-overlap ⇒ novelty ≈ 0.5
+
+Construct a planner that repeats 3 of 7 recipes compared to 7 days prior, rotating the other 4. For the affected days, `novelty(D) = 1 - 3/7 ≈ 0.5714`. Assert exact value.
+
+### 6.4 Short run < N days
+
+Run for only 5 days with `lookbackDays: 7`. `perDay` empty, `mean === NaN`, `skippedDays === 5`. Verify the report renderer (via its own test or a snapshot) shows `"—"` instead of `NaN`.
+
+### 6.5 Custom lookback
+
+Run 4 days with `lookbackDays: 1` where plans alternate fully fresh/identical. Verify per-day values are `[0, 1, 0]` (days 1, 2, 3).
+
+**Test style:** keep existing `makeRecipe`, `makeDayState`, `makeSnapshot` helpers (lines 99-201 of the test file). Add a small helper `makeDailyIds(day, ids)` if it shortens the tests. Do not mock — construct real snapshots.
+
+---
+
+## 7. Implementation Order
+
+1. **Update `DiversityTracker.ts`:** rewrite `finalize()` and add `lookbackDays`. Keep `record()` unchanged (it already collects what we need).
+2. **Update `DiversityMetrics` shape** wherever it lives (same file or `quality/types.ts`).
+3. **Discover + fix downstream consumers:** grep `diversity\.(perWindow|mean|std|min|max)` under `simulation/`. Update.
+4. **Update `SummaryReportGenerator.ts`:** label + NaN rendering. Verify the std/min/max table columns still populate.
+5. **Rewrite tests:** replace the two legacy tests with §6.1–§6.5.
+6. **Run Jest:** `cd KitchenSinkNew && npx jest simulation/__tests__/quality/trackers.test.ts`. Expect green.
+7. **Smoke-run the sim** (optional, fast): `cd KitchenSinkNew && npm run simulate -- --archetype-only --days 30`. Inspect the markdown report: std should no longer be exactly 0 across personas; column should be labeled `Novelty (7d, mean)`.
+
+---
+
+## 8. Risks & Mitigations
+
+| Risk | Mitigation |
+| --- | --- |
+| Some consumer relies on `diversity.perWindow` array shape | Grep before editing, fail build at compile if missed (TS catches). |
+| `NaN` propagates silently into the report | Explicit guard in `SummaryReportGenerator`; test the short-run case. |
+| Rotating-recipe personas that happen to cycle every exactly N days drive novelty to 0 — "correct" but could surprise | Document in the report row footer: "Novelty measures fraction of today's plan absent from the plan N days prior." |
+| Changing the metric semantics breaks any historical comparisons | No historical reports exist yet — branch is pre-merge. Document the cutover in the PR body. |
+| Test file churn obscures intent in review | Replace the two broken tests rather than adding more on top, so the diff is `-` for the old uniqueness semantics and `+` for novelty. |
+
+---
+
+## 9. Out of Scope
+
+- Cross-persona diversity (how different are Alice's plans from Bob's) — different question.
+- Multiple lookback windows simultaneously (e.g., 7d + 30d). Can be added later by making `lookbackDays` an array.
+- Ingredient-level or cuisine-level diversity (different tracker).
+- Any change to `RepetitionTracker` or other quality trackers (the user's note only called out diversity).

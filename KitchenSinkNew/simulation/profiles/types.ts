@@ -86,6 +86,7 @@ export interface SimulationProfile {
  * Does not yet have a uid or seed -- those are assigned by the runner.
  */
 export interface ProfileDefinition {
+  id: string;
   name: string;
   preferences: UserPreferences;
   engagementTier: EngagementTier;
@@ -173,10 +174,20 @@ export interface InvariantViolation {
 
 export interface QualityMetrics {
   diversity: {
+    /** Novelty value for each day with a valid lookback match, in day order. */
+    perDay: number[];
+    /** Mean of `perDay`.  NaN when `perDay` is empty. */
     mean: number;
+    /** Population std of `perDay`.  NaN when fewer than 2 samples. */
+    std: number;
+    /** Minimum novelty across `perDay`.  NaN when `perDay` is empty. */
     min: number;
+    /** Maximum novelty across `perDay`.  NaN when `perDay` is empty. */
     max: number;
-    perWindow: number[];
+    /** Lookback window used to compute novelty (e.g. 7 for week-over-week). */
+    lookbackDays: number;
+    /** Count of days we iterated over that had no matching lookback plan. */
+    skippedDays: number;
   };
   pantryUtilization: {
     mean: number;

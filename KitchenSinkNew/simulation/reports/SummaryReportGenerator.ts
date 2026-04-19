@@ -99,12 +99,13 @@ export class SummaryReportGenerator {
     // Quality averages table
     if (results.length > 0) {
       const metrics = results.map(r => r.qualityMetrics);
+      const noveltyLabel = this.noveltyLabel(results, 'mean');
 
       lines.push('**Quality Averages:**');
       lines.push('');
       lines.push('| Metric | Average |');
       lines.push('| --- | --- |');
-      lines.push(`| Diversity | ${this.avg(metrics.map(m => m.diversity.mean)).toFixed(4)} |`);
+      lines.push(`| ${noveltyLabel} | ${this.formatAvgSkipNaN(metrics.map(m => m.diversity.mean))} |`);
       lines.push(`| Pantry Utilization | ${this.avg(metrics.map(m => m.pantryUtilization.mean)).toFixed(4)} |`);
       lines.push(`| Feedback Effectiveness | ${this.avg(metrics.map(m => m.feedbackLoop.netEffectiveness)).toFixed(4)} |`);
       lines.push(`| Seasonal Relevance | ${this.avg(metrics.map(m => m.seasonalRelevance.meanMatchRate)).toFixed(4)} |`);
@@ -121,7 +122,8 @@ export class SummaryReportGenerator {
     lines.push('## 2. Per-Profile Cards');
     lines.push('');
 
-    lines.push('| Name | ID | Tier | Days | Plans | Cooked | Violations | Diversity | Pantry Util | Feedback | Seasonal | Rescue |');
+    const noveltyColumn = this.noveltyLabel(results);
+    lines.push(`| Name | ID | Tier | Days | Plans | Cooked | Violations | ${noveltyColumn} | Pantry Util | Feedback | Seasonal | Rescue |`);
     lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
 
     for (const r of results) {
@@ -132,7 +134,7 @@ export class SummaryReportGenerator {
       lines.push(
         `| ${profile.name} | ${profile.id} | ${profile.engagementTier} ` +
         `| ${days.length} | ${planDays} | ${totalCooked} | ${violations.length} ` +
-        `| ${qualityMetrics.diversity.mean.toFixed(4)} ` +
+        `| ${this.formatNumber(qualityMetrics.diversity.mean)} ` +
         `| ${qualityMetrics.pantryUtilization.mean.toFixed(4)} ` +
         `| ${qualityMetrics.feedbackLoop.netEffectiveness.toFixed(4)} ` +
         `| ${qualityMetrics.seasonalRelevance.meanMatchRate.toFixed(4)} ` +
@@ -195,7 +197,7 @@ export class SummaryReportGenerator {
       label: string;
       extract: (m: QualityMetrics) => number;
     }> = [
-      { label: 'Diversity (mean)', extract: m => m.diversity.mean },
+      { label: this.noveltyLabel(results, 'mean'), extract: m => m.diversity.mean },
       { label: 'Pantry Utilization (mean)', extract: m => m.pantryUtilization.mean },
       { label: 'Feedback Effectiveness', extract: m => m.feedbackLoop.netEffectiveness },
       { label: 'Seasonal Relevance', extract: m => m.seasonalRelevance.meanMatchRate },
@@ -206,7 +208,14 @@ export class SummaryReportGenerator {
     lines.push('| --- | --- | --- | --- | --- | --- |');
 
     for (const { label, extract } of metricExtractors) {
-      const values = results.map(r => extract(r.qualityMetrics));
+      const rawValues = results.map(r => extract(r.qualityMetrics));
+      const values = rawValues.filter(v => !Number.isNaN(v));
+
+      if (values.length === 0) {
+        lines.push(`| ${label} | — | — | — | — | none |`);
+        continue;
+      }
+
       const mean = this.avg(values);
       const std = this.stdDev(values);
       const min = Math.min(...values);
@@ -216,7 +225,8 @@ export class SummaryReportGenerator {
       const threshold = 1.5 * std;
       const outlierNames: string[] = [];
       for (let i = 0; i < results.length; i++) {
-        if (Math.abs(values[i] - mean) > threshold && threshold > 0) {
+        if (Number.isNaN(rawValues[i])) continue;
+        if (Math.abs(rawValues[i] - mean) > threshold && threshold > 0) {
           outlierNames.push(results[i].profile.name);
         }
       }
@@ -247,8 +257,8 @@ export class SummaryReportGenerator {
       if (r.totalViolations.length > 5) {
         flags.push(`- **${name}**: ${r.totalViolations.length} violations`);
       }
-      if (m.diversity.mean < 0.5) {
-        flags.push(`- **${name}**: diversity ${m.diversity.mean.toFixed(4)}`);
+      if (!Number.isNaN(m.diversity.mean) && m.diversity.mean < 0.5) {
+        flags.push(`- **${name}**: novelty ${m.diversity.mean.toFixed(4)}`);
       }
       if (m.feedbackLoop.netEffectiveness < 0) {
         flags.push(`- **${name}**: feedback effectiveness ${m.feedbackLoop.netEffectiveness.toFixed(4)}`);
@@ -283,5 +293,40 @@ export class SummaryReportGenerator {
     const mean = this.avg(values);
     const sumSq = values.reduce((sum, v) => sum + (v - mean) ** 2, 0);
     return Math.sqrt(sumSq / values.length);
+  }
+
+  /**
+   * Build the Novelty column/row label.  Reads lookbackDays from the first
+   * persona's diversity metrics; falls back to a generic label if the shape
+   * is missing (e.g. tests with pre-computed fixtures).
+   */
+  private noveltyLabel(results: SimulationResult[], suffix?: string): string {
+    const first = results[0]?.qualityMetrics?.diversity;
+    const lookback =
+      first && typeof first.lookbackDays === 'number'
+        ? first.lookbackDays
+        : null;
+    const base = lookback !== null ? `Novelty (${lookback}d` : 'Novelty (';
+    if (suffix) {
+      return lookback !== null
+        ? `${base}, ${suffix})`
+        : `Novelty (${suffix})`;
+    }
+    return lookback !== null ? `${base})` : 'Novelty';
+  }
+
+  /** Format a number for a report cell, rendering NaN as an em dash. */
+  private formatNumber(value: number): string {
+    return Number.isNaN(value) ? '—' : value.toFixed(4);
+  }
+
+  /**
+   * Average a list of values, skipping NaNs.  Renders `"—"` when every value
+   * is NaN.  Used for the executive-summary novelty row.
+   */
+  private formatAvgSkipNaN(values: number[]): string {
+    const finite = values.filter(v => !Number.isNaN(v));
+    if (finite.length === 0) return '—';
+    return this.avg(finite).toFixed(4);
   }
 }

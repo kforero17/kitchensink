@@ -25,7 +25,15 @@ function makeQualityMetrics(
   overrides: Partial<QualityMetrics> = {},
 ): QualityMetrics {
   return {
-    diversity: { mean: 0.8, min: 0.6, max: 1.0, perWindow: [0.8] },
+    diversity: {
+      mean: 0.8,
+      min: 0.6,
+      max: 1.0,
+      std: 0.1,
+      perDay: [0.8],
+      lookbackDays: 7,
+      skippedDays: 7,
+    },
     pantryUtilization: { mean: 0.7, trend: 0.1, perPlan: [0.7] },
     feedbackLoop: {
       positiveCorrelation: 0.5,
@@ -205,19 +213,35 @@ describe('SummaryReportGenerator', () => {
     it('should compute correct quality averages across profiles', () => {
       const r1 = makeResult({
         qualityMetrics: makeQualityMetrics({
-          diversity: { mean: 0.6, min: 0.6, max: 0.6, perWindow: [] },
+          diversity: {
+            mean: 0.6,
+            min: 0.6,
+            max: 0.6,
+            std: 0,
+            perDay: [],
+            lookbackDays: 7,
+            skippedDays: 0,
+          },
         }),
       });
       const r2 = makeResult({
         profile: makeProfile({ id: 'p2', name: 'P2' }),
         qualityMetrics: makeQualityMetrics({
-          diversity: { mean: 0.8, min: 0.8, max: 0.8, perWindow: [] },
+          diversity: {
+            mean: 0.8,
+            min: 0.8,
+            max: 0.8,
+            std: 0,
+            perDay: [],
+            lookbackDays: 7,
+            skippedDays: 0,
+          },
         }),
       });
       const md = generator.generate([r1, r2]);
 
-      // Average diversity = (0.6 + 0.8) / 2 = 0.7
-      expect(md).toContain('Diversity | 0.7000');
+      // Average novelty = (0.6 + 0.8) / 2 = 0.7
+      expect(md).toContain('Novelty (7d, mean) | 0.7000');
     });
   });
 
@@ -343,7 +367,7 @@ describe('SummaryReportGenerator', () => {
     it('should include aggregate stats for each metric', () => {
       const md = generator.generate([makeResult()]);
 
-      expect(md).toContain('Diversity (mean)');
+      expect(md).toContain('Novelty (7d, mean)');
       expect(md).toContain('Pantry Utilization (mean)');
       expect(md).toContain('Feedback Effectiveness');
       expect(md).toContain('Seasonal Relevance');
@@ -361,10 +385,26 @@ describe('SummaryReportGenerator', () => {
       // Create 5 profiles: four have diversity 0.9, one has 0.0 (outlier).
       // mean=0.72, std~0.36, threshold=1.5*0.36=0.54, |0.0-0.72|=0.72 > 0.54
       const normal = makeQualityMetrics({
-        diversity: { mean: 0.9, min: 0.9, max: 0.9, perWindow: [] },
+        diversity: {
+          mean: 0.9,
+          min: 0.9,
+          max: 0.9,
+          std: 0,
+          perDay: [],
+          lookbackDays: 7,
+          skippedDays: 0,
+        },
       });
       const outlier = makeQualityMetrics({
-        diversity: { mean: 0.0, min: 0.0, max: 0.0, perWindow: [] },
+        diversity: {
+          mean: 0.0,
+          min: 0.0,
+          max: 0.0,
+          std: 0,
+          perDay: [],
+          lookbackDays: 7,
+          skippedDays: 0,
+        },
       });
 
       const results = [
@@ -396,7 +436,7 @@ describe('SummaryReportGenerator', () => {
       const trendSection = md.split('## 4.')[1].split('## 5.')[0];
       const diversityRow = trendSection
         .split('\n')
-        .find(l => l.includes('Diversity (mean)'));
+        .find(l => l.includes('Novelty (7d, mean)'));
       expect(diversityRow).toContain('Outlier');
     });
 
@@ -462,32 +502,48 @@ describe('SummaryReportGenerator', () => {
       expect(md).not.toContain('**BorderCase**: 5 violations');
     });
 
-    it('should flag profiles with diversity < 0.5', () => {
+    it('should flag profiles with novelty < 0.5', () => {
       const results = [
         makeResult({
           profile: makeProfile({ name: 'LowDiv' }),
           qualityMetrics: makeQualityMetrics({
-            diversity: { mean: 0.4, min: 0.4, max: 0.4, perWindow: [] },
+            diversity: {
+              mean: 0.4,
+              min: 0.4,
+              max: 0.4,
+              std: 0,
+              perDay: [],
+              lookbackDays: 7,
+              skippedDays: 0,
+            },
           }),
         }),
       ];
       const md = generator.generate(results);
 
-      expect(md).toContain('**LowDiv**: diversity 0.4000');
+      expect(md).toContain('**LowDiv**: novelty 0.4000');
     });
 
-    it('should not flag profiles with diversity exactly 0.5', () => {
+    it('should not flag profiles with novelty exactly 0.5', () => {
       const results = [
         makeResult({
           profile: makeProfile({ name: 'BorderDiv' }),
           qualityMetrics: makeQualityMetrics({
-            diversity: { mean: 0.5, min: 0.5, max: 0.5, perWindow: [] },
+            diversity: {
+              mean: 0.5,
+              min: 0.5,
+              max: 0.5,
+              std: 0,
+              perDay: [],
+              lookbackDays: 7,
+              skippedDays: 0,
+            },
           }),
         }),
       ];
       const md = generator.generate(results);
 
-      expect(md).not.toContain('**BorderDiv**: diversity');
+      expect(md).not.toContain('**BorderDiv**: novelty');
     });
 
     it('should flag profiles with negative feedback effectiveness', () => {
@@ -565,7 +621,15 @@ describe('SummaryReportGenerator', () => {
             makeViolation({ dayIndex: i }),
           ),
           qualityMetrics: makeQualityMetrics({
-            diversity: { mean: 0.3, min: 0.3, max: 0.3, perWindow: [] },
+            diversity: {
+              mean: 0.3,
+              min: 0.3,
+              max: 0.3,
+              std: 0,
+              perDay: [],
+              lookbackDays: 7,
+              skippedDays: 0,
+            },
             feedbackLoop: {
               positiveCorrelation: 0,
               negativeCorrelation: 1,

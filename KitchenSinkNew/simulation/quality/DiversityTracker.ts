@@ -1,46 +1,42 @@
 /**
- * DiversityTracker - Measures recipe diversity over sliding 14-day windows.
+ * DiversityTracker - Measures week-over-week recipe novelty.
  *
  * For every day a meal plan is generated the tracker stores the set of recipe
- * IDs and their cuisine tags.  At finalization it walks a sliding window of
- * size `WINDOW_SIZE` across the recorded plan-days and computes:
+ * IDs for that day.  At finalization it walks the recorded plan days in day
+ * order and, for each day D that has a matching plan from day `D - lookbackDays`,
+ * computes:
  *
- *   diversity = uniqueRecipeIds / totalRecipeSlots
+ *   novelty(D) = 1 - |plan(D) ∩ plan(D - N)| / |plan(D)|
  *
- * The result exposes mean, min, max across all windows plus the per-window
- * breakdown.
+ * The resulting metric captures how much today's plan differs from the plan
+ * from N days ago (default N = 7, i.e. week-over-week).  Higher = more novel.
+ *
+ * Days that have no valid lookback match (too early in the run, or either
+ * plan is empty) are counted in `skippedDays` and excluded from aggregation.
  */
 
 import { MetricTracker } from './MetricTracker';
 import { DaySnapshot, QualityMetrics } from '../profiles/types';
 
-/** Number of plan-generation events per sliding window. */
-const WINDOW_SIZE = 14;
-
-/**
- * Known cuisine keywords used to extract cuisine tags from a recipe's generic
- * tag list.  We lowercase both sides when matching.
- */
-const CUISINE_KEYWORDS: ReadonlySet<string> = new Set([
-  'italian', 'mexican', 'chinese', 'japanese', 'indian', 'thai',
-  'french', 'greek', 'korean', 'vietnamese', 'spanish', 'mediterranean',
-  'middle eastern', 'american', 'british', 'german', 'african',
-  'caribbean', 'brazilian', 'turkish', 'ethiopian', 'peruvian',
-  'moroccan', 'lebanese', 'cuban', 'filipino', 'indonesian',
-  'malaysian', 'cajun', 'creole', 'southern', 'tex-mex',
-  'latin', 'asian', 'european', 'nordic', 'hawaiian',
-]);
+/** Default number of days to look back when comparing plans. */
+const DEFAULT_LOOKBACK_DAYS = 7;
 
 interface PlanRecord {
   dayIndex: number;
   recipeIds: string[];
-  cuisines: string[];
 }
 
 export class DiversityTracker implements MetricTracker {
   readonly name = 'diversity';
 
+  /** Number of days to look back when comparing plans. */
+  readonly lookbackDays: number;
+
   private plans: PlanRecord[] = [];
+
+  constructor(lookbackDays: number = DEFAULT_LOOKBACK_DAYS) {
+    this.lookbackDays = lookbackDays;
+  }
 
   // ---------------------------------------------------------------------------
   // MetricTracker interface
@@ -52,55 +48,83 @@ export class DiversityTracker implements MetricTracker {
     const recipes = snapshot.stateAfter.currentMealPlan;
     const recipeIds = recipes.map(r => r.id);
 
-    const cuisines: string[] = [];
-    for (const recipe of recipes) {
-      for (const tag of recipe.tags) {
-        const lower = tag.toLowerCase();
-        if (CUISINE_KEYWORDS.has(lower) && !cuisines.includes(lower)) {
-          cuisines.push(lower);
-        }
-      }
-    }
-
-    this.plans.push({ dayIndex: snapshot.dayIndex, recipeIds, cuisines });
+    this.plans.push({ dayIndex: snapshot.dayIndex, recipeIds });
   }
 
   finalize(): QualityMetrics['diversity'] {
-    if (this.plans.length === 0) {
-      return { mean: 1.0, min: 1.0, max: 1.0, perWindow: [] };
+    // Index plans by their dayIndex for O(1) lookback lookups.
+    const plansByDay = new Map<number, PlanRecord>();
+    for (const plan of this.plans) {
+      plansByDay.set(plan.dayIndex, plan);
     }
 
-    const perWindow: number[] = [];
+    // Iterate the recorded days in day-index order so that `perDay` is
+    // deterministic regardless of record() call order.
+    const orderedPlans = [...this.plans].sort(
+      (a, b) => a.dayIndex - b.dayIndex,
+    );
 
-    // Slide a window of WINDOW_SIZE plan events across all recorded plans.
-    const windowCount = Math.max(1, this.plans.length - WINDOW_SIZE + 1);
+    const perDay: number[] = [];
+    let skippedDays = 0;
 
-    for (let start = 0; start < windowCount; start++) {
-      const end = Math.min(start + WINDOW_SIZE, this.plans.length);
-      const windowPlans = this.plans.slice(start, end);
+    for (const today of orderedPlans) {
+      const prior = plansByDay.get(today.dayIndex - this.lookbackDays);
 
-      const allIds: string[] = [];
-      for (const plan of windowPlans) {
-        allIds.push(...plan.recipeIds);
-      }
-
-      if (allIds.length === 0) {
-        perWindow.push(1.0);
+      if (
+        !prior ||
+        today.recipeIds.length === 0 ||
+        prior.recipeIds.length === 0
+      ) {
+        skippedDays += 1;
         continue;
       }
 
-      const uniqueCount = new Set(allIds).size;
-      perWindow.push(uniqueCount / allIds.length);
+      const priorSet = new Set(prior.recipeIds);
+      let overlap = 0;
+      for (const id of today.recipeIds) {
+        if (priorSet.has(id)) overlap += 1;
+      }
+
+      const novelty = 1 - overlap / today.recipeIds.length;
+      perDay.push(novelty);
     }
 
-    const mean = perWindow.reduce((a, b) => a + b, 0) / perWindow.length;
-    const min = Math.min(...perWindow);
-    const max = Math.max(...perWindow);
+    if (perDay.length === 0) {
+      return {
+        perDay: [],
+        mean: NaN,
+        std: NaN,
+        min: NaN,
+        max: NaN,
+        lookbackDays: this.lookbackDays,
+        skippedDays,
+      };
+    }
 
-    return { mean, min, max, perWindow };
+    const mean = perDay.reduce((a, b) => a + b, 0) / perDay.length;
+    const std = computeStd(perDay, mean);
+    const min = Math.min(...perDay);
+    const max = Math.max(...perDay);
+
+    return {
+      perDay,
+      mean,
+      std,
+      min,
+      max,
+      lookbackDays: this.lookbackDays,
+      skippedDays,
+    };
   }
 
   reset(): void {
     this.plans = [];
   }
+}
+
+/** Population standard deviation.  Returns NaN when fewer than 2 samples. */
+function computeStd(values: number[], mean: number): number {
+  if (values.length < 2) return NaN;
+  const sumSq = values.reduce((sum, v) => sum + (v - mean) ** 2, 0);
+  return Math.sqrt(sumSq / values.length);
 }

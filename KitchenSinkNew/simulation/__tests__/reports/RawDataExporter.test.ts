@@ -26,7 +26,15 @@ function makeQualityMetrics(
   overrides: Partial<QualityMetrics> = {},
 ): QualityMetrics {
   return {
-    diversity: { mean: 0.8, min: 0.6, max: 1.0, perWindow: [0.8] },
+    diversity: {
+      mean: 0.8,
+      min: 0.6,
+      max: 1.0,
+      std: 0.1,
+      perDay: [0.8],
+      lookbackDays: 7,
+      skippedDays: 7,
+    },
     pantryUtilization: { mean: 0.7, trend: 0.1, perPlan: [0.7] },
     feedbackLoop: {
       positiveCorrelation: 0.5,

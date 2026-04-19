@@ -99,6 +99,23 @@ function makeFeedbackAction(
 describe('DiversityTracker', () => {
   let tracker: DiversityTracker;
 
+  /** Record a plan for `dayIndex` made up of recipes with the given IDs. */
+  function recordPlan(
+    t: DiversityTracker,
+    dayIndex: number,
+    ids: string[],
+  ): void {
+    t.record(
+      makeSnapshot({
+        dayIndex,
+        mealPlanGenerated: true,
+        stateAfter: makeDayState({
+          currentMealPlan: ids.map(id => makeRecipe({ id })),
+        }),
+      }),
+    );
+  }
+
   beforeEach(() => {
     tracker = new DiversityTracker();
   });
@@ -107,96 +124,128 @@ describe('DiversityTracker', () => {
     expect(tracker.name).toBe('diversity');
   });
 
-  it('should return perfect diversity when no plans are recorded', () => {
+  it('should default to a 7-day lookback', () => {
+    expect(tracker.lookbackDays).toBe(7);
+  });
+
+  it('should accept a custom lookback via the constructor', () => {
+    const t = new DiversityTracker(3);
+    expect(t.lookbackDays).toBe(3);
+  });
+
+  it('should emit NaN sentinels when no plans are recorded', () => {
     const result = tracker.finalize();
-    expect(result).toEqual({ mean: 1.0, min: 1.0, max: 1.0, perWindow: [] });
+    expect(result.perDay).toEqual([]);
+    expect(result.mean).toBeNaN();
+    expect(result.std).toBeNaN();
+    expect(result.min).toBeNaN();
+    expect(result.max).toBeNaN();
+    expect(result.lookbackDays).toBe(7);
+    expect(result.skippedDays).toBe(0);
   });
 
   it('should skip non-plan-generation snapshots', () => {
     tracker.record(makeSnapshot({ mealPlanGenerated: false }));
     const result = tracker.finalize();
-    expect(result.perWindow).toHaveLength(0);
+    expect(result.perDay).toHaveLength(0);
+    expect(result.skippedDays).toBe(0);
   });
 
-  it('should compute 1.0 diversity when all recipes are unique', () => {
-    const recipes = [
-      makeRecipe({ id: 'r-1' }),
-      makeRecipe({ id: 'r-2' }),
-      makeRecipe({ id: 'r-3' }),
-    ];
-    tracker.record(
-      makeSnapshot({
-        mealPlanGenerated: true,
-        stateAfter: makeDayState({ currentMealPlan: recipes }),
-      }),
-    );
-
-    const result = tracker.finalize();
-    expect(result.perWindow).toHaveLength(1);
-    expect(result.mean).toBe(1.0);
-  });
-
-  it('should compute reduced diversity for repeated recipes across windows', () => {
-    // Generate 2 plan events with overlapping recipes.
-    const plan1 = [makeRecipe({ id: 'r-1' }), makeRecipe({ id: 'r-2' })];
-    const plan2 = [makeRecipe({ id: 'r-1' }), makeRecipe({ id: 'r-3' })];
-
-    tracker.record(
-      makeSnapshot({
-        dayIndex: 0,
-        mealPlanGenerated: true,
-        stateAfter: makeDayState({ currentMealPlan: plan1 }),
-      }),
-    );
-    tracker.record(
-      makeSnapshot({
-        dayIndex: 1,
-        mealPlanGenerated: true,
-        stateAfter: makeDayState({ currentMealPlan: plan2 }),
-      }),
-    );
-
-    const result = tracker.finalize();
-    // Only 2 plans, window size is 14 so there is 1 window with all 4 IDs.
-    // 3 unique / 4 total = 0.75
-    expect(result.perWindow).toHaveLength(1);
-    expect(result.mean).toBe(0.75);
-  });
-
-  it('should produce multiple windows when plan count exceeds window size', () => {
-    // Create 15 plans (window size = 14, so 2 windows).
-    for (let i = 0; i < 15; i++) {
-      tracker.record(
-        makeSnapshot({
-          dayIndex: i,
-          mealPlanGenerated: true,
-          stateAfter: makeDayState({
-            currentMealPlan: [makeRecipe({ id: `r-${i}` })],
-          }),
-        }),
-      );
+  // 6.1 Repeating planner ⇒ novelty ≈ 0
+  it('should report zero novelty when every day repeats the same plan', () => {
+    const ids = ['r-1', 'r-2', 'r-3', 'r-4', 'r-5', 'r-6', 'r-7'];
+    for (let day = 0; day < 14; day++) {
+      recordPlan(tracker, day, ids);
     }
 
     const result = tracker.finalize();
-    // 15 - 14 + 1 = 2 windows
-    expect(result.perWindow).toHaveLength(2);
-    // Each window has 14 unique recipes out of 14 total = 1.0
-    expect(result.mean).toBe(1.0);
+    // Days 7..13 each have a lookback match at D - 7.
+    expect(result.perDay).toHaveLength(7);
+    expect(result.perDay.every(v => v === 0)).toBe(true);
+    expect(result.mean).toBe(0);
+    expect(result.min).toBe(0);
+    expect(result.max).toBe(0);
+    expect(result.std).toBe(0);
+    expect(result.skippedDays).toBe(7);
+  });
+
+  // 6.2 Fully fresh planner ⇒ novelty ≈ 1
+  it('should report full novelty when every day is disjoint from 7 days prior', () => {
+    for (let day = 0; day < 14; day++) {
+      const ids = Array.from({ length: 7 }, (_, i) => `r-${day}-${i}`);
+      recordPlan(tracker, day, ids);
+    }
+
+    const result = tracker.finalize();
+    expect(result.perDay).toHaveLength(7);
+    expect(result.perDay.every(v => v === 1)).toBe(true);
+    expect(result.mean).toBe(1);
+    expect(result.min).toBe(1);
+    expect(result.max).toBe(1);
+    expect(result.std).toBe(0);
+    expect(result.skippedDays).toBe(7);
+  });
+
+  // 6.3 Half-overlap ⇒ novelty ≈ 4/7
+  it('should compute partial novelty for partially overlapping plans', () => {
+    // Repeat 3 of 7 recipes compared to 7 days prior; rotate the other 4.
+    const shared = ['s-1', 's-2', 's-3'];
+    for (let day = 0; day < 14; day++) {
+      const rotating = Array.from({ length: 4 }, (_, i) => `rot-${day}-${i}`);
+      recordPlan(tracker, day, [...shared, ...rotating]);
+    }
+
+    const result = tracker.finalize();
+    expect(result.perDay).toHaveLength(7);
+    for (const v of result.perDay) {
+      expect(v).toBeCloseTo(4 / 7, 10);
+    }
+    expect(result.mean).toBeCloseTo(4 / 7, 10);
+    expect(result.std).toBeCloseTo(0, 10);
+    expect(result.skippedDays).toBe(7);
+  });
+
+  // 6.4 Short run < N days
+  it('should emit NaN scalars when the run is shorter than the lookback', () => {
+    for (let day = 0; day < 5; day++) {
+      recordPlan(tracker, day, [`r-${day}-a`, `r-${day}-b`]);
+    }
+
+    const result = tracker.finalize();
+    expect(result.perDay).toEqual([]);
+    expect(result.mean).toBeNaN();
+    expect(result.std).toBeNaN();
+    expect(result.min).toBeNaN();
+    expect(result.max).toBeNaN();
+    expect(result.skippedDays).toBe(5);
+    expect(result.lookbackDays).toBe(7);
+  });
+
+  // 6.5 Custom lookback with lookbackDays=1
+  it('should honor a custom lookback of 1 day', () => {
+    const custom = new DiversityTracker(1);
+    // Day 0: fresh batch A
+    recordPlan(custom, 0, ['a-1', 'a-2']);
+    // Day 1: identical to day 0 ⇒ novelty 0
+    recordPlan(custom, 1, ['a-1', 'a-2']);
+    // Day 2: fully fresh batch B ⇒ novelty 1
+    recordPlan(custom, 2, ['b-1', 'b-2']);
+    // Day 3: identical to day 2 ⇒ novelty 0
+    recordPlan(custom, 3, ['b-1', 'b-2']);
+
+    const result = custom.finalize();
+    expect(result.perDay).toEqual([0, 1, 0]);
+    expect(result.lookbackDays).toBe(1);
+    expect(result.skippedDays).toBe(1); // day 0 has no lookback match
   });
 
   it('should reset internal state', () => {
-    tracker.record(
-      makeSnapshot({
-        mealPlanGenerated: true,
-        stateAfter: makeDayState({
-          currentMealPlan: [makeRecipe({ id: 'r-1' })],
-        }),
-      }),
-    );
-
+    recordPlan(tracker, 0, ['r-1']);
     tracker.reset();
+
     const result = tracker.finalize();
-    expect(result.perWindow).toHaveLength(0);
+    expect(result.perDay).toHaveLength(0);
+    expect(result.skippedDays).toBe(0);
   });
 });
 
@@ -876,8 +925,9 @@ describe('QualityTracker', () => {
     tracker.record(snapshot);
     const result = tracker.finalize();
 
-    // Diversity should have recorded 1 plan.
-    expect(result.diversity.perWindow.length).toBeGreaterThanOrEqual(1);
+    // Diversity should have seen 1 plan but needs a lookback match to score.
+    expect(result.diversity.skippedDays).toBeGreaterThanOrEqual(1);
+    expect(result.diversity.lookbackDays).toBe(7);
     // Seasonal should have a non-zero winter entry.
     expect(result.seasonalRelevance.perSeason.winter).toBeGreaterThan(0);
     // Expiry should have seen 1 expiring item.
@@ -929,7 +979,8 @@ describe('QualityTracker', () => {
     expect(tracker.getSnapshots()).toHaveLength(0);
 
     const result = tracker.finalize();
-    expect(result.diversity.perWindow).toHaveLength(0);
+    expect(result.diversity.perDay).toHaveLength(0);
+    expect(result.diversity.skippedDays).toBe(0);
     expect(result.pantryUtilization.perPlan).toHaveLength(0);
   });
 });
