@@ -1,165 +1,293 @@
-# Diversity Metric — Rolling-Window Novelty
+# Feedback Loop Metric — Fix netEffectiveness Collapse to Zero
 
-**Working branch:** `diversity-rolling-novelty` (forked off `simulation-harness`; the tracker code only exists on that branch).
+**Working branch:** TBD — propose `fix-feedback-net-effectiveness` off `main`. See QUESTIONS.md §1.
 
 ---
 
 ## 1. Problem Statement
 
-`DiversityTracker.finalize()` (`KitchenSinkNew/simulation/quality/DiversityTracker.ts:68-101`) currently emits `uniqueCount / totalIds` over a 14-day window of collected plans. In practice every persona reports **mean = 1.0000, std = 0.0000** — the metric is saturated and carries no signal.
+The simulation report shows `feedbackLoop.netEffectiveness = 0.0000` for **all 10 personas across every engagement tier**, even though high-tier personas cook 78+ times and emit `give_feedback` at 80% probability per cook. A dead-zero reading across this much activity is a metric bug, not an app bug.
 
-Two shapes the bug could take, both equally uninformative:
+Discovery ruled out event loss (**H1**): the pipeline from `FeedbackAction.execute()` → `ActionResult` → `DaySnapshot.actionsExecuted` → `FeedbackLoopTracker.record()` is wired correctly (`KitchenSinkNew/simulation/quality/FeedbackLoopTracker.ts:58-71`, `KitchenSinkNew/simulation/engine/DaySimulator.ts:142`).
 
-1. **Single-plan degenerate case.** Each 7-slot meal plan is unique-by-construction (the planner never suggests the same recipe twice in one week), so if only one plan is in the window, the ratio is always 1.
-2. **Sparse-pool case.** Even across a 14-plan × 7-slot window (≤98 recipe IDs), the recommendation pool is large enough that collisions rarely happen, so the ratio stays pinned at 1.
+The bug is **recipe-id sparsity** (**H2**). `correlationRate()` (`FeedbackLoopTracker.ts:102-125`) asks:
 
-Either way the metric answers a question we don't care about ("are recipes unique inside the window?") instead of the question we do care about ("does the planner give the user fresh plans week-over-week, or does it keep recycling the same few recipes?").
+> "Does feedback event's exact `recipeId` appear in *any of the next 2 plans* (`LOOKAHEAD_PLANS = 2`)?"
+
+This dovetails with the diversity work: with a large Tasty corpus and a diversity/novelty-seeking planner, the same `recipeId` almost never reappears in the next 2 weekly plans. So `found = 0` in both numerators, both correlations = 0, netEffectiveness = 0 - 0 = **0.0000**. The formula doesn't collapse — it's simply measuring something that has no signal in this regime.
+
+Supporting evidence: existing tests at `__tests__/quality/trackers.test.ts:559-673` only exercise 2-plan scenarios with hand-picked recipe IDs guaranteed to reappear. No test reproduces realistic multi-week runs with a diverse corpus.
 
 ### Desired signal
 
-**Week-over-week novelty** — for each day *D* with sufficient history, what fraction of today's recipes did **not** appear in the plan from *D − N* days ago.
+"Does the planner respond to a user's feedback?" — i.e., after a persona likes a Thai-noodle dish, do *similar* recipes appear more often in future plans? After they dislike a dense-cheesy bake, do *similar* recipes appear less?
 
-```
-overlap(D)  = |plan(D) ∩ plan(D - N)| / |plan(D)|
-novelty(D)  = 1 - overlap(D)
-```
-
-Aggregated across days → mean/std/min/max per persona. Default **N = 7** (a "week ago"), matching the user's example of comparing day-30 to day-23. Configurable.
-
-Expected spread across personas:
-- Planner that recycles the same 7 recipes → novelty ≈ 0
-- Planner that produces a fully fresh week every week → novelty ≈ 1
-- Realistic personas → somewhere in between
+That's the question we want, and it must produce non-zero numbers on the simulation fixtures that today give 0.0000.
 
 ---
 
-## 2. Codebase Context (discovered)
+## 2. Approach
 
-| Concern | Finding |
-| --- | --- |
-| Metric code | `KitchenSinkNew/simulation/quality/DiversityTracker.ts` — `DiversityTracker` class, `finalize()` at `:68-101` |
-| Per-plan recipe data | `plan.recipeIds: string[]` on the window entries fed to `finalize()` (fed via `record()`, `:49-66`) |
-| Report aggregation | `KitchenSinkNew/simulation/reports/SummaryReportGenerator.ts:184-231` — `appendQualityTrends()` reads `m.diversity.mean`, calls `this.stdDev(values)` at `:211`, renders at `:226-228` |
-| DaySnapshot storage | `QualityTracker` keeps every `DaySnapshot` in `private snapshots: DaySnapshot[] = []` — historical plans are already retained, no new data-capture plumbing needed |
-| Plan structure | `DayState.currentMealPlan: UnifiedRecipe[]` in `simulation/profiles/types.ts:99-106`; `UnifiedRecipe.id` is the stable recipe key |
-| Tests | `KitchenSinkNew/simulation/__tests__/quality/trackers.test.ts` — Jest. `DiversityTracker` block at `:99-201`. Key tests at `:121-137` (single-plan ⇒ 1.0) and `:139-164` (two overlapping plans ⇒ 0.75). Both will need to be replaced. |
-| Jest config | `KitchenSinkNew/jest.config.js` |
+Three layered fixes. Each is independently valuable; together they give the metric meaningful signal and make future debugging trivial.
 
----
+### Fix A — Replace exact-id matching with recipe-signature matching
 
-## 3. Approach
+Replace `planSnapshots[i].recipeIds.has(event.recipeId)` with a match on a **recipe signature** (cuisine + primary-protein tags + meal-type). The existing `currentMealPlan: UnifiedRecipe[]` carries `tags: string[]` already (see `FeedbackAction.ts:95`, `MealPlanAction.ts:56`), so no plumbing change — just read more fields in `record()`.
 
-Replace the within-window uniqueness ratio with a **day-over-day novelty** computation over the tracker's own retained per-day plans. No new data needs to flow in.
+Signature: the sorted, deduped subset of `recipe.tags` that are in a curated "identity tags" allowlist (cuisine tags like `italian`/`thai`, protein tags like `chicken`/`tofu`, meal-type tags like `breakfast`/`dinner`). A feedback event matches a future plan if **any recipe in that plan shares ≥ K signature tags** with the feedback recipe (default K = 2; configurable).
 
-### 3.1 Algorithm (plain prose)
+Why this works: with a large corpus and 7 recipes/plan, the probability that *some* recipe in the next plan shares a cuisine+protein with a given liked recipe is meaningfully > 0. That is exactly the signal we want: "did the planner lean toward the preferred cuisine/protein?"
 
-For each recorded day *D* in order:
-1. If we don't have a plan from day *D − N*, skip.
-2. If `plan(D)` is empty or `plan(D − N)` is empty, skip.
-3. Compute `overlap = |plan(D).recipeIds ∩ plan(D − N).recipeIds| / |plan(D).recipeIds|`.
-4. Append `1 - overlap` to `perDay`.
+Fallback: keep the exact-id match as a secondary counter (reported but not the primary number) so we retain visibility into the old reading.
 
-Aggregate: `mean`, `std`, `min`, `max` across `perDay`. If `perDay` is empty (run shorter than N days), emit the no-data sentinel shape (see §3.3).
+### Fix B — Extend lookahead
 
-### 3.2 Configurable lookback
+Change `LOOKAHEAD_PLANS = 2` to `LOOKAHEAD_PLANS = Infinity` (or concretely, `this.planSnapshots.length`) — look at *all* plans after the feedback event, not just the next two.
 
-- New public field on `DiversityTracker`: `lookbackDays: number` (default `7`).
-- Constructor-injectable so tests can exercise N=1, N=3, etc.
-- Record the chosen `lookbackDays` on the emitted metric so the report can label it (e.g. "Novelty (7d)").
+Justification: the feedback loop is a standing signal (once stored, it should shape every subsequent plan). A 2-plan window is an arbitrary restriction that compounds the sparsity. Inspect every downstream plan; count the event as a hit if *any* later plan contains a signature-matching recipe.
 
-### 3.3 Output shape
+Make it a constructor arg (default ∞, tests override to 2 to preserve current unit-test expectations).
 
-Replaces the current `perWindow` output. All call sites (see §5) must be updated.
+### Fix C — Diagnostic counters + degenerate-case rendering
 
-```ts
-export interface DiversityMetrics {
-  perDay: number[];        // novelty per day with valid lookback, in day order
-  mean: number;            // mean over perDay; NaN if perDay empty
-  std: number;             // population std over perDay; NaN if fewer than 2 samples
-  min: number;             // NaN if perDay empty
-  max: number;             // NaN if perDay empty
-  lookbackDays: number;    // echo of config, e.g. 7
-  skippedDays: number;     // days we had no lookback match (for report footnote)
+Emit alongside the existing three fields:
+
+```
+feedbackLoop: {
+  positiveCorrelation,       // current
+  negativeCorrelation,       // current
+  netEffectiveness,          // current
+  feedbackEventCount,        // NEW: total liked + disliked + neutral events recorded
+  exactRecipeHits,           // NEW: how many feedback events had exact-id overlap
+  signatureHits,             // NEW: how many had signature overlap
+  overlapDensity,            // NEW: (liked+disliked hit rate) — single number to eyeball sparsity
 }
 ```
 
-> Rename `perWindow` → `perDay`. Keep `mean` so the report renderer needs no restructuring beyond NaN handling.
+When both `liked.length === 0` AND `disliked.length === 0` (no data at all), return `netEffectiveness: NaN` and render it as `"—"` in SummaryReportGenerator, distinguishing "no data" from "genuine zero."
 
-### 3.4 Semantic flip — DO NOT SILENTLY INVERT
+Wire new fields into `QualityMetrics['feedbackLoop']` type, `SummaryReportGenerator` table, and `RawDataExporter` CSV.
 
-The old metric was "higher = more diverse". The new metric is **"higher = more novel week-over-week"** — same directional intuition (bigger = better variety), so the metric row stays in the same column set. Rename the label to `Novelty (7d, mean)` to make the basis explicit.
+### Out of scope (this change)
+
+- Measuring KL divergence of candidate distributions pre/post-feedback (heavier; separate follow-up).
+- Baseline-adjusted correlation (P(liked reappears) − P(random recipe reappears)). Worth doing, but only if Fix A+B doesn't resolve the 0.0000 problem.
+- Re-examining `FeedbackAction` probability tuning. The event pipeline is fine; don't touch it.
+- The diversity-rolling-novelty work on a different tracker.
 
 ---
 
-## 4. Files to Modify
+## 3. Files to Modify
 
 | File | Change |
-| --- | --- |
-| `KitchenSinkNew/simulation/quality/DiversityTracker.ts` | Rewrite `finalize()`; add `lookbackDays` field + constructor arg (default 7); drop the window-based collection logic; operate on the ordered per-day history it already collects in `record()`. |
-| `KitchenSinkNew/simulation/quality/types.ts` *(if metric shape defined there)* | Update `DiversityMetrics` interface per §3.3. If the shape lives inside `DiversityTracker.ts`, update there. |
-| `KitchenSinkNew/simulation/__tests__/quality/trackers.test.ts` | Delete the two legacy DiversityTracker tests at `:121-137` and `:139-164`. Replace with novelty cases (see §6). |
-| `KitchenSinkNew/simulation/reports/SummaryReportGenerator.ts` | Update the "Diversity (mean)" label to "Novelty (Nd, mean)" where N reads from the first persona's `diversity.lookbackDays`. Handle `NaN` from empty `perDay` (render as `"—"`). Keep std/min/max wiring. |
-| Any other consumers of `QualityMetrics.diversity.*` | **Implement-phase sub-agent** must grep for `diversity.perWindow` and `diversity.mean` references across `KitchenSinkNew/simulation/` and update them. Likely zero hits outside the report layer, but verify. |
+|------|--------|
+| `KitchenSinkNew/simulation/quality/FeedbackLoopTracker.ts` | Core: signature extraction, extended lookahead, new counters, NaN for empty |
+| `KitchenSinkNew/simulation/profiles/types.ts` | Extend `QualityMetrics['feedbackLoop']` with new fields |
+| `KitchenSinkNew/simulation/reports/SummaryReportGenerator.ts` | Render new columns; render NaN as `"—"` |
+| `KitchenSinkNew/simulation/reports/RawDataExporter.ts` | Include new fields in CSV |
+| `KitchenSinkNew/simulation/__tests__/quality/trackers.test.ts` | Preserve existing tests (override lookahead=2, K=∞ for exact-id semantics); add new tests |
+| `KitchenSinkNew/simulation/__tests__/reports/SummaryReportGenerator.test.ts` | Update fixtures for new columns |
+| `KitchenSinkNew/simulation/__tests__/reports/RawDataExporter.test.ts` | Update fixtures for new columns |
 
-## 5. New Files
+## 4. New Files
 
-None. All existing files carry the fix.
+None. All changes fit in the existing tracker + report shape.
 
-## 6. Test Strategy
+## 5. Implementation Plan
 
-Replace the two existing DiversityTracker tests with three targeted novelty cases, plus two edge cases:
+### Step 1 — Identity-tag allowlist
 
-### 6.1 Repeating planner ⇒ novelty ≈ 0
+In `FeedbackLoopTracker.ts`, add a const:
 
-Build 14 days of snapshots where every day's plan is the identical 7 recipe IDs. `finalize(lookbackDays: 7)` should produce `perDay` of length 7 (days 7..13), every entry equal to 0, `mean === 0`.
+```ts
+const IDENTITY_TAG_PREFIXES = new Set([
+  // Cuisine
+  'cuisine:', 'italian', 'thai', 'mexican', 'indian', 'japanese', 'chinese',
+  'mediterranean', 'french', 'american', 'korean', 'vietnamese',
+  // Primary protein
+  'chicken', 'beef', 'pork', 'fish', 'salmon', 'tofu', 'vegetarian', 'vegan',
+  'seafood', 'shrimp',
+  // Meal type
+  'breakfast', 'lunch', 'dinner', 'dessert', 'snack',
+]);
+```
 
-### 6.2 Fully fresh planner ⇒ novelty ≈ 1
+Extract helper:
 
-Build 14 days, each day's 7 recipe IDs disjoint from every other day. `perDay` length 7, every entry 1, `mean === 1`.
+```ts
+function recipeSignature(tags: string[]): Set<string> {
+  return new Set(
+    tags
+      .map(t => t.toLowerCase().trim())
+      .filter(t => IDENTITY_TAG_PREFIXES.has(t) || [...IDENTITY_TAG_PREFIXES].some(p => p.endsWith(':') && t.startsWith(p))),
+  );
+}
+```
 
-### 6.3 Half-overlap ⇒ novelty ≈ 0.5
+Implement grepping-by-allowlist-or-prefix. Unit-test on a few Tasty recipes to confirm non-empty signatures.
 
-Construct a planner that repeats 3 of 7 recipes compared to 7 days prior, rotating the other 4. For the affected days, `novelty(D) = 1 - 3/7 ≈ 0.5714`. Assert exact value.
+### Step 2 — Change `PlanSnapshot` shape
 
-### 6.4 Short run < N days
+```ts
+interface PlanSnapshot {
+  recipeIds: Set<string>;                   // keep for exactRecipeHits
+  recipeSignatures: Array<Set<string>>;     // one signature per recipe in plan
+}
+```
 
-Run for only 5 days with `lookbackDays: 7`. `perDay` empty, `mean === NaN`, `skippedDays === 5`. Verify the report renderer (via its own test or a snapshot) shows `"—"` instead of `NaN`.
+In `record()`, build both.
 
-### 6.5 Custom lookback
+### Step 3 — Update `FeedbackEvent`
 
-Run 4 days with `lookbackDays: 1` where plans alternate fully fresh/identical. Verify per-day values are `[0, 1, 0]` (days 1, 2, 3).
+```ts
+interface FeedbackEvent {
+  recipeId: string;
+  signature: Set<string>;          // NEW
+  isLiked: boolean;
+  isDisliked: boolean;
+  planIndex: number;
+}
+```
 
-**Test style:** keep existing `makeRecipe`, `makeDayState`, `makeSnapshot` helpers (lines 99-201 of the test file). Add a small helper `makeDailyIds(day, ids)` if it shortens the tests. Do not mock — construct real snapshots.
+In `record()`, resolve the recipe's tags from `snapshot.stateAfter.currentMealPlan` (find by id) and compute signature. If the recipe isn't found in the current plan (edge case), fall back to empty signature — the event still counts toward `feedbackEventCount` but can only hit via exact-id match.
+
+### Step 4 — New constructor args
+
+```ts
+constructor(
+  private lookaheadPlans: number = Infinity,
+  private minSignatureOverlap: number = 2,
+) {}
+```
+
+Wire the defaults into `QualityTracker` construction and let tests override.
+
+### Step 5 — Rewrite `correlationRate`
+
+```ts
+private correlationRate(events: FeedbackEvent[]): { rate: number; idHits: number; sigHits: number } {
+  if (events.length === 0) return { rate: NaN, idHits: 0, sigHits: 0 };
+
+  let idHits = 0;
+  let sigHits = 0;
+  const end = Math.min(this.planSnapshots.length, Number.POSITIVE_INFINITY);
+
+  for (const event of events) {
+    const startPlan = event.planIndex + 1;
+    const endPlan = Math.min(startPlan + this.lookaheadPlans, this.planSnapshots.length);
+
+    let hitById = false;
+    let hitBySig = false;
+    for (let i = startPlan; i < endPlan; i++) {
+      const plan = this.planSnapshots[i];
+      if (!hitById && plan.recipeIds.has(event.recipeId)) hitById = true;
+      if (!hitBySig && this.planHasSignatureMatch(plan, event.signature)) hitBySig = true;
+      if (hitById && hitBySig) break;
+    }
+    if (hitById) idHits++;
+    if (hitBySig) sigHits++;
+  }
+
+  return { rate: sigHits / events.length, idHits, sigHits };
+}
+
+private planHasSignatureMatch(plan: PlanSnapshot, eventSig: Set<string>): boolean {
+  if (eventSig.size === 0) return false;
+  for (const recipeSig of plan.recipeSignatures) {
+    let overlap = 0;
+    for (const t of eventSig) if (recipeSig.has(t)) overlap++;
+    if (overlap >= this.minSignatureOverlap) return true;
+  }
+  return false;
+}
+```
+
+`correlationRate` now returns signature-based rate as the primary; id-hits are reported separately.
+
+### Step 6 — Rewrite `finalize`
+
+```ts
+finalize(): QualityMetrics['feedbackLoop'] {
+  const liked = this.feedbackEvents.filter(e => e.isLiked);
+  const disliked = this.feedbackEvents.filter(e => e.isDisliked);
+
+  const pos = this.correlationRate(liked);
+  const neg = this.correlationRate(disliked);
+
+  const positiveCorrelation = pos.rate;   // NaN when liked.length === 0
+  const negativeCorrelation = neg.rate;   // NaN when disliked.length === 0
+
+  let netEffectiveness: number;
+  if (Number.isNaN(positiveCorrelation) && Number.isNaN(negativeCorrelation)) {
+    netEffectiveness = NaN;
+  } else {
+    const p = Number.isNaN(positiveCorrelation) ? 0 : positiveCorrelation;
+    const n = Number.isNaN(negativeCorrelation) ? 0 : negativeCorrelation;
+    netEffectiveness = p - n;
+  }
+
+  const totalEvents = this.feedbackEvents.length;
+  const totalIdHits = pos.idHits + neg.idHits;
+  const totalSigHits = pos.sigHits + neg.sigHits;
+
+  return {
+    positiveCorrelation,
+    negativeCorrelation,
+    netEffectiveness,
+    feedbackEventCount: totalEvents,
+    exactRecipeHits: totalIdHits,
+    signatureHits: totalSigHits,
+    overlapDensity: totalEvents === 0 ? NaN : totalSigHits / totalEvents,
+  };
+}
+```
+
+### Step 7 — Rendering
+
+`SummaryReportGenerator.ts:138-141` and the `avg()` helper at 286-289: add a `formatMetric(x)` helper that returns `"—"` for NaN and `x.toFixed(4)` otherwise. Use it for all feedbackLoop columns. Add new columns for `feedbackEventCount`, `overlapDensity`. Keep `exactRecipeHits` / `signatureHits` out of the summary table but include in `RawDataExporter` CSV for post-hoc analysis.
+
+### Step 8 — Tests
+
+Preserve existing tests by constructing the tracker with `lookaheadPlans: 2, minSignatureOverlap: 999` (forces exact-id fallback behaviour). Or refactor those tests to explicitly target the signature path; easier to keep them as they are since they were never meant to exercise signature matching.
+
+Add new tests:
+
+1. **Realistic multi-week sparsity test.** 13 plans × 7 unique recipes sharing `cuisine:italian` tags. Feedback event on plan 0 liking one Italian dish. Every subsequent plan contains ≥1 Italian dish. Expect `positiveCorrelation = 1.0`, `netEffectiveness = 1.0`.
+
+2. **No signature overlap test.** 13 plans with disjoint cuisines. Feedback on a Thai dish in plan 0; subsequent plans have zero Thai. Expect `positiveCorrelation = 0`, documented as genuine-zero (not NaN).
+
+3. **Degenerate-case NaN test.** No feedback events at all. Expect `netEffectiveness = NaN`.
+
+4. **Diagnostic counters test.** Verify `feedbackEventCount`, `exactRecipeHits`, `signatureHits`, `overlapDensity` all populated correctly.
+
+5. **Verify `record()` planIndex correctness.** Feedback given on day 10 (plan 1 active), day 20 (plan 2 active). Assert event planIndex matches the plan that was active, not an off-by-one. (Picks up QUESTIONS.md §2.)
+
+### Step 9 — Smoke-run
+
+Run the full 10-persona simulation (`npm run simulate` or equivalent; verify via `simulation/package.json`). Confirm:
+- `netEffectiveness` is non-zero for at least the high-tier personas.
+- Values are plausibly ordered (high tier > medium > low for positive; inverse for negative).
+- No personas show `"—"` unless they actually generate zero feedback.
 
 ---
 
-## 7. Implementation Order
+## 6. Risks
 
-1. **Update `DiversityTracker.ts`:** rewrite `finalize()` and add `lookbackDays`. Keep `record()` unchanged (it already collects what we need).
-2. **Update `DiversityMetrics` shape** wherever it lives (same file or `quality/types.ts`).
-3. **Discover + fix downstream consumers:** grep `diversity\.(perWindow|mean|std|min|max)` under `simulation/`. Update.
-4. **Update `SummaryReportGenerator.ts`:** label + NaN rendering. Verify the std/min/max table columns still populate.
-5. **Rewrite tests:** replace the two legacy tests with §6.1–§6.5.
-6. **Run Jest:** `cd KitchenSinkNew && npx jest simulation/__tests__/quality/trackers.test.ts`. Expect green.
-7. **Smoke-run the sim** (optional, fast): `cd KitchenSinkNew && npm run simulate -- --archetype-only --days 30`. Inspect the markdown report: std should no longer be exactly 0 across personas; column should be labeled `Novelty (7d, mean)`.
+1. **Allowlist brittleness.** Hardcoded cuisine/protein list misses Tasty tag variants (`cuisine:italian` vs `italian-cuisine` vs `italian food`). Mitigation: peek at real Tasty tags in `KitchenSinkNew/simulation/seed-data/` during implementation; expand allowlist to match. Fall back to case-insensitive substring match if needed.
 
----
+2. **Signature overlap too permissive.** With K = 2, many recipes will "match" (e.g., any two dinner+chicken recipes). Could push values toward 1.0 for everyone, just in the opposite failure mode. Mitigation: tune K on real runs; include `signatureHits/feedbackEventCount` in reports so the sparsity is visible and adjustable.
 
-## 8. Risks & Mitigations
+3. **Extending lookahead to ∞ changes negative-correlation semantics subtly.** "Disliked recipe appears in *any* future plan" is a much weaker signal than "...in the next 2 plans" — almost any disliked recipe will eventually reappear somewhere. Mitigation: the signature path dominates; exact-id is now diagnostic only. Optionally cap disliked lookahead at 4-6 plans — decide during implementation.
 
-| Risk | Mitigation |
-| --- | --- |
-| Some consumer relies on `diversity.perWindow` array shape | Grep before editing, fail build at compile if missed (TS catches). |
-| `NaN` propagates silently into the report | Explicit guard in `SummaryReportGenerator`; test the short-run case. |
-| Rotating-recipe personas that happen to cycle every exactly N days drive novelty to 0 — "correct" but could surprise | Document in the report row footer: "Novelty measures fraction of today's plan absent from the plan N days prior." |
-| Changing the metric semantics breaks any historical comparisons | No historical reports exist yet — branch is pre-merge. Document the cutover in the PR body. |
-| Test file churn obscures intent in review | Replace the two broken tests rather than adding more on top, so the diff is `-` for the old uniqueness semantics and `+` for novelty. |
+4. **Simulation seed data may not have rich enough tags.** If Tasty recipes in the seed fixture lack cuisine tags, signatures will be empty and the fix won't help. Mitigation: verify early (Step 1).
 
 ---
 
-## 9. Out of Scope
+## 7. Acceptance Criteria
 
-- Cross-persona diversity (how different are Alice's plans from Bob's) — different question.
-- Multiple lookback windows simultaneously (e.g., 7d + 30d). Can be added later by making `lookbackDays` an array.
-- Ingredient-level or cuisine-level diversity (different tracker).
-- Any change to `RepetitionTracker` or other quality trackers (the user's note only called out diversity).
+- [ ] `netEffectiveness` is non-zero (|value| > 0.05) for at least 7 of 10 personas on the standard 90-day simulation.
+- [ ] High-tier personas show distinguishable `netEffectiveness` from low-tier (rank-order differs, not just magnitude).
+- [ ] `overlapDensity` is reported and is > 0.05 for high-tier personas (proves signature matching is actually hitting).
+- [ ] Degenerate case ("no feedback events") renders as `"—"`, not `"0.0000"`.
+- [ ] All existing tests pass; new tests pass.
+- [ ] No regression on `DiversityTracker` or other trackers.

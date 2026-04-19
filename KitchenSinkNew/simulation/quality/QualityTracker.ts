@@ -24,7 +24,10 @@ export class QualityTracker {
     this.trackers = [
       new DiversityTracker(),
       new PantryUtilizationTracker(),
-      new FeedbackLoopTracker(),
+      // Scan the full remainder of the run (lookaheadPlans = Infinity) and
+      // require >=2 identity-tag overlap for a signature match -- matches the
+      // defaults, listed explicitly so the intent is obvious at the call site.
+      new FeedbackLoopTracker(Infinity, 2),
       new SeasonalRelevanceTracker(),
       new ExpiryTracker(),
     ];

@@ -195,9 +195,20 @@ export interface QualityMetrics {
     perPlan: number[];
   };
   feedbackLoop: {
+    /** Fraction of liked feedback whose signature reappears.  NaN when no liked events. */
     positiveCorrelation: number;
+    /** Fraction of disliked feedback whose signature reappears.  NaN when no disliked events. */
     negativeCorrelation: number;
+    /** positiveCorrelation - negativeCorrelation.  NaN when both sides are NaN. */
     netEffectiveness: number;
+    /** Total number of feedback events observed across the run. */
+    feedbackEventCount: number;
+    /** Count of feedback events whose *exact* recipe id reappeared in a later plan. */
+    exactRecipeHits: number;
+    /** Count of feedback events whose identity-tag signature reappeared in a later plan. */
+    signatureHits: number;
+    /** signatureHits / feedbackEventCount.  NaN when no feedback events. */
+    overlapDensity: number;
   };
   seasonalRelevance: {
     meanMatchRate: number;
