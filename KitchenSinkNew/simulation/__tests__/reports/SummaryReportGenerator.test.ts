@@ -40,9 +40,10 @@ function makeQualityMetrics(
       negativeCorrelation: 0.1,
       netEffectiveness: 0.4,
     },
-    seasonalRelevance: {
-      meanMatchRate: 0.6,
+    seasonalFitScore: {
+      meanFitScore: 0.6,
       perSeason: { spring: 0.5, summer: 0.7, fall: 0.6, winter: 0.5 },
+      meanRankBias: null,
     },
     expiryDriven: { rescueRate: 0.8, totalExpiring: 5, totalRescued: 4 },
     ...overrides,
@@ -370,7 +371,7 @@ describe('SummaryReportGenerator', () => {
       expect(md).toContain('Novelty (7d, mean)');
       expect(md).toContain('Pantry Utilization (mean)');
       expect(md).toContain('Feedback Effectiveness');
-      expect(md).toContain('Seasonal Relevance');
+      expect(md).toContain('Seasonal Fit');
       expect(md).toContain('Expiry Rescue Rate');
     });
 

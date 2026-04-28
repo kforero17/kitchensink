@@ -12,7 +12,7 @@ import { MetricTracker } from './MetricTracker';
 import { DiversityTracker } from './DiversityTracker';
 import { PantryUtilizationTracker } from './PantryUtilizationTracker';
 import { FeedbackLoopTracker } from './FeedbackLoopTracker';
-import { SeasonalRelevanceTracker } from './SeasonalRelevanceTracker';
+import { SeasonalFitTracker } from './SeasonalFitTracker';
 import { ExpiryTracker } from './ExpiryTracker';
 import { DaySnapshot, InvariantViolation, QualityMetrics } from '../profiles/types';
 
@@ -25,7 +25,7 @@ export class QualityTracker {
       new DiversityTracker(),
       new PantryUtilizationTracker(),
       new FeedbackLoopTracker(),
-      new SeasonalRelevanceTracker(),
+      new SeasonalFitTracker(),
       new ExpiryTracker(),
     ];
   }
@@ -47,7 +47,7 @@ export class QualityTracker {
       diversity: diversity as QualityMetrics['diversity'],
       pantryUtilization: pantry as QualityMetrics['pantryUtilization'],
       feedbackLoop: feedback as QualityMetrics['feedbackLoop'],
-      seasonalRelevance: seasonal as QualityMetrics['seasonalRelevance'],
+      seasonalFitScore: seasonal as QualityMetrics['seasonalFitScore'],
       expiryDriven: expiry as QualityMetrics['expiryDriven'],
     };
   }

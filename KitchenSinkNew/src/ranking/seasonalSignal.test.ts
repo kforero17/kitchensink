@@ -3,6 +3,7 @@ import {
   getSeason,
   buildSeasonalProfile,
   computeSeasonalFit,
+  computePriorOnlyFit,
   Season,
   SeasonalProfile,
 } from './seasonalSignal';
@@ -133,8 +134,7 @@ describe('computeSeasonalFit', () => {
 
     const score = computeSeasonalFit(['soup', 'comfort'], profile, 'winter');
 
-    // soup: 8/10 = 0.8, comfort: 7/10 = 0.7, avg = 0.75
-    expect(score).toBeCloseTo(0.75, 2);
+    expect(score).toBeGreaterThan(0.7);
   });
 
   it('scores low for soup in summer when user historically cooks soup in winter', () => {
@@ -146,17 +146,16 @@ describe('computeSeasonalFit', () => {
 
     const score = computeSeasonalFit(['soup', 'comfort'], profile, 'summer');
 
-    // soup: 1/10 = 0.1, comfort: 0/10 = 0.0, avg = 0.05
-    expect(score).toBeCloseTo(0.05, 2);
+    expect(score).toBeLessThan(0.2);
   });
 
-  it('returns 0.5 fallback when profile has insufficient data', () => {
+  it('returns 0.5 fallback when profile has insufficient data and tags are not in prior', () => {
     const tagSeasonal = new Map<string, Map<Season, number>>([
-      ['soup', new Map<Season, number>([['winter', 3]])],
+      ['american', new Map<Season, number>([['winter', 3]])],
     ]);
     const profile: SeasonalProfile = { tagSeasonal };
 
-    const score = computeSeasonalFit(['soup', 'rare-tag'], profile, 'winter');
+    const score = computeSeasonalFit(['american', 'rare-tag'], profile, 'winter');
 
     expect(score).toBe(0.5);
   });
@@ -169,23 +168,51 @@ describe('computeSeasonalFit', () => {
     expect(score).toBe(0.5);
   });
 
-  it('returns 0.5 when no recipe tags match the profile', () => {
+  it('returns 0.5 when no recipe tags match the profile or prior', () => {
     const tagSeasonal = new Map<string, Map<Season, number>>([
       ['soup', new Map<Season, number>([['winter', 5]])],
     ]);
     const profile: SeasonalProfile = { tagSeasonal };
 
-    const score = computeSeasonalFit(['grilled', 'bbq'], profile, 'summer');
+    const score = computeSeasonalFit(['american', 'dinner'], profile, 'summer');
 
     expect(score).toBe(0.5);
   });
 
-  it('returns 0.5 when empty profile', () => {
+  it('returns 0.5 when empty profile and recipe tags are not in prior', () => {
+    const profile: SeasonalProfile = { tagSeasonal: new Map() };
+
+    const score = computeSeasonalFit(['american', 'dinner'], profile, 'winter');
+
+    expect(score).toBe(0.5);
+  });
+
+  it('uses cold-start prior to steer toward winter when profile is empty', () => {
     const profile: SeasonalProfile = { tagSeasonal: new Map() };
 
     const score = computeSeasonalFit(['soup', 'comfort'], profile, 'winter');
 
-    expect(score).toBe(0.5);
+    expect(score).toBeGreaterThan(0.7);
+  });
+
+  it('uses cold-start prior to steer against off-season recipes when profile is empty', () => {
+    const profile: SeasonalProfile = { tagSeasonal: new Map() };
+
+    const score = computeSeasonalFit(['soup', 'comfort'], profile, 'summer');
+
+    expect(score).toBeLessThan(0.3);
+  });
+
+  it('lets history dominate the prior when sufficient history exists', () => {
+    const tagSeasonal = new Map<string, Map<Season, number>>([
+      ['soup', new Map<Season, number>([['summer', 10]])],
+      ['comfort', new Map<Season, number>([['summer', 10]])],
+    ]);
+    const profile: SeasonalProfile = { tagSeasonal };
+
+    const score = computeSeasonalFit(['soup', 'comfort'], profile, 'summer');
+
+    expect(score).toBeGreaterThanOrEqual(0.7);
   });
 
   it('handles tags where all cooks are in the current season', () => {
@@ -212,5 +239,25 @@ describe('computeSeasonalFit', () => {
 
     // grilled: 0/10 = 0.0, bbq: 0/5 = 0.0, avg = 0.0
     expect(score).toBe(0.0);
+  });
+});
+
+describe('computePriorOnlyFit', () => {
+  it('averages prior matches and returns 0.5 when half match the season', () => {
+    const score = computePriorOnlyFit(['soup', 'salad'], 'winter');
+
+    expect(score).toBe(0.5);
+  });
+
+  it('returns neutral 0.5 when no recipe tags appear in the prior', () => {
+    const score = computePriorOnlyFit(['american'], 'winter');
+
+    expect(score).toBe(0.5);
+  });
+
+  it('returns 1.0 when the only tag matches the current season', () => {
+    const score = computePriorOnlyFit(['soup'], 'winter');
+
+    expect(score).toBe(1.0);
   });
 });

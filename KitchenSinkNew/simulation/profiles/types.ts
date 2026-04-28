@@ -199,9 +199,10 @@ export interface QualityMetrics {
     negativeCorrelation: number;
     netEffectiveness: number;
   };
-  seasonalRelevance: {
-    meanMatchRate: number;
+  seasonalFitScore: {
+    meanFitScore: number;
     perSeason: Record<Season, number>;
+    meanRankBias: number | null;
   };
   expiryDriven: {
     rescueRate: number;
