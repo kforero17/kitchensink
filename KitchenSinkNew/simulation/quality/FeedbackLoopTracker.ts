@@ -32,6 +32,8 @@ import { DaySnapshot, QualityMetrics } from '../profiles/types';
  * `scripts/tasty-scraper/firestore-uploader.js`), so we list both the common
  * bare forms and any `prefix:` forms we might encounter in future data.
  */
+const DEFAULT_MIN_EVENTS_FOR_SIGNAL = 5;
+
 const IDENTITY_TAG_PREFIXES = new Set<string>([
   // Cuisine
   'cuisine:', 'italian', 'thai', 'mexican', 'indian', 'japanese', 'chinese',
@@ -89,6 +91,7 @@ export class FeedbackLoopTracker implements MetricTracker {
   constructor(
     private lookaheadPlans: number = Infinity,
     private minSignatureOverlap: number = 2,
+    private minEventsForSignal: number = DEFAULT_MIN_EVENTS_FOR_SIGNAL,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -190,7 +193,9 @@ export class FeedbackLoopTracker implements MetricTracker {
     idHits: number;
     sigHits: number;
   } {
-    if (events.length === 0) return { rate: NaN, idHits: 0, sigHits: 0 };
+    if (events.length < this.minEventsForSignal) {
+      return { rate: NaN, idHits: 0, sigHits: 0 };
+    }
 
     let idHits = 0;
     let sigHits = 0;

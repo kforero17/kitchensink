@@ -545,7 +545,9 @@ describe('FeedbackLoopTracker', () => {
   // effectively depended on exact-id match within a 2-plan lookahead.  The new
   // return shape still applies — we account for the new fields explicitly.
   beforeEach(() => {
-    tracker = new FeedbackLoopTracker(2, 999);
+    // Override minEventsForSignal=1 so legacy small-N tests still produce
+    // numeric correlations rather than the production-default NaN.
+    tracker = new FeedbackLoopTracker(2, 999, 1);
   });
 
   it('should have the correct name', () => {
@@ -757,7 +759,7 @@ describe('FeedbackLoopTracker', () => {
      * overlap ≥ 2 always hits.  Expect positiveCorrelation = 1.0.
      */
     it('should hit positiveCorrelation = 1.0 when every later plan shares 2 identity tags', () => {
-      const t = new FeedbackLoopTracker();
+      const t = new FeedbackLoopTracker(Infinity, 2, 1);
 
       const italianDinnerTags = ['italian', 'dinner'];
       // Plan 0 has recipe r-0 (italian + dinner) + feedback on it.
@@ -803,7 +805,7 @@ describe('FeedbackLoopTracker', () => {
      * Signature path cannot match: expect genuine-zero (not NaN).
      */
     it('should report positiveCorrelation = 0 (genuine zero) when no later plan shares the signature', () => {
-      const t = new FeedbackLoopTracker();
+      const t = new FeedbackLoopTracker(Infinity, 2, 1);
 
       // Plan 0: thai + dinner recipe with feedback.
       t.record(
@@ -862,7 +864,9 @@ describe('FeedbackLoopTracker', () => {
      * 3. Degenerate-case NaN test.  No feedback events whatsoever.
      */
     it('should return NaN netEffectiveness when no feedback is recorded', () => {
-      const t = new FeedbackLoopTracker();
+      // Use threshold=1 so the NaN comes from "0 events" semantics
+      // (0 < 1 → NaN), matching pre-suppression behavior of this test.
+      const t = new FeedbackLoopTracker(Infinity, 2, 1);
 
       // A few plan-only days with no feedback at all.
       for (let i = 0; i < 3; i++) {
@@ -890,7 +894,7 @@ describe('FeedbackLoopTracker', () => {
      * hits and verify each counter is populated correctly.
      */
     it('should populate feedbackEventCount, exactRecipeHits, signatureHits, overlapDensity correctly', () => {
-      const t = new FeedbackLoopTracker();
+      const t = new FeedbackLoopTracker(Infinity, 2, 1);
 
       // Plan 0: two recipes.  Feedback on both.
       //   - r-exact (tags: italian+dinner) will reappear by exact-id in plan 1.
@@ -973,7 +977,7 @@ describe('FeedbackLoopTracker', () => {
      * which doesn't exist -> zero correlation.
      */
     it('should assign planIndex based on the plan active when feedback is given', () => {
-      const t = new FeedbackLoopTracker();
+      const t = new FeedbackLoopTracker(Infinity, 2, 1);
 
       // Day 0: plan A generated.
       t.record(
@@ -1037,6 +1041,68 @@ describe('FeedbackLoopTracker', () => {
       expect(result.positiveCorrelation).toBe(1.0);
       expect(result.signatureHits).toBe(1);
       expect(result.feedbackEventCount).toBe(1);
+    });
+
+    /**
+     * 6. Small-N suppression test.  When fewer than `minEventsForSignal`
+     * (default 5) events are recorded for a side, that side's correlation
+     * is suppressed to NaN to avoid metric saturation noise.
+     */
+    it('returns NaN for sides with fewer than minEventsForSignal events (default 5)', () => {
+      // Construct tracker WITHOUT overriding the threshold — uses default 5.
+      const t = new FeedbackLoopTracker();
+
+      const italianDinnerTags = ['italian', 'dinner'];
+
+      // Plan 0: 4 liked feedback events on italian+dinner recipes; no
+      // dislikes.  4 < 5 → positiveCorrelation should be NaN.
+      t.record(
+        makeSnapshot({
+          dayIndex: 0,
+          mealPlanGenerated: true,
+          stateAfter: makeDayState({
+            currentMealPlan: [
+              makeRecipe({ id: 'r-0', tags: italianDinnerTags }),
+              makeRecipe({ id: 'r-1', tags: italianDinnerTags }),
+              makeRecipe({ id: 'r-2', tags: italianDinnerTags }),
+              makeRecipe({ id: 'r-3', tags: italianDinnerTags }),
+            ],
+          }),
+          actionsExecuted: [
+            makeFeedbackAction('r-0', { isLiked: true }),
+            makeFeedbackAction('r-1', { isLiked: true }),
+            makeFeedbackAction('r-2', { isLiked: true }),
+            makeFeedbackAction('r-3', { isLiked: true }),
+          ],
+        }),
+      );
+
+      // Plans 1..12: identical signatures, so signature path *would* match
+      // were it not suppressed.
+      for (let i = 1; i < 13; i++) {
+        t.record(
+          makeSnapshot({
+            dayIndex: i,
+            mealPlanGenerated: true,
+            stateAfter: makeDayState({
+              currentMealPlan: [
+                makeRecipe({ id: `r-later-${i}`, tags: italianDinnerTags }),
+              ],
+            }),
+          }),
+        );
+      }
+
+      const result = t.finalize();
+
+      // 4 liked < 5 threshold → NaN.
+      expect(Number.isNaN(result.positiveCorrelation)).toBe(true);
+      // 0 disliked < 5 threshold → NaN.
+      expect(Number.isNaN(result.negativeCorrelation)).toBe(true);
+      // Both NaN → netEffectiveness NaN.
+      expect(Number.isNaN(result.netEffectiveness)).toBe(true);
+      // Events are still recorded.
+      expect(result.feedbackEventCount).toBe(4);
     });
   });
 });
