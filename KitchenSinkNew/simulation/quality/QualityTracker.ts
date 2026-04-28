@@ -24,7 +24,13 @@ export class QualityTracker {
     this.trackers = [
       new DiversityTracker(),
       new PantryUtilizationTracker(),
-      new FeedbackLoopTracker(),
+      // Scan the full remainder of the run (lookaheadPlans = Infinity) and
+      // require >=2 identity-tag overlap for a signature match -- matches the
+      // defaults, listed explicitly so the intent is obvious at the call site.
+      // The 3rd arg (minEventsForSignal=5) suppresses small-N noise: with
+      // fewer than 5 liked/disliked events, the corresponding correlation is
+      // returned as NaN rather than a saturated 0% or 100%.
+      new FeedbackLoopTracker(Infinity, 2, 5),
       new SeasonalRelevanceTracker(),
       new ExpiryTracker(),
     ];

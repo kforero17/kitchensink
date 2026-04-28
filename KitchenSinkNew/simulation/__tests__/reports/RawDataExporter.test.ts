@@ -40,6 +40,10 @@ function makeQualityMetrics(
       positiveCorrelation: 0.5,
       negativeCorrelation: 0.1,
       netEffectiveness: 0.4,
+      feedbackEventCount: 10,
+      exactRecipeHits: 2,
+      signatureHits: 5,
+      overlapDensity: 0.5,
     },
     seasonalRelevance: {
       meanMatchRate: 0.6,

@@ -107,7 +107,7 @@ export class SummaryReportGenerator {
       lines.push('| --- | --- |');
       lines.push(`| ${noveltyLabel} | ${this.formatAvgSkipNaN(metrics.map(m => m.diversity.mean))} |`);
       lines.push(`| Pantry Utilization | ${this.avg(metrics.map(m => m.pantryUtilization.mean)).toFixed(4)} |`);
-      lines.push(`| Feedback Effectiveness | ${this.avg(metrics.map(m => m.feedbackLoop.netEffectiveness)).toFixed(4)} |`);
+      lines.push(`| Feedback Effectiveness | ${this.formatAvgSkipNaN(metrics.map(m => m.feedbackLoop.netEffectiveness))} |`);
       lines.push(`| Seasonal Relevance | ${this.avg(metrics.map(m => m.seasonalRelevance.meanMatchRate)).toFixed(4)} |`);
       lines.push(`| Expiry Rescue Rate | ${this.avg(metrics.map(m => m.expiryDriven.rescueRate)).toFixed(4)} |`);
     }
@@ -123,20 +123,31 @@ export class SummaryReportGenerator {
     lines.push('');
 
     const noveltyColumn = this.noveltyLabel(results);
-    lines.push(`| Name | ID | Tier | Days | Plans | Cooked | Violations | ${noveltyColumn} | Pantry Util | Feedback | Seasonal | Rescue |`);
-    lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    lines.push(
+      `| Name | ID | Tier | Days | Plans | Cooked | Violations | ${noveltyColumn} | Pantry Util ` +
+        '| Pos Corr | Neg Corr | Feedback | FB Events | Overlap Density ' +
+        '| Seasonal | Rescue |',
+    );
+    lines.push(
+      '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    );
 
     for (const r of results) {
       const { profile, days, qualityMetrics, totalViolations: violations } = r;
       const planDays = days.filter(d => d.mealPlanGenerated).length;
       const totalCooked = days.reduce((s, d) => s + d.recipesCooked, 0);
+      const fb = qualityMetrics.feedbackLoop;
 
       lines.push(
         `| ${profile.name} | ${profile.id} | ${profile.engagementTier} ` +
         `| ${days.length} | ${planDays} | ${totalCooked} | ${violations.length} ` +
-        `| ${this.formatNumber(qualityMetrics.diversity.mean)} ` +
+        `| ${this.formatMetric(qualityMetrics.diversity.mean)} ` +
         `| ${qualityMetrics.pantryUtilization.mean.toFixed(4)} ` +
-        `| ${qualityMetrics.feedbackLoop.netEffectiveness.toFixed(4)} ` +
+        `| ${this.formatMetric(fb.positiveCorrelation)} ` +
+        `| ${this.formatMetric(fb.negativeCorrelation)} ` +
+        `| ${this.formatMetric(fb.netEffectiveness)} ` +
+        `| ${fb.feedbackEventCount} ` +
+        `| ${this.formatMetric(fb.overlapDensity)} ` +
         `| ${qualityMetrics.seasonalRelevance.meanMatchRate.toFixed(4)} ` +
         `| ${qualityMetrics.expiryDriven.rescueRate.toFixed(4)} |`,
       );
@@ -315,8 +326,11 @@ export class SummaryReportGenerator {
     return lookback !== null ? `${base})` : 'Novelty';
   }
 
-  /** Format a number for a report cell, rendering NaN as an em dash. */
-  private formatNumber(value: number): string {
+  /**
+   * Format a metric for a report cell, rendering NaN as an em dash and
+   * all other values as `x.toFixed(4)`.
+   */
+  private formatMetric(value: number): string {
     return Number.isNaN(value) ? '—' : value.toFixed(4);
   }
 
