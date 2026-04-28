@@ -8,6 +8,21 @@ export interface SeasonalProfile {
 
 const SEASONS: readonly Season[] = ['spring', 'summer', 'fall', 'winter'];
 
+// Cold-start prior, hand-curated, Northern-Hemisphere temperate-biased — see ASSUMPTIONS.md.
+const SEASONAL_TAG_PRIOR: Record<string, Season> = {
+  // Winter
+  soup: 'winter', stew: 'winter', braised: 'winter', roast: 'winter',
+  roasted: 'winter', baked: 'winter', comfort: 'winter', warm: 'winter',
+  // Summer
+  salad: 'summer', grilled: 'summer', grill: 'summer', bbq: 'summer',
+  cold: 'summer', fresh: 'summer', light: 'summer', raw: 'summer',
+  // Spring
+  herb: 'spring', green: 'spring',
+  // Fall
+  squash: 'fall', pumpkin: 'fall', apple: 'fall', harvest: 'fall',
+  cinnamon: 'fall',
+};
+
 /**
  * Determines the meteorological season for a given date.
  * Mar-May = spring, Jun-Aug = summer, Sep-Nov = fall, Dec-Feb = winter.
@@ -49,23 +64,16 @@ export function buildSeasonalProfile(
   return { tagSeasonal };
 }
 
-/**
- * Computes how well a recipe's tags fit the current season based on the user's
- * historical cooking patterns.
- *
- * Returns a score in [0, 1]. Higher means the recipe's tags align with what the
- * user historically cooks in the given season.
- *
- * Falls back to 0.5 when the profile has fewer than 2 tags with seasonal data
- * that overlap with the recipe's tags.
- */
-export function computeSeasonalFit(
+interface HistoryAffinity {
+  score: number;
+  tagsWithData: number;
+}
+
+function computeHistoryAffinity(
   recipeTags: string[],
   profile: SeasonalProfile,
   currentSeason: Season,
-): number {
-  if (recipeTags.length === 0) return 0.5;
-
+): HistoryAffinity {
   let totalAffinity = 0;
   let tagsWithData = 0;
 
@@ -85,7 +93,63 @@ export function computeSeasonalFit(
     tagsWithData++;
   }
 
-  if (tagsWithData < 2) return 0.5;
+  const score = tagsWithData > 0 ? totalAffinity / tagsWithData : 0;
+  return { score, tagsWithData };
+}
 
-  return totalAffinity / tagsWithData;
+interface PriorAffinity {
+  score: number;
+  matchedTags: number;
+}
+
+function computePriorAffinity(recipeTags: string[], season: Season): PriorAffinity {
+  let total = 0;
+  let matchedTags = 0;
+
+  for (const tag of recipeTags) {
+    const priorSeason = SEASONAL_TAG_PRIOR[tag.toLowerCase()];
+    if (!priorSeason) continue;
+    total += priorSeason === season ? 1 : 0;
+    matchedTags++;
+  }
+
+  const score = matchedTags > 0 ? total / matchedTags : 0;
+  return { score, matchedTags };
+}
+
+/**
+ * Computes how well a recipe's tags fit the current season.
+ *
+ * Combines a personalized history-based signal with a hand-curated cold-start
+ * prior so the ranker can steer by season even with no cooking history.
+ *
+ * Returns a score in [0, 1]. Falls back to 0.5 when neither source has signal.
+ */
+export function computeSeasonalFit(
+  recipeTags: string[],
+  profile: SeasonalProfile,
+  currentSeason: Season,
+): number {
+  if (recipeTags.length === 0) return 0.5;
+
+  const history = computeHistoryAffinity(recipeTags, profile, currentSeason);
+  const prior = computePriorAffinity(recipeTags, currentSeason);
+
+  const hasHistorySignal = history.tagsWithData >= 2;
+  const hasPriorSignal = prior.matchedTags > 0;
+
+  if (!hasHistorySignal && !hasPriorSignal) return 0.5;
+  if (!hasHistorySignal) return prior.score;
+  if (!hasPriorSignal) return history.score;
+  return 0.7 * history.score + 0.3 * prior.score;
+}
+
+/**
+ * Returns the prior-based seasonal affinity in isolation (no history).
+ * Returns 0.5 when no recipe tag is in the prior.
+ */
+export function computePriorOnlyFit(tags: string[], season: Season): number {
+  const prior = computePriorAffinity(tags, season);
+  if (prior.matchedTags === 0) return 0.5;
+  return prior.score;
 }

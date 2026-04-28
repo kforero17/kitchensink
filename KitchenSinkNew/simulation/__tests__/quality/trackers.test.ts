@@ -9,7 +9,7 @@ import { DiversityTracker } from '../../quality/DiversityTracker';
 import { PantryUtilizationTracker } from '../../quality/PantryUtilizationTracker';
 import { ExpiryTracker } from '../../quality/ExpiryTracker';
 import { FeedbackLoopTracker } from '../../quality/FeedbackLoopTracker';
-import { SeasonalRelevanceTracker } from '../../quality/SeasonalRelevanceTracker';
+import { SeasonalFitTracker } from '../../quality/SeasonalFitTracker';
 import { QualityTracker } from '../../quality/QualityTracker';
 import {
   DaySnapshot,
@@ -719,52 +719,36 @@ describe('FeedbackLoopTracker', () => {
 });
 
 // ---------------------------------------------------------------------------
-// SeasonalRelevanceTracker
+// SeasonalFitTracker
 // ---------------------------------------------------------------------------
 
-describe('SeasonalRelevanceTracker', () => {
-  let tracker: SeasonalRelevanceTracker;
+describe('SeasonalFitTracker', () => {
+  let tracker: SeasonalFitTracker;
 
   beforeEach(() => {
-    tracker = new SeasonalRelevanceTracker();
+    tracker = new SeasonalFitTracker();
   });
 
   it('should have the correct name', () => {
-    expect(tracker.name).toBe('seasonalRelevance');
+    expect(tracker.name).toBe('seasonalFitScore');
   });
 
-  it('should return zeros when no plans are recorded', () => {
+  it('should return zeros and null rank bias when no plans are recorded', () => {
     const result = tracker.finalize();
-    expect(result.meanMatchRate).toBe(0);
+    expect(result.meanFitScore).toBe(0);
     expect(result.perSeason).toEqual({ spring: 0, summer: 0, fall: 0, winter: 0 });
+    expect(result.meanRankBias).toBeNull();
   });
 
-  it('should detect summer tags in summer season', () => {
+  it('should average prior-only fit across recipes in a single plan', () => {
+    // Winter plan: 2 'soup' (winter prior -> 1.0), 2 'salad' (summer prior -> 0.0),
+    // 1 'american' (no prior -> 0.5).  Mean = (1 + 1 + 0 + 0 + 0.5) / 5 = 0.5.
     const recipes = [
-      makeRecipe({ id: 'r-1', tags: ['salad', 'healthy'] }),
-      makeRecipe({ id: 'r-2', tags: ['grilled', 'bbq'] }),
-      makeRecipe({ id: 'r-3', tags: ['pasta'] }),
-    ];
-
-    tracker.record(
-      makeSnapshot({
-        season: 'summer',
-        mealPlanGenerated: true,
-        stateAfter: makeDayState({ currentMealPlan: recipes }),
-      }),
-    );
-
-    const result = tracker.finalize();
-    // r-1 has 'salad' (summer), r-2 has 'grilled' + 'bbq' (summer), r-3 no match
-    // 2/3 = 0.6667
-    expect(result.meanMatchRate).toBeCloseTo(2 / 3, 4);
-    expect(result.perSeason.summer).toBeCloseTo(2 / 3, 4);
-  });
-
-  it('should detect winter tags in winter season', () => {
-    const recipes = [
-      makeRecipe({ id: 'r-1', tags: ['soup', 'comfort'] }),
-      makeRecipe({ id: 'r-2', tags: ['stew'] }),
+      makeRecipe({ id: 'r-1', tags: ['soup'] }),
+      makeRecipe({ id: 'r-2', tags: ['soup'] }),
+      makeRecipe({ id: 'r-3', tags: ['salad'] }),
+      makeRecipe({ id: 'r-4', tags: ['salad'] }),
+      makeRecipe({ id: 'r-5', tags: ['american'] }),
     ];
 
     tracker.record(
@@ -776,52 +760,26 @@ describe('SeasonalRelevanceTracker', () => {
     );
 
     const result = tracker.finalize();
-    expect(result.meanMatchRate).toBe(1.0);
-    expect(result.perSeason.winter).toBe(1.0);
+    expect(result.meanFitScore).toBeCloseTo(0.5, 10);
+    expect(result.perSeason.winter).toBeCloseTo(0.5, 10);
   });
 
-  it('should be case-insensitive for tag matching', () => {
-    const recipes = [makeRecipe({ id: 'r-1', tags: ['SOUP', 'Warm'] })];
-
-    tracker.record(
-      makeSnapshot({
-        season: 'winter',
-        mealPlanGenerated: true,
-        stateAfter: makeDayState({ currentMealPlan: recipes }),
-      }),
-    );
-
-    expect(tracker.finalize().meanMatchRate).toBe(1.0);
-  });
-
-  it('should handle 0 match rate when no recipes have seasonal tags', () => {
-    const recipes = [
-      makeRecipe({ id: 'r-1', tags: ['pasta', 'quick'] }),
-    ];
-
-    tracker.record(
-      makeSnapshot({
-        season: 'winter',
-        mealPlanGenerated: true,
-        stateAfter: makeDayState({ currentMealPlan: recipes }),
-      }),
-    );
-
-    expect(tracker.finalize().meanMatchRate).toBe(0);
-  });
-
-  it('should compute per-season averages across multiple plan events', () => {
-    // Two winter plans with different rates.
+  it('should aggregate per-season averages across multiple plans', () => {
+    // Summer plan with two 'salad' recipes -> both 1.0 -> per-season summer = 1.0.
     tracker.record(
       makeSnapshot({
         dayIndex: 0,
-        season: 'winter',
+        season: 'summer',
         mealPlanGenerated: true,
         stateAfter: makeDayState({
-          currentMealPlan: [makeRecipe({ tags: ['soup'] })],
+          currentMealPlan: [
+            makeRecipe({ id: 'r-1', tags: ['salad'] }),
+            makeRecipe({ id: 'r-2', tags: ['salad'] }),
+          ],
         }),
       }),
     );
+    // Winter plan with two 'salad' recipes -> both 0.0 -> per-season winter = 0.0.
     tracker.record(
       makeSnapshot({
         dayIndex: 1,
@@ -829,16 +787,30 @@ describe('SeasonalRelevanceTracker', () => {
         mealPlanGenerated: true,
         stateAfter: makeDayState({
           currentMealPlan: [
-            makeRecipe({ id: 'r-2', tags: ['pasta'] }),
-            makeRecipe({ id: 'r-3', tags: ['stew'] }),
+            makeRecipe({ id: 'r-3', tags: ['salad'] }),
+            makeRecipe({ id: 'r-4', tags: ['salad'] }),
           ],
         }),
       }),
     );
 
     const result = tracker.finalize();
-    // Winter plan 1: 1/1 = 1.0, plan 2: 1/2 = 0.5, average = 0.75
-    expect(result.perSeason.winter).toBeCloseTo(0.75, 4);
+    expect(result.perSeason.summer).toBeCloseTo(1.0, 10);
+    expect(result.perSeason.winter).toBeCloseTo(0.0, 10);
+  });
+
+  it('should emit null meanRankBias (stubbed pending candidate-pool plumbing)', () => {
+    tracker.record(
+      makeSnapshot({
+        season: 'winter',
+        mealPlanGenerated: true,
+        stateAfter: makeDayState({
+          currentMealPlan: [makeRecipe({ tags: ['soup'] })],
+        }),
+      }),
+    );
+
+    expect(tracker.finalize().meanRankBias).toBeNull();
   });
 
   it('should handle empty meal plan in a plan-generation event', () => {
@@ -850,7 +822,7 @@ describe('SeasonalRelevanceTracker', () => {
       }),
     );
 
-    expect(tracker.finalize().meanMatchRate).toBe(0);
+    expect(tracker.finalize().meanFitScore).toBe(0);
   });
 
   it('should skip non-plan snapshots', () => {
@@ -865,7 +837,7 @@ describe('SeasonalRelevanceTracker', () => {
     );
 
     const result = tracker.finalize();
-    expect(result.meanMatchRate).toBe(0);
+    expect(result.meanFitScore).toBe(0);
     expect(result.perSeason.summer).toBe(0);
   });
 
@@ -880,7 +852,7 @@ describe('SeasonalRelevanceTracker', () => {
       }),
     );
     tracker.reset();
-    expect(tracker.finalize().meanMatchRate).toBe(0);
+    expect(tracker.finalize().meanFitScore).toBe(0);
   });
 });
 
@@ -900,7 +872,7 @@ describe('QualityTracker', () => {
     expect(result).toHaveProperty('diversity');
     expect(result).toHaveProperty('pantryUtilization');
     expect(result).toHaveProperty('feedbackLoop');
-    expect(result).toHaveProperty('seasonalRelevance');
+    expect(result).toHaveProperty('seasonalFitScore');
     expect(result).toHaveProperty('expiryDriven');
   });
 
@@ -929,7 +901,7 @@ describe('QualityTracker', () => {
     expect(result.diversity.skippedDays).toBeGreaterThanOrEqual(1);
     expect(result.diversity.lookbackDays).toBe(7);
     // Seasonal should have a non-zero winter entry.
-    expect(result.seasonalRelevance.perSeason.winter).toBeGreaterThan(0);
+    expect(result.seasonalFitScore.perSeason.winter).toBeGreaterThan(0);
     // Expiry should have seen 1 expiring item.
     expect(result.expiryDriven.totalExpiring).toBe(1);
   });

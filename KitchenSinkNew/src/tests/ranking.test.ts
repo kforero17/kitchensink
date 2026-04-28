@@ -415,7 +415,7 @@ describe('computeFeatures — seasonal fit', () => {
 
   it('returns neutral 0.5 when no seasonal context is provided', () => {
     const recipe = makeRecipe({
-      tags: ['dinner', 'soup'],
+      tags: ['dinner', 'american'],
       ingredients: [{ name: 'potato' }],
     });
 

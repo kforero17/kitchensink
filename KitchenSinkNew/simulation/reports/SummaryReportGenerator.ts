@@ -108,7 +108,14 @@ export class SummaryReportGenerator {
       lines.push(`| ${noveltyLabel} | ${this.formatAvgSkipNaN(metrics.map(m => m.diversity.mean))} |`);
       lines.push(`| Pantry Utilization | ${this.avg(metrics.map(m => m.pantryUtilization.mean)).toFixed(4)} |`);
       lines.push(`| Feedback Effectiveness | ${this.avg(metrics.map(m => m.feedbackLoop.netEffectiveness)).toFixed(4)} |`);
-      lines.push(`| Seasonal Relevance | ${this.avg(metrics.map(m => m.seasonalRelevance.meanMatchRate)).toFixed(4)} |`);
+      lines.push(`| Seasonal Fit | ${this.avg(metrics.map(m => m.seasonalFitScore.meanFitScore)).toFixed(4)} |`);
+      const showRankBias = results.some(
+        r => r.qualityMetrics.seasonalFitScore.meanRankBias !== null,
+      );
+      if (showRankBias) {
+        const rankBiasAvg = this.avgSkipNull(metrics.map(m => m.seasonalFitScore.meanRankBias));
+        lines.push(`| Rank Bias | ${rankBiasAvg === null ? '—' : rankBiasAvg.toFixed(4)} |`);
+      }
       lines.push(`| Expiry Rescue Rate | ${this.avg(metrics.map(m => m.expiryDriven.rescueRate)).toFixed(4)} |`);
     }
     lines.push('');
@@ -123,13 +130,26 @@ export class SummaryReportGenerator {
     lines.push('');
 
     const noveltyColumn = this.noveltyLabel(results);
-    lines.push(`| Name | ID | Tier | Days | Plans | Cooked | Violations | ${noveltyColumn} | Pantry Util | Feedback | Seasonal | Rescue |`);
-    lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    const showRankBias = results.some(
+      r => r.qualityMetrics.seasonalFitScore.meanRankBias !== null,
+    );
+    const rankBiasHeader = showRankBias ? ' Rank Bias |' : '';
+    const rankBiasDivider = showRankBias ? ' --- |' : '';
+    lines.push(
+      `| Name | ID | Tier | Days | Plans | Cooked | Violations | ${noveltyColumn} | Pantry Util | Feedback | Seasonal Fit |${rankBiasHeader} Rescue |`,
+    );
+    lines.push(
+      `| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |${rankBiasDivider} --- |`,
+    );
 
     for (const r of results) {
       const { profile, days, qualityMetrics, totalViolations: violations } = r;
       const planDays = days.filter(d => d.mealPlanGenerated).length;
       const totalCooked = days.reduce((s, d) => s + d.recipesCooked, 0);
+      const rankBias = qualityMetrics.seasonalFitScore.meanRankBias;
+      const rankBiasCell = showRankBias
+        ? ` ${rankBias === null ? '—' : rankBias.toFixed(4)} |`
+        : '';
 
       lines.push(
         `| ${profile.name} | ${profile.id} | ${profile.engagementTier} ` +
@@ -137,8 +157,9 @@ export class SummaryReportGenerator {
         `| ${this.formatNumber(qualityMetrics.diversity.mean)} ` +
         `| ${qualityMetrics.pantryUtilization.mean.toFixed(4)} ` +
         `| ${qualityMetrics.feedbackLoop.netEffectiveness.toFixed(4)} ` +
-        `| ${qualityMetrics.seasonalRelevance.meanMatchRate.toFixed(4)} ` +
-        `| ${qualityMetrics.expiryDriven.rescueRate.toFixed(4)} |`,
+        `| ${qualityMetrics.seasonalFitScore.meanFitScore.toFixed(4)} |` +
+        `${rankBiasCell}` +
+        ` ${qualityMetrics.expiryDriven.rescueRate.toFixed(4)} |`,
       );
     }
     lines.push('');
@@ -200,7 +221,7 @@ export class SummaryReportGenerator {
       { label: this.noveltyLabel(results, 'mean'), extract: m => m.diversity.mean },
       { label: 'Pantry Utilization (mean)', extract: m => m.pantryUtilization.mean },
       { label: 'Feedback Effectiveness', extract: m => m.feedbackLoop.netEffectiveness },
-      { label: 'Seasonal Relevance', extract: m => m.seasonalRelevance.meanMatchRate },
+      { label: 'Seasonal Fit', extract: m => m.seasonalFitScore.meanFitScore },
       { label: 'Expiry Rescue Rate', extract: m => m.expiryDriven.rescueRate },
     ];
 
@@ -286,6 +307,13 @@ export class SummaryReportGenerator {
   private avg(values: number[]): number {
     if (values.length === 0) return 0;
     return values.reduce((a, b) => a + b, 0) / values.length;
+  }
+
+  /** Average a list that may contain nulls; returns null when every value is null. */
+  private avgSkipNull(values: Array<number | null>): number | null {
+    const finite = values.filter((v): v is number => v !== null);
+    if (finite.length === 0) return null;
+    return this.avg(finite);
   }
 
   private stdDev(values: number[]): number {
