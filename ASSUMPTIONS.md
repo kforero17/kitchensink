@@ -1,27 +1,56 @@
-# Assumptions — Diversity Metric Rolling-Window Novelty
+# Assumptions — Fix Dietary Filter Veto
 
-Living doc. Planning-phase assumptions start here; append as implementation sub-agents report new ones.
+Living doc. Planning-phase assumptions start here; append as implementation sub-agents surface more.
 
 ## Planning-phase
 
-1. **Default lookback = 7 days.** Matches the user's explicit example ("day-30 vs day-23") and the 7-slot plan cadence. Exposed as a constructor arg so tests can vary it.
+1. The `>=3` fallback at `MealPlanAction.ts:155` was an early defensive guard
+   against an empty meal plan, not an intentional product decision to relax
+   dietary constraints. Removing it is the correct fix.
+2. Dietary tags are **mandatory** when set (the `DietaryInvariant.ts` test
+   asserts this). They are not soft preferences.
+3. The recipe corpus contains enough vegan/gluten-free/dairy-free/nut-free
+   tagged recipes for personas to plan a full week. If not, the right fix is
+   to expand the corpus, not to silently serve non-compliant recipes.
+4. Tag normalization in `src/mappers/recipeMappers.ts:102–116` is sufficient
+   — kebab-case lowercase tags reach the filter intact. No new normalization
+   is required.
+5. Allergies and restrictions (`DietaryPreferences.allergies`,
+   `DietaryPreferences.restrictions`) are out of scope for this fix; the
+   simulation violations are all about the boolean flags
+   (`vegan`/`vegetarian`/`glutenFree`/`dairyFree`/`nutFree`/`lowCarb`).
+6. The ranker (`rankRecipes`) does not need dietary awareness: filtering
+   upstream gives it a clean compliant pool, so adding dietary features to
+   the score would be redundant.
+7. Centralizing `DIETARY_TAG_MAP` into a shared utility will not break the
+   simulation invariant validator as long as its `label` field is preserved.
 
-2. **Novelty semantic = "fraction of today's plan absent from D − N".** This is the complement of overlap, and matches the user's phrasing ("fraction of day-30 recipes [that also appeared / that did not appear] in day-23's plan"). Higher = more novel = better planner variety, preserving the old "higher = better" reading.
+## Implementation-phase
 
-3. **Recipe identity = `UnifiedRecipe.id`.** Stable, source-scoped (`tasty-abc`, `spn-123`). The existing `plan.recipeIds` field already uses this; nothing to change at the data layer.
-
-4. **Tracker already retains per-day plans.** `DiversityTracker.record()` appends day plans in order, and `QualityTracker` retains every `DaySnapshot`. No new data-capture plumbing needed — `finalize()` can index by day number.
-
-5. **Day numbering is monotonic from 0.** Tests and runner both feed sequential day numbers. Safe to use day index directly as the key into the history array.
-
-6. **Single lookback, not multi-N.** Emitting a matrix (7d, 30d, 90d) is appealing but out of scope. One number per persona is what the report consumes.
-
-7. **Replace, don't dual-write.** The old `perWindow` field has no downstream consumer beyond the report. Replacing it (rather than keeping both) keeps the diff honest.
-
-8. **Report std/min/max renderer is reusable.** The `appendQualityTrends()` function reads `m.diversity.mean` directly. Keeping `mean` on the output means only the *label* and *NaN handling* change — not the aggregation.
-
-9. **NaN rendering → "—".** When a persona's run is shorter than the lookback, the report cell should read `—` not `NaN`. Consistent with typical Markdown-table conventions for missing data.
-
-10. **Semantics of std on the report row.** `SummaryReportGenerator` computes std **across personas** from each persona's `mean`. That stays correct with novelty (each persona still emits a scalar `mean`). We do NOT roll the per-day std into the report — that would be a separate histogram.
-
-11. **No existing diversity consumer outside the report.** The planning search didn't exhaustively enumerate references to `.diversity.perWindow` or `.diversity.mean`. The implement-phase sub-agent must grep and fix any we missed. TypeScript will catch structural breaks at compile.
+8. Production scope **expanded** during implementation. The user confirmed the
+   production app shares this bug. Two additional sites needed migration:
+   - `src/utils/mealPlanSelector.ts` — `meetsAllDietaryRequirements()` and
+     three more in-file tag-check sites (`calculateDietaryScore` and
+     `essentialDietaryFilter`) hardcoded only 4 of the 6 dietary flags
+     (missing `nutFree` and `lowCarb`). All migrated to `passesDietaryFilter`.
+   - `src/services/recommendationMealPlanService.ts` — added a defensive
+     post-fetch dietary filter so the ranker only sees compliant candidates,
+     mirroring the simulation fix.
+9. The shared module's hyphenated-only tag matching (e.g. `'gluten-free'`
+   only, not `'gluten free'`) is acceptable because `recipeMappers.ts:102–116`
+   normalizes spaced/underscored variants to hyphenated at ingest time.
+   The previous `DietaryInvariant` accepted both forms — this was defensive
+   redundancy that is no longer needed.
+10. Promoting the production `essentialDietaryFilter` from a 2-flag gate
+    (vegan/vegetarian only) to a 6-flag gate is a deliberate behavior change.
+    The original code's "ethical-only" carve-out is the precise pattern that
+    let `nutFree` violations through. This is the fix.
+11. Q2 (ranker dietary bonus as soft signal) deferred. Once the filter runs
+    upstream of the ranker, every candidate is compliant — a soft "dietary
+    fit" feature would always be 1.0 and contribute nothing to ranking. The
+    bonus is only meaningful if the filter is soft, which it no longer is.
+    Logged in QUESTIONS.md as accepted-but-deferred.
+12. Tests live at `src/utils/__tests__/dietaryFilter.test.ts` per `jest.config.js`
+    `testMatch` pattern. Jest is configured (`ts-jest` preset) but the binary
+    is not installed locally; the suite was not run as part of this commit.
+    Tests will run in CI / `npm install`-fresh environments.

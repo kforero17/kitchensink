@@ -1,39 +1,69 @@
-# Open Questions — Diversity Metric Rolling-Window Novelty
+# Open Questions — Fix Dietary Filter Veto
 
 Living doc. Questions flagged during planning; append as implementation sub-agents surface more.
 
 ## Planning-phase
 
-1. **Lookback value — 7 fixed or configurable default?**
-   **Proposed:** default `7`, constructor-injectable. Report label reads the actual value (`Novelty (7d, mean)`).
-   *Blocking?* No. Proceed with default.
+1. **Empty compliant pool — error vs. partial plan?** If a persona's dietary
+   constraints leave fewer than `weeklyMealPrepCount` compliant recipes, should
+   the planner (a) error out, (b) emit a partial plan with a warning, or (c)
+   try a fallback corpus? Current spec assumes error / structured diagnostic.
 
-2. **Fallback when run shorter than lookback?**
-   **Proposed:** `perDay = []`, `mean = NaN`, report renders `"—"`. Alternative would be `mean = 0` or omit the row.
-   *Blocking?* No. NaN + "—" is the cleanest.
+B.
 
-3. **Should the old `perWindow` field stay during a transition?**
-   **Proposed:** no — replace cleanly. Branch is pre-merge; no historical reports exist.
-   *Blocking?* No.
+2. **Should the ranker score dietary fit as a soft signal too?** Filtering
+   upstream is sufficient for correctness, but a small bonus on positive tags
+   could improve diversity within the compliant pool. Out of scope for this PR
+   unless the simulation surfaces a related issue.
 
-4. **Report label rename — keep "Diversity" or switch to "Novelty"?**
-   **Proposed:** rename to `Novelty (7d, mean)`. The word "diversity" at this point is overloaded.
-   *Blocking?* No. If the user prefers the old label, trivial to revert.
+yes
 
-5. **Is `DiversityTracker.record()` day-indexed?**
-   The planning exploration said records are appended in order and QualityTracker keeps all DaySnapshots. Whether the tracker gets an explicit day number or infers it from array index will need to be confirmed by the implement sub-agent. If there's a gap (missed days), we use the *stored day number* rather than array position.
-   *Blocking?* No — implement-phase sub-agent should verify.
+3. **`DietaryInvariant.ts` `label` field** — is the human-readable label used
+   anywhere besides the violation message? If so, the shared map needs to
+   carry it; if not, we can keep it local to the validator with a thin
+   adapter.
 
-6. **Do any other trackers or services consume `QualityMetrics.diversity.perWindow`?**
-   Not enumerated exhaustively during planning. Implement-phase must grep.
-   *Blocking?* No — caught at compile time.
+not sure
 
-7. **Should per-day novelty values be exposed alongside mean/std?**
-   The `perDay` array is part of the emitted shape. Not currently rendered but available for downstream reports / dashboards later. If the user wants the simulation run to write a CSV of per-day novelty, that's a follow-up.
+4. **Production app pipeline** — the `MealPlanAction` we are fixing lives
+   under `simulation/actions/`. Does the actual production app
+   (`src/services/...` or similar) have its own meal-plan generator that
+   shares this bug? Worth a quick check during implementation; if so, the
+   shared utility benefits both.
 
-8. **Edge case: plan(D-N) exists but is empty.**
-   Proposed to skip that day (count as skipped). Alternative: treat today's plan as fully novel (since nothing to compare against).
-   *Blocking?* No. Skipping keeps the metric semantics tight.
+i think so
 
-9. **Edge case: plan(D) and plan(D-N) have different sizes.**
-   Formula is `|A ∩ B| / |A|` — denominator is today's size only. If today has 5 recipes and week-ago had 7, still divides by 5. Correct.
+5. **Allergies & restrictions** — out of scope here, but the
+   `DietaryPreferences.allergies` and `restrictions` arrays are currently
+   ignored by the filter. Worth a follow-up if allergy violations show up in
+   the simulation report.
+
+## Implementation-phase
+
+6. **Lost spaced-variant tag aliases.** The previous local `DIETARY_TAG_REQUIREMENTS`
+   in `DietaryInvariant.ts` accepted both hyphenated (`'gluten-free'`) and
+   spaced (`'gluten free'`) forms, plus `'keto'` as a low-carb alias. The
+   shared module accepts only hyphenated. Per planning assumption #4, the
+   ingest-time normalization in `recipeMappers.ts` makes the spaced forms
+   unreachable in practice. **Open follow-up:** if any legacy
+   recipe data bypasses the mapper, those tags will now produce false-positive
+   violations.
+
+7. **Q2 (ranker dietary bonus) deferred.** Filtering upstream gives the ranker
+   a fully-compliant pool, so a "dietary fit" feature would be a constant 1.0.
+   No-op for ranking. Re-open only if a future change reintroduces non-veto
+   dietary handling.
+
+8. **Production `essentialDietaryFilter` promoted from 2-flag to 6-flag gate.**
+   The original code only hard-rejected vegan/vegetarian violations and
+   relegated `glutenFree`/`dairyFree`/`nutFree`/`lowCarb` to soft scoring
+   penalties. This was the precise pattern that let nut-free and low-carb
+   violations through. The promotion may shrink eligible-recipe pools more
+   aggressively for users with strict combos — the relaxation-level fallback
+   in `mealPlanSelector` should still produce a partial plan rather than
+   panic, but this is worth watching in production.
+
+9. **`mealPlanSelector` test failures pre-existing.** `src/tests/mealPlanSelector.test.ts`
+   has unrelated typecheck errors (`cuisines` missing from `Recipe`,
+   `FoodPreferences` shape drift). Not introduced by this PR; not fixed by this PR.
+

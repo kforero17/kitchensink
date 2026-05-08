@@ -4,6 +4,7 @@ import { CookingPreferences, MealType, KitchenInstrument } from '../types/Cookin
 import { BudgetPreferences } from '../types/BudgetPreferences';
 import { FoodPreferences } from '../types/FoodPreferences';
 import { findMatchingIngredients, calculateIngredientSimilarity } from './ingredientMatching';
+import { passesDietaryFilter, missingDietaryRequirements } from './dietaryFilter';
 import { getTimeRange, calculateTimeScore, DEFAULT_TIME_CONFIG } from '../config/cookingTimeConfig';
 import { calculateRecipeComplexity } from '../config/recipeComplexityConfig';
 import { calculateVarietyPenalty, getRecipeHistory, RecipeHistoryItem, getRecentSwappedRecipes, getBlockedRecipeIds } from './recipeHistory';
@@ -165,20 +166,8 @@ export function meetsAllDietaryRequirements(
     validateRecipe(recipe);
 
     // Check for dietary restrictions
-    if (dietaryPreferences.vegetarian && !recipe.tags.includes('vegetarian')) {
-      logger.debug(`Recipe ${recipe.id} rejected: not vegetarian`);
-      return false;
-    }
-    if (dietaryPreferences.vegan && !recipe.tags.includes('vegan')) {
-      logger.debug(`Recipe ${recipe.id} rejected: not vegan`);
-      return false;
-    }
-    if (dietaryPreferences.glutenFree && !recipe.tags.includes('gluten-free')) {
-      logger.debug(`Recipe ${recipe.id} rejected: not gluten-free`);
-      return false;
-    }
-    if (dietaryPreferences.dairyFree && !recipe.tags.includes('dairy-free')) {
-      logger.debug(`Recipe ${recipe.id} rejected: not dairy-free`);
+    if (!passesDietaryFilter(recipe, dietaryPreferences)) {
+      logger.debug(`Recipe ${recipe.id} rejected: failed dietary tag filter`);
       return false;
     }
 
@@ -556,19 +545,8 @@ export function calculateDietaryScore(
     // Start with a base score
     let score = 100;
 
-    // Check for dietary restrictions
-    if (dietaryPreferences.vegetarian && !recipe.tags.includes('vegetarian')) {
-      score -= 50;
-    }
-    if (dietaryPreferences.vegan && !recipe.tags.includes('vegan')) {
-      score -= 50;
-    }
-    if (dietaryPreferences.glutenFree && !recipe.tags.includes('gluten-free')) {
-      score -= 50;
-    }
-    if (dietaryPreferences.dairyFree && !recipe.tags.includes('dairy-free')) {
-      score -= 50;
-    }
+    // Check for dietary restrictions (50-point penalty per unmet requirement)
+    score -= missingDietaryRequirements(recipe, dietaryPreferences).length * 50;
 
     // Check for allergies
     const recipeIngredients = recipe.ingredients.map(ing => ing.item);
@@ -972,14 +950,10 @@ export async function generateMealPlan(
         return false;
       }
       
-      // Always respect vegan/vegetarian preferences as they're often ethical choices
-      if (preferences.dietary.vegan && !recipe.tags.includes('vegan')) {
+      if (!passesDietaryFilter(recipe, preferences.dietary)) {
         return false;
       }
-      if (preferences.dietary.vegetarian && !recipe.tags.includes('vegetarian')) {
-        return false;
-      }
-      
+
       return true;
     };
     

@@ -9,31 +9,7 @@
 import { InvariantRule } from './InvariantChecker';
 import { UnifiedRecipe, ingredientsMatch } from '../bridge/appImports';
 import { SimulationProfile, InvariantViolation } from '../profiles/types';
-
-// ---------------------------------------------------------------------------
-// Tag requirement mapping
-// ---------------------------------------------------------------------------
-
-/**
- * Maps each boolean dietary preference to the tag(s) the recipe must carry.
- * If the preference is `true`, at least one of the listed tags must be
- * present on the recipe (case-insensitive comparison).
- */
-const DIETARY_TAG_REQUIREMENTS: {
-  key: keyof Pick<
-    SimulationProfile['preferences']['dietary'],
-    'vegetarian' | 'vegan' | 'glutenFree' | 'dairyFree' | 'nutFree' | 'lowCarb'
-  >;
-  tags: string[];
-  label: string;
-}[] = [
-  { key: 'vegan', tags: ['vegan'], label: 'vegan' },
-  { key: 'vegetarian', tags: ['vegetarian'], label: 'vegetarian' },
-  { key: 'glutenFree', tags: ['gluten-free', 'gluten free'], label: 'gluten-free' },
-  { key: 'dairyFree', tags: ['dairy-free', 'dairy free'], label: 'dairy-free' },
-  { key: 'nutFree', tags: ['nut-free', 'nut free'], label: 'nut-free' },
-  { key: 'lowCarb', tags: ['low-carb', 'low carb', 'keto'], label: 'low-carb' },
-];
+import { DIETARY_REQUIREMENTS } from '../../src/utils/dietaryFilter';
 
 // ---------------------------------------------------------------------------
 // Restriction ingredient mapping
@@ -48,7 +24,7 @@ const RESTRICTION_INGREDIENTS: Record<string, string[]> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function hasTag(recipe: UnifiedRecipe, targets: string[]): boolean {
+function hasTag(recipe: UnifiedRecipe, targets: ReadonlyArray<string>): boolean {
   const recipeTags = recipe.tags.map(t => t.toLowerCase());
   return targets.some(target => recipeTags.includes(target.toLowerCase()));
 }
@@ -110,7 +86,7 @@ export class DietaryInvariant implements InvariantRule {
     date: string,
     violations: InvariantViolation[],
   ): void {
-    for (const req of DIETARY_TAG_REQUIREMENTS) {
+    for (const req of DIETARY_REQUIREMENTS) {
       if (!dietary[req.key]) continue;
 
       if (!hasTag(recipe, req.tags)) {
