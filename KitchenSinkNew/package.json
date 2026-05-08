@@ -34,6 +34,7 @@
     "setup": "npm install && cd ios && pod install",
     "reset": "npm run clean && npm run setup",
     "debug:build": "node scripts/debug-build.js",
+    "clean:tags": "tsx scripts/clean-corpus-tags.ts",
     "demo:mealplan": "node scripts/simpleMealPlanDemo.js",
     "test:algorithm": "node scripts/testAlgorithmSimple.js",
     "simulate": "cd simulation && npx tsx index.ts",
@@ -102,6 +103,7 @@
     "playwright": "^1.41.2",
     "slugify": "^1.6.6",
     "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
     "typescript": "^4.9.4"
   },
   "private": true

@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import * as fs from 'fs';
 import * as path from 'path';
+import { cleanTags } from '../../src/utils/tagSanitizer';
 
 process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
 
@@ -32,7 +33,8 @@ async function importRecipes(): Promise<void> {
   for (const recipe of recipes) {
     const id = recipe.id || `recipe-${count}`;
     const ref = db.collection('recipes').doc(String(id));
-    batch.set(ref, recipe);
+    const cleaned = { ...recipe, tags: cleanTags(recipe.tags) };
+    batch.set(ref, cleaned);
     count++;
     batchCount++;
 

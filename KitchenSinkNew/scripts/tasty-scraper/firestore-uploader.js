@@ -1,3 +1,5 @@
+require('ts-node/register/transpile-only');
+const { cleanTags } = require('../../src/utils/tagSanitizer');
 const admin = require('firebase-admin');
 
 // Initialize Firebase Admin SDK if not already initialized
@@ -19,7 +21,7 @@ function convertToAppRecipe(scrapedRecipe) {
   const recipeId = generateRecipeId(scrapedRecipe.sourceUrl);
   
   // Determine meal type tags based on title and ingredients
-  const tags = generateRecipeTags(scrapedRecipe);
+  const tags = cleanTags(generateRecipeTags(scrapedRecipe));
   
   // Estimate cost (simple heuristic based on ingredient count)
   const estimatedCost = estimateRecipeCost(scrapedRecipe.ingredients);

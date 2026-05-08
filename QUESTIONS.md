@@ -1,69 +1,38 @@
-# Open Questions — Fix Dietary Filter Veto
+# Open Questions — Clean Recipe Tags
 
 Living doc. Questions flagged during planning; append as implementation sub-agents surface more.
 
 ## Planning-phase
 
-1. **Empty compliant pool — error vs. partial plan?** If a persona's dietary
-   constraints leave fewer than `weeklyMealPrepCount` compliant recipes, should
-   the planner (a) error out, (b) emit a partial plan with a warning, or (c)
-   try a fallback corpus? Current spec assumes error / structured diagnostic.
+1. **Should `allrecipes_firestore.cleaned.json` be checked into git?**
+   It's likely tens of MB. Options: (a) commit it as the new canonical corpus, (b) `.gitignore` it and document regeneration, (c) replace the original after review. Recommendation: (c) — replace the original in a follow-up commit once the dry-run report is reviewed.
+c.
 
-B.
+2. **JS ↔ TS in the Tasty scraper.**
+   `scripts/tasty-scraper/firestore-uploader.js` is plain JS. Three options for using `cleanTags`:
+   (a) run the scraper via `ts-node` against `tagSanitizer.ts`,
+   (b) ship a small JS port of the sanitizer (duplication risk),
+   (c) build TS → JS into a `dist/` and require it.
+   No precedent in this repo as of planning. Defer the decision to implementation; flag here.
 
-2. **Should the ranker score dietary fit as a soft signal too?** Filtering
-   upstream is sufficient for correctness, but a small bonus on positive tags
-   could improve diversity within the compliant pool. Out of scope for this PR
-   unless the simulation surfaces a related issue.
+3. **Cuisine vocabulary completeness.**
+   The `KNOWN_TAG_VOCABULARY` cuisines list is best-guess from the example plus common cuisines. We don't have a corpus-wide histogram of legitimate cuisine tags. Implementation step 5 (dry-run report) will surface any common cuisine that gets dropped — we extend the vocab if so.
 
-yes
+4. **Should rule 6 also accept `'garlic shrimp'`-style legitimate dish descriptors?**
+   The plan accepts dropping these — they aren't standardized tags and tag-based filters don't depend on them. If review feedback says otherwise, the fix is to add a small dish-descriptor allowlist.
+that works
 
-3. **`DietaryInvariant.ts` `label` field** — is the human-readable label used
-   anywhere besides the violation message? If so, the shared map needs to
-   carry it; if not, we can keep it local to the validator with a thin
-   adapter.
+5. **Tasty corpus pollution audit.**
+   `generateRecipeTags()` in the Tasty pipeline was not opened during reconnaissance. Implementation should glance at it to confirm it doesn't ingest free-text fields. If it does, rule 6 there too.
 
-not sure
-
-4. **Production app pipeline** — the `MealPlanAction` we are fixing lives
-   under `simulation/actions/`. Does the actual production app
-   (`src/services/...` or similar) have its own meal-plan generator that
-   shares this bug? Worth a quick check during implementation; if so, the
-   shared utility benefits both.
-
-i think so
-
-5. **Allergies & restrictions** — out of scope here, but the
-   `DietaryPreferences.allergies` and `restrictions` arrays are currently
-   ignored by the filter. Worth a follow-up if allergy violations show up in
-   the simulation report.
+   _Resolved during implementation:_ `generateRecipeTags` infers tags from `recipe.title` and `recipe.ingredients` substrings (e.g. `'chicken'`, `'curry'`). Raw ingredient text can flow through. The new `cleanTags` wrapper at the upload site catches any pollution defensively.
 
 ## Implementation-phase
 
-6. **Lost spaced-variant tag aliases.** The previous local `DIETARY_TAG_REQUIREMENTS`
-   in `DietaryInvariant.ts` accepted both hyphenated (`'gluten-free'`) and
-   spaced (`'gluten free'`) forms, plus `'keto'` as a low-carb alias. The
-   shared module accepts only hyphenated. Per planning assumption #4, the
-   ingest-time normalization in `recipeMappers.ts` makes the spaced forms
-   unreachable in practice. **Open follow-up:** if any legacy
-   recipe data bypasses the mapper, those tags will now produce false-positive
-   violations.
+6. **Should `--apply-firestore` skip recipes whose cleaned tag count drops below a threshold?**
+   Current behavior writes whatever `cleanTags` returns, including `[]`. Risk: a heavily polluted recipe could end up with zero tags in production, becoming invisible to tag-driven rankers. The dry-run report already lists these recipes for manual review. Recommendation: review the report on the full corpus before running `--apply-firestore`; if the count is non-trivial, add a `--min-tags <N>` skip filter in a follow-up.
 
-7. **Q2 (ranker dietary bonus) deferred.** Filtering upstream gives the ranker
-   a fully-compliant pool, so a "dietary fit" feature would be a constant 1.0.
-   No-op for ranking. Re-open only if a future change reintroduces non-veto
-   dietary handling.
+7. **Should `cleanTags` accept a small "dish descriptor" allowlist for phrases like `'garlic shrimp'`?**
+   Carried over from planning question 4. The user annotated "that works" — so dropping these is intentional. Keep as-is.
 
-8. **Production `essentialDietaryFilter` promoted from 2-flag to 6-flag gate.**
-   The original code only hard-rejected vegan/vegetarian violations and
-   relegated `glutenFree`/`dairyFree`/`nutFree`/`lowCarb` to soft scoring
-   penalties. This was the precise pattern that let nut-free and low-carb
-   violations through. The promotion may shrink eligible-recipe pools more
-   aggressively for users with strict combos — the relaxation-level fallback
-   in `mealPlanSelector` should still produce a partial plan rather than
-   panic, but this is worth watching in production.
-
-9. **`mealPlanSelector` test failures pre-existing.** `src/tests/mealPlanSelector.test.ts`
-   has unrelated typecheck errors (`cuisines` missing from `Recipe`,
-   `FoodPreferences` shape drift). Not introduced by this PR; not fixed by this PR.
-
+8. **JS↔TS interop choice for the Tasty scraper resolved to option (a):** `ts-node/register/transpile-only`. `ts-node` is in devDependencies. Smoke test confirms the require chain loads cleanly.

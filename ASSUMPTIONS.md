@@ -1,56 +1,25 @@
-# Assumptions — Fix Dietary Filter Veto
+# Assumptions — Clean Recipe Tags
 
 Living doc. Planning-phase assumptions start here; append as implementation sub-agents surface more.
 
 ## Planning-phase
 
-1. The `>=3` fallback at `MealPlanAction.ts:155` was an early defensive guard
-   against an empty meal plan, not an intentional product decision to relax
-   dietary constraints. Removing it is the correct fix.
-2. Dietary tags are **mandatory** when set (the `DietaryInvariant.ts` test
-   asserts this). They are not soft preferences.
-3. The recipe corpus contains enough vegan/gluten-free/dairy-free/nut-free
-   tagged recipes for personas to plan a full week. If not, the right fix is
-   to expand the corpus, not to silently serve non-compliant recipes.
-4. Tag normalization in `src/mappers/recipeMappers.ts:102–116` is sufficient
-   — kebab-case lowercase tags reach the filter intact. No new normalization
-   is required.
-5. Allergies and restrictions (`DietaryPreferences.allergies`,
-   `DietaryPreferences.restrictions`) are out of scope for this fix; the
-   simulation violations are all about the boolean flags
-   (`vegan`/`vegetarian`/`glutenFree`/`dairyFree`/`nutFree`/`lowCarb`).
-6. The ranker (`rankRecipes`) does not need dietary awareness: filtering
-   upstream gives it a clean compliant pool, so adding dietary features to
-   the score would be redundant.
-7. Centralizing `DIETARY_TAG_MAP` into a shared utility will not break the
-   simulation invariant validator as long as its `label` field is preserved.
+1. **`allrecipes_firestore.json` is the canonical corpus dump.** Tasty data is structured at scrape time and less polluted; this PR does not retroactively backfill Tasty recipes, only guards them at write time.
+2. **Heuristic filtering is preferable to strict allowlisting.** A strict allowlist would drop legitimate but uncatalogued tags. Heuristics + an ingredient-noun denylist + a positive-signal category vocabulary preserves unknowns while killing obvious pollution.
+3. **Tag schema stays flat (`string[]`).** Splitting into structured categories (`{ cuisine, mealType, dietary }`) is out of scope; would touch every reader and is a separate refactor.
+4. **The simulation harness (`KitchenSinkNew/simulation`) is the integration validator.** Loads the corpus, exercises every tag-based filter. Post-fix invariants and signal distributions are the success metric.
+5. **Tag normalization (lowercase + trim + dedupe) folds into `cleanTags`.** The existing `normalizeTags` in `dietaryFilter.ts` is replaced by a shared sanitizer, eliminating drift between dietary filtering and other tag consumers.
+6. **Cleaned JSON ships separately from the in-place file.** Script writes `allrecipes_firestore.cleaned.json` rather than mutating the original — preserves a re-runnable source of truth and lets reviewers diff the result.
+7. **Dry-run by default for Firestore writes.** The cleanup script does not touch Firestore unless `--apply-firestore` is passed, mirroring the safety pattern of one-time data migrations.
 
 ## Implementation-phase
 
-8. Production scope **expanded** during implementation. The user confirmed the
-   production app shares this bug. Two additional sites needed migration:
-   - `src/utils/mealPlanSelector.ts` — `meetsAllDietaryRequirements()` and
-     three more in-file tag-check sites (`calculateDietaryScore` and
-     `essentialDietaryFilter`) hardcoded only 4 of the 6 dietary flags
-     (missing `nutFree` and `lowCarb`). All migrated to `passesDietaryFilter`.
-   - `src/services/recommendationMealPlanService.ts` — added a defensive
-     post-fetch dietary filter so the ranker only sees compliant candidates,
-     mirroring the simulation fix.
-9. The shared module's hyphenated-only tag matching (e.g. `'gluten-free'`
-   only, not `'gluten free'`) is acceptable because `recipeMappers.ts:102–116`
-   normalizes spaced/underscored variants to hyphenated at ingest time.
-   The previous `DietaryInvariant` accepted both forms — this was defensive
-   redundancy that is no longer needed.
-10. Promoting the production `essentialDietaryFilter` from a 2-flag gate
-    (vegan/vegetarian only) to a 6-flag gate is a deliberate behavior change.
-    The original code's "ethical-only" carve-out is the precise pattern that
-    let `nutFree` violations through. This is the fix.
-11. Q2 (ranker dietary bonus as soft signal) deferred. Once the filter runs
-    upstream of the ranker, every candidate is compliant — a soft "dietary
-    fit" feature would always be 1.0 and contribute nothing to ranking. The
-    bonus is only meaningful if the filter is soft, which it no longer is.
-    Logged in QUESTIONS.md as accepted-but-deferred.
-12. Tests live at `src/utils/__tests__/dietaryFilter.test.ts` per `jest.config.js`
-    `testMatch` pattern. Jest is configured (`ts-jest` preset) but the binary
-    is not installed locally; the suite was not run as part of this commit.
-    Tests will run in CI / `npm install`-fresh environments.
+8. **Rule 3 threshold is "4+ words drops" (`words.length > 3`).** This lets `'garlic shrimp american'` survive rule 3 so rule 6's allowlist override is what saves it, matching the spec's narrative.
+9. **Measurement-token matching uses plain substring `String.includes`.** Catches both single-word (`tablespoon` inside `tablespoons`) and multi-word (`lightly salted`, `room temperature`) tokens. Spec allowed either word-boundary or substring for single-word entries.
+10. **Ingredient nouns matched with `\b<noun>\b` regex word boundaries.** Prevents `'onion'` from misfiring inside `'onions'` etc. The corollary cases (`'onions for garnish'`, `'chopped onions'`) are dropped via rules 4 and 5 respectively.
+11. **JS↔TS interop chose option (a): `ts-node/register/transpile-only` in `firestore-uploader.js`.** `ts-node` is a confirmed devDependency in `KitchenSinkNew/package.json`. Keeps `tagSanitizer.ts` as a single source of truth (no JS port, no `dist/` build step).
+12. **Backfill script adds a `clean:tags` npm script.** Uses `tsx` (already in devDependencies) for execution: `tsx scripts/clean-corpus-tags.ts`.
+13. **Backfill script Firestore mode auto-detects emulator vs production.** `FIRESTORE_EMULATOR_HOST` env var → emulator (no creds); otherwise `admin.credential.applicationDefault()` (requires `GOOGLE_APPLICATION_CREDENTIALS`).
+14. **Backfill batches Firestore updates at 400/batch.** Firestore caps at 500; 100-write headroom.
+15. **Backfill uses `batch.update(ref, { tags })` — only the `tags` field is touched on production docs.** No risk of clobbering unrelated fields.
+16. **Importer applies the sanitizer via spread-copy:** `const cleaned = { ...recipe, tags: cleanTags(recipe.tags) }` then `batch.set(ref, cleaned)`. Single mutation point, doesn't refactor surrounding logic.
