@@ -1,65 +1,41 @@
-# Fix Dietary Filter Veto
+# Plan: Clean Recipe Tags
 
-## Problem
+See `IMPLEMENTATION_SPEC.md` (canonical). This file mirrors it for PR visibility.
 
-The simulation harness emits 658 invariant violations; **610 (93%)** match the pattern
-`Recipe "X" lacks required Y tag for Y preference`. The planner serves vegan-explorer
-non-vegan recipes (e.g. "Roasted Garlic Butter", "Dina's Hot and Spicy Tuna"),
-serves dairy-free-beginner dairy-laden recipes ("Broccoli Rice and Cheese"), and
-serves allergy-aware-japanese (gluten-free + nut-free required) recipes carrying
-neither tag.
+## TL;DR
 
-## Root Cause
+The corpus has ingredient phrases polluting recipe tags (e.g. `'olive oil to drizzle over garlic'` next to `'american'`, `'dinner'`, `'vegetarian'`). Every tag-based filter (dietary veto, seasonal prior, cuisine lookup) is operating on a contaminated index.
 
-`KitchenSinkNew/simulation/actions/MealPlanAction.ts:148–155`:
+Fix:
+1. New `tagSanitizer.ts` — single shared `cleanTags()` using structural heuristics + an ingredient-noun denylist.
+2. Backfill script — produces `allrecipes_firestore.cleaned.json` and optionally updates Firestore.
+3. Wire the sanitizer into the dietary filter, the simulation importer, and the Tasty scraper so new pollution can't enter.
 
-```ts
-const filtered = scored.filter(s => passesDietaryFilter(s.recipe, dietary));
-const candidates = filtered.length >= 3 ? filtered : scored;
-```
+## Heuristic rules (drop a tag if any apply)
 
-When fewer than 3 ranked recipes pass the dietary filter, the filter is **silently
-discarded** and the unfiltered ranked list is used. This is the dominant source
-of the 93% violation rate.
-
-Two contributing structural problems:
-
-1. **Filter runs after the ranker.** The ranker scores generic appeal with no
-   dietary awareness, so non-compliant recipes dominate the top of the list and
-   the post-filter discards most of the candidate pool — triggering the fallback.
-2. **No hard veto.** Dietary preferences are treated as soft annotations rather
-   than mandatory constraints.
-
-The mapping logic itself and tag normalization are correct. The bug is the
-silent fallback plus pipeline ordering.
-
-## Approach
-
-1. **Filter before ranking.** Move the dietary filter upstream of `rankRecipes()`.
-2. **Remove the fallback.** No silent relaxation; surface a clear diagnostic if
-   the compliant pool is empty.
-3. **Promote the helpers** into `src/utils/dietaryFilter.ts` so the production app
-   and the invariant validator share one source of truth (DRY).
-4. **Tests** for veto, multi-constraint personas, and empty pools.
+1. Contains a comma.
+2. Length > 25 chars.
+3. ≥ 4 whitespace words.
+4. Contains preposition phrase (` to `, ` for `, ` with `, ` of `, ` over `, ` from `, ` in `).
+5. Contains a measurement / prep token (`teaspoon`, `cup`, `drizzle`, `chopped`, `whipped`, `room temperature`, `lightly salted`, …).
+6. Contains an ingredient-root noun (`garlic`, `butter`, `oil`, `sugar`, `flour`, `egg`, `milk`, `cheese`, `chicken`, `beef`, …) AND no allowlisted category word.
 
 ## Files
 
-| File | Change |
-|------|--------|
-| `KitchenSinkNew/src/utils/dietaryFilter.ts` | **NEW** — `DIETARY_TAG_MAP`, `passesDietaryFilter`, `filterByDiet` |
-| `KitchenSinkNew/simulation/actions/MealPlanAction.ts` | Filter before rank; remove fallback |
-| `KitchenSinkNew/simulation/invariants/DietaryInvariant.ts` | Consume shared map |
-| `KitchenSinkNew/src/utils/__tests__/dietaryFilter.test.ts` | **NEW** — unit tests |
+- New: `KitchenSinkNew/src/utils/tagSanitizer.ts`
+- New: `KitchenSinkNew/src/utils/__tests__/tagSanitizer.test.ts`
+- New: `KitchenSinkNew/scripts/clean-corpus-tags.ts`
+- Modify: `KitchenSinkNew/src/utils/dietaryFilter.ts`
+- Modify: `KitchenSinkNew/scripts/tasty-scraper/firestore-uploader.js`
+- Modify: `KitchenSinkNew/simulation/seed-data/import-recipes.ts`
 
-## Risks
+## Validation
 
-1. Empty compliant pool may cause persona meal-plan failure — surface as
-   structured error rather than silent fallback.
-2. Top-N selector at `MealPlanAction.ts:157` must handle pools smaller than
-   `weeklyMealPrepCount` (verify in implementation).
-3. `DietaryInvariant.ts` uses a `label` field; consolidation needs an adapter.
+- Unit tests in `tagSanitizer.test.ts` — 27 cases covering canonical example, all six rules, normalization, dedupe, null/undefined.
+- Existing `dietaryFilter.test.ts` still passes — `cleanTags` is a strict superset of the old `normalizeTags` for all dietary vocab tokens.
+- Re-run simulation harness; dietary invariant must remain at zero violations; seasonal signal distribution should sharpen.
+- Dry-run report before any Firestore write — top 100 dropped tags reviewed manually.
 
-## Verification
+## Implementation status
 
-Re-run simulation harness; dietary-tag violation count must drop to ~0 from 610
-for vegan-explorer, dairy-free-beginner, and allergy-aware-japanese personas.
+All six files done. Sanitizer + 27 unit tests pass. `dietaryFilter.ts` delegates to `cleanTags` (24 tests pass). Importer and Tasty scraper guard tags at write time. Backfill script smoke-tested on a 50-recipe slice — drops obvious pollution (`cream cheese`, `brown sugar`, `baking potatoes, baked`) while preserving real tags. JS↔TS interop in the scraper uses `ts-node/register/transpile-only`.

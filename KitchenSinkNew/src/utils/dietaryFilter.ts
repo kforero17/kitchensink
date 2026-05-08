@@ -1,4 +1,5 @@
 import { DietaryPreferences } from '../types/DietaryPreferences';
+import { cleanTags } from './tagSanitizer';
 
 /** A recipe shape sufficient for tag-based dietary filtering. */
 export interface RecipeWithTags {
@@ -50,11 +51,6 @@ export const DIETARY_TAG_MAP: Readonly<Record<string, ReadonlyArray<string>>> =
     ),
   );
 
-/** Lower-cases and trims a tag list once for matching. */
-function normalizeTags(tags: ReadonlyArray<string> | undefined): string[] {
-  return (tags ?? []).map(t => t.trim().toLowerCase());
-}
-
 /**
  * Return the requirements the recipe FAILS to satisfy given the user's
  * boolean dietary flags. Empty array means the recipe is compliant.
@@ -66,7 +62,7 @@ export function missingDietaryRequirements(
   recipe: RecipeWithTags,
   prefs: Partial<DietaryPreferences>,
 ): DietaryRequirement[] {
-  const tags = normalizeTags(recipe.tags);
+  const tags = cleanTags(recipe.tags);
   const missing: DietaryRequirement[] = [];
   for (const req of DIETARY_REQUIREMENTS) {
     const flag = prefs[req.key];
