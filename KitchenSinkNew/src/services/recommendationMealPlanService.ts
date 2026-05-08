@@ -16,6 +16,7 @@ import { getActiveLeftovers } from './leftoverService';
 import { getRecipeHistory } from '../utils/recipeHistory';
 import auth from '@react-native-firebase/auth';
 import logger from '../utils/logger';
+import { filterByDiet } from '../utils/dietaryFilter';
 
 const PANTRY_STOP_WORDS = new Set([
   'water','salt','pepper','teaspoon','tablespoon','tsp','tbsp','cup','cups','ounce','ounces','oz','lb','lbs','gram','grams','kg','lean','hash'
@@ -79,7 +80,7 @@ export async function fetchRecommendedRecipes(
       // Feedback is non-critical — continue without it
     }
 
-    const candidates = await generateRecipeCandidates({
+    const rawCandidates = await generateRecipeCandidates({
       userEmbedding: [],
       diet: buildDietParam(prefs.dietary),
       intolerances: buildIntoleranceParam(prefs.dietary),
@@ -87,6 +88,18 @@ export async function fetchRecommendedRecipes(
       pantryTopK: pantryTokensForInclude,
       maxReadyTime: deriveMaxReadyTime(prefs.cooking),
     });
+
+    // Defensive filter: upstream API may return recipes that violate diet params despite filtering at fetch time.
+    let candidates = rawCandidates;
+    if (prefs.dietary) {
+      const filtered = filterByDiet(rawCandidates, prefs.dietary);
+      if (filtered.length !== rawCandidates.length) {
+        logger.warn(
+          `Dietary filter removed ${rawCandidates.length - filtered.length} upstream candidates that violated user dietary prefs (was ${rawCandidates.length}, now ${filtered.length})`,
+        );
+      }
+      candidates = filtered;
+    }
 
     // Build predictive context (temporal, seasonal, leftover signals)
     let temporalProfile: ReturnType<typeof buildTemporalProfile> | undefined;

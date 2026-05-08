@@ -4,8 +4,8 @@
  * Steps:
  * 1. Load all recipes, history, and feedback from Firestore
  * 2. Build FeatureContext with user preferences, pantry, temporal/seasonal profiles
- * 3. Call rankRecipes() to get scored recipes
- * 4. Apply dietary filtering as a safety net
+ * 3. Filter recipes by dietary preferences (strict, no fallback)
+ * 4. Call rankRecipes() on the compliant pool
  * 5. Select top N recipes based on weeklyMealPrepCount
  * 6. Reset previous meal plan flags and save new plan
  * 7. Return plan in ActionResult.data
@@ -21,51 +21,13 @@ import {
   buildSeenRecipeIds,
   getSeason,
   normalizeIngredientName,
-  UnifiedRecipe,
-  DietaryPreferences,
 } from '../bridge/appImports';
 import type {
   FeatureContext,
   PantryIngredientInfo,
   RankRecipesOptions,
 } from '../bridge/appImports';
-
-// ---------------------------------------------------------------------------
-// Dietary filter helpers
-// ---------------------------------------------------------------------------
-
-/** Boolean dietary keys and the recipe tags that satisfy each constraint. */
-const DIETARY_TAG_MAP: Array<{
-  key: keyof Pick<DietaryPreferences, 'vegan' | 'vegetarian' | 'glutenFree' | 'dairyFree' | 'nutFree' | 'lowCarb'>;
-  tags: string[];
-}> = [
-  { key: 'vegan', tags: ['vegan'] },
-  { key: 'vegetarian', tags: ['vegetarian'] },
-  { key: 'glutenFree', tags: ['gluten-free', 'gluten free'] },
-  { key: 'dairyFree', tags: ['dairy-free', 'dairy free'] },
-  { key: 'nutFree', tags: ['nut-free', 'nut free'] },
-  { key: 'lowCarb', tags: ['low-carb', 'low carb', 'keto'] },
-];
-
-/**
- * Returns true if the recipe satisfies all active dietary constraints.
- * A constraint is active when the corresponding boolean on `DietaryPreferences`
- * is true. The recipe must carry at least one of the matching tags.
- */
-function passesDietaryFilter(
-  recipe: UnifiedRecipe,
-  dietary: DietaryPreferences,
-): boolean {
-  const lowerTags = recipe.tags.map(t => t.toLowerCase());
-
-  for (const { key, tags: requiredTags } of DIETARY_TAG_MAP) {
-    if (dietary[key]) {
-      const hasTag = requiredTags.some(rt => lowerTags.includes(rt));
-      if (!hasTag) return false;
-    }
-  }
-  return true;
-}
+import { filterByDiet } from '../../src/utils/dietaryFilter';
 
 // ---------------------------------------------------------------------------
 // MealPlanAction
@@ -143,18 +105,11 @@ export class MealPlanAction implements ActionExecutor {
         activeLeftovers,
       };
 
-      const scored = rankRecipes(allRecipes, featureContext);
-
-      // 4. Apply dietary filtering as safety net
       const dietary = prefs.dietary;
-      const filtered = scored.filter(s =>
-        passesDietaryFilter(s.recipe, dietary),
-      );
+      const compliant = filterByDiet(allRecipes, dietary);
+      const scored = rankRecipes(compliant, featureContext);
+      const candidates = scored;
 
-      // Fall back to unfiltered if dietary filter is too aggressive
-      const candidates = filtered.length >= 3 ? filtered : scored;
-
-      // 5. Select top N based on weeklyMealPrepCount
       const planSize = prefs.cooking.weeklyMealPrepCount || 5;
       const selectedRecipes = candidates
         .slice(0, planSize)
@@ -179,7 +134,7 @@ export class MealPlanAction implements ActionExecutor {
           recipeIds: selectedRecipes.map(r => r.id),
           recipeTitles: selectedRecipes.map(r => r.title),
           season: currentSeason,
-          dietaryFiltered: filtered.length !== scored.length,
+          dietaryFiltered: compliant.length !== allRecipes.length,
         },
       };
     } catch (err: any) {
